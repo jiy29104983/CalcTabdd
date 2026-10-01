@@ -1,0 +1,131 @@
+name: Windows plugin build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build and test Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 35
+    outputs:
+      artifact: ${{ steps.package.outputs.artifact }}
+      version: ${{ steps.package.outputs.version }}
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out pinned host test dependency
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: cxasm/notepad--
+          ref: 91105f68b74382128f3313ac5af8accdc77de918
+          path: build/host
+          persist-credentials: false
+      - name: Install Qt 5.15.2
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
+        with:
+          version: '5.15.2'
+          arch: win64_msvc2019_64
+          host: windows
+          target: desktop
+          cache: true
+      - name: Configure Release plugin and native integration tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build/windows -G "Visual Studio 17 2022" -A x64 -T v142 `
+            "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" -DBUILD_TESTING=ON `
+            "-DCALCTABDD_HOST_SOURCE_DIR=$PWD/build/host"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build Release DLL and tests
+        shell: pwsh
+        run: |
+          cmake --build build/windows --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test engine, UI, ABI and dynamic DLL with native QScintilla
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
+          $env:CALCTABDD_SCREENSHOT_DIR = "$PWD/build/screenshots"
+          ctest --test-dir build/windows -C Release --verbose --no-tests=error
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $logs = Get-ChildItem build/windows/*_tests.txt
+          if ($logs.Count -ne 3) { throw "Expected three complete test suites" }
+          foreach ($log in $logs) {
+            $content = Get-Content -Raw $log
+            if ($content -notmatch 'Totals: \d+ passed, 0 failed, 0 skipped') {
+              throw "Incomplete, failed or skipped tests in $($log.Name)"
+            }
+          }
+      - name: Package and verify Windows candidate
+        id: package
+        shell: pwsh
+        run: |
+          ./scripts/package-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-test-diagnostics-${{ github.run_id }}
+          path: |
+            build/windows/*_tests.txt
+            build/windows/Testing/Temporary/*.log
+            build/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload installable candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  candidate:
+    name: Publish manual-test download
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.windows.outputs.artifact }}
+          path: dist
+      - name: Verify downloaded package
+        run: python3 scripts/verify-package.py dist/*.zip --commit "$GITHUB_SHA"
+      - name: Publish versioned prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.windows.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="test-v${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          cp docs/releases/v0.1.0-preview.md build-candidate-notes.md
+          printf '\n源码提交：`%s`\n\n[Windows 编译与测试记录](%s/%s/actions/runs/%s)\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> build-candidate-notes.md
+          gh release create "$tag" dist/*.zip dist/*.sha256 --prerelease --target "$GITHUB_SHA" \
+            --title "CalcTabdd v${VERSION} 测试版 · ${GITHUB_SHA:0:7}" --notes-file build-candidate-notes.md
