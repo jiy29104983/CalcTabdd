@@ -11,6 +11,7 @@ else()
     # Use exactly the source/header list shipped by the pinned host, avoiding
     # inactive lexers (e.g. LPeg) and duplicate LexHex implementations.
     file(READ "${qsci_root}/src/qscintilla.pro" qsci_project)
+    string(REGEX REPLACE "#[^\n]*" "" qsci_project "${qsci_project}")
     string(REGEX MATCHALL "[A-Za-z0-9_./-]+\\.(cpp|h)" qsci_relative "${qsci_project}")
     set(qsci_sources)
     foreach(source IN LISTS qsci_relative)

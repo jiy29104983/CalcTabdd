@@ -47,13 +47,22 @@ jobs:
         run: |
           cmake -S . -B build/windows -G "Visual Studio 17 2022" -A x64 -T v142 `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" -DBUILD_TESTING=ON `
-            "-DCALCTABDD_HOST_SOURCE_DIR=$PWD/build/host"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            "-DCALCTABDD_HOST_SOURCE_DIR=$PWD/build/host" 2>&1 | Tee-Object -FilePath build/configure.log
+          if ($LASTEXITCODE -ne 0) {
+            $errorText = (Get-Content -Raw build/configure.log) -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Host "::error title=CMake configure::$errorText"
+            exit 1
+          }
       - name: Build Release DLL and tests
         shell: pwsh
         run: |
-          cmake --build build/windows --config Release --parallel 4
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/windows --config Release --parallel 4 2>&1 | Tee-Object -FilePath build/compile.log
+          if ($LASTEXITCODE -ne 0) {
+            $errors = (Select-String -Path build/compile.log -Pattern 'error|fatal' | Select-Object -Last 25 | ForEach-Object { $_.Line }) -join "`n"
+            $errors = $errors -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Host "::error title=Windows compilation::$errors"
+            exit 1
+          }
       - name: Test engine, UI, ABI and dynamic DLL with native QScintilla
         shell: pwsh
         run: |
@@ -81,6 +90,8 @@ jobs:
         with:
           name: windows-test-diagnostics-${{ github.run_id }}
           path: |
+            build/configure.log
+            build/compile.log
             build/windows/*_tests.txt
             build/windows/Testing/Temporary/*.log
             build/screenshots/*.png
