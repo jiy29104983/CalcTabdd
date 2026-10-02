@@ -9,7 +9,8 @@
 | `plugin_tests` | 实际动态库加载、两个导出、与宿主头文件逐字段 ABI 对照、真实 QScintilla 嵌入、原生缓冲区隔离、菜单路由、切换、关闭、重开、多窗口、销毁 | 宿主窗口由测试驱动模拟，未执行完整 CCNotePad 的关闭/退出实现 |
 
 `plugin_tests` 必须提供 `CALCTABDD_HOST_SOURCE_DIR`。正式插件本体不链接测试用的
-QScintilla。CI 固定检出宿主提交 `91105f68b74382128f3313ac5af8accdc77de918`。
+QScintilla。宿主头文件强制的 DLL 导入宏仅在构建目录的测试头文件副本中移除，
+用于静态测试依赖；不修改共享宿主源码或插件 ABI。CI 固定检出宿主提交 `91105f68b74382128f3313ac5af8accdc77de918`。
 
 本地 Linux 测试允许使用已有 Qt 开发包和宿主 QScintilla 静态库。测试记录由 QtTest 写入
 构建目录的 `*_tests.txt`；CTest 日志位于 `Testing/Temporary/`。定义
