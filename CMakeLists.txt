@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CalcTabdd VERSION 0.1.0 LANGUAGES CXX)
+project(CalcTabdd VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,9 @@ find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Widgets)
 
 add_library(calctabdd_core STATIC
     src/expression_engine.cpp src/expression_engine.h
+    src/calculation_catalog.cpp src/calculation_catalog.h
+    src/calculator_help.cpp src/calculator_help.h
+    src/formula_completion.cpp src/formula_completion.h
     src/calculator_page.cpp src/calculator_page.h
     src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h)
 target_include_directories(calctabdd_core PUBLIC src)

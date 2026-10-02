@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="test-v${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-          cp docs/releases/v0.1.0-preview.md build-candidate-notes.md
+          cp "docs/releases/v${VERSION}-preview.md" build-candidate-notes.md
           printf '\n源码提交：`%s`\n\n[Windows 编译与测试记录](%s/%s/actions/runs/%s)\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> build-candidate-notes.md
           gh release create "$tag" dist/*.zip dist/*.sha256 --prerelease --target "$GITHUB_SHA" \

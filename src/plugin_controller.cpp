@@ -1,5 +1,6 @@
 #include "plugin_controller.h"
 #include "calculator_page.h"
+#include "calculator_help.h"
 
 #include <QAbstractScrollArea>
 #include <QAction>
@@ -44,15 +45,15 @@ bool PluginController::installMenu(QMenu *menu)
         m_openAction = new QAction(QStringLiteral("打开计算器"), this);
         m_openAction->setObjectName(QStringLiteral("calctabddOpen"));
         connect(m_openAction, &QAction::triggered, this, &PluginController::openCalculator);
-        auto *help = new QAction(QStringLiteral("运算说明"), this);
-        help->setObjectName(QStringLiteral("calctabddHelp"));
-        connect(help, &QAction::triggered, this, [this]() {
-            showStatus(QStringLiteral("支持 + - * / % ^、括号、科学计数法、pi / e / ans；sqrt、abs、sin/cos/tan（弧度）、ln/log、exp、floor/ceil/round、min/max/pow。"));
-        });
-        menu->addAction(m_openAction);
-        menu->addAction(help);
+        m_helpAction = new QAction(QStringLiteral("运算与精度帮助"), this);
+        m_helpAction->setObjectName(QStringLiteral("calctabddHelp"));
+        connect(m_helpAction, &QAction::triggered, this, [this]() { showCalculatorHelp(m_host); });
+        m_aboutAction = new QAction(QStringLiteral("关于 CalcTabdd"), this);
+        m_aboutAction->setObjectName(QStringLiteral("calctabddAbout"));
+        connect(m_aboutAction, &QAction::triggered, this, [this]() { showCalculatorAbout(m_host); });
     }
-    else if (!menu->actions().contains(m_openAction)) menu->addAction(m_openAction);
+    for (QAction *action : {m_openAction.data(), m_helpAction.data(), m_aboutAction.data()})
+        if (!menu->actions().contains(action)) menu->addAction(action);
     return true;
 }
 

@@ -1,4 +1,6 @@
 #include "expression_engine.h"
+#include "calculation_catalog.h"
+#include <QSet>
 #include <QtTest>
 #include <cmath>
 
@@ -65,6 +67,26 @@ private slots:
         QVERIFY(!result.ok);
         QVERIFY(!result.text.isEmpty());
         QVERIFY(result.errorPosition >= 0);
+    }
+    void advertisedCapabilitiesAreExecutable()
+    {
+        QSet<QString> functions, constants;
+        for (const auto &entry : CalculationCatalog::entries())
+        {
+            if (!entry.isCompletion()) continue;
+            QString formula = entry.name;
+            if (entry.kind == CalculationCatalog::Kind::Function)
+            {
+                QVERIFY(!functions.contains(entry.name));
+                functions.insert(entry.name);
+                formula += entry.insertion.contains(QLatin1Char(',')) ? QStringLiteral("(2,3)") : QStringLiteral("(1)");
+            }
+            else constants.insert(entry.name);
+            const auto result = ExpressionEngine::evaluate(formula, 42);
+            QVERIFY2(result.ok, qPrintable(formula + QStringLiteral(": ") + result.text));
+        }
+        QCOMPARE(functions.size(), 14);
+        QCOMPARE(constants, QSet<QString>({QStringLiteral("pi"), QStringLiteral("e"), QStringLiteral("ans")}));
     }
     void displayPrecision()
     {

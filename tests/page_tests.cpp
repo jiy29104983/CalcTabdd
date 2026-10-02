@@ -1,4 +1,12 @@
 #include "calculator_page.h"
+#include "calculator_help.h"
+#include "calculation_catalog.h"
+#include <QAbstractItemView>
+#include <QCompleter>
+#include <QDialog>
+#include <QLineEdit>
+#include <QTabWidget>
+#include <QTextBrowser>
 #include <QApplication>
 #include <QClipboard>
 #include <QDir>
@@ -13,6 +21,20 @@
 class PageTests : public QObject
 {
     Q_OBJECT
+    QAbstractItemView *completion(CalculatorPage &page)
+    {
+        return page.findChild<QCompleter *>()->popup();
+    }
+    void prepare(CalculatorPage &page, const QString &text)
+    {
+        page.resize(960, 660);
+        page.show();
+        page.activateWindow();
+        page.focusInput();
+        QCoreApplication::processEvents();
+        page.input()->setPlainText(text);
+        page.input()->moveCursor(QTextCursor::End);
+    }
 private slots:
     void initialState()
     {
@@ -135,6 +157,213 @@ private slots:
         QCOMPARE(formula->textFormat(), Qt::PlainText);
         QCOMPARE(formula->text(), QStringLiteral("<b>1</b>"));
     }
+    void completionTemplates_data()
+    {
+        QTest::addColumn<QString>("before");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<QString>("after");
+        QTest::addColumn<int>("cursor");
+        QTest::newRow("sqrt") << QStringLiteral("@sq") << 3 << QStringLiteral("sqrt()") << 5;
+        QTest::newRow("middle-formula") << QStringLiteral("2+@sq*3") << 5 << QStringLiteral("2+sqrt()*3") << 7;
+        QTest::newRow("middle-query") << QStringLiteral("2+@sqrt*3") << 5 << QStringLiteral("2+sqrt()*3") << 7;
+        QTest::newRow("existing-call") << QStringLiteral("2+@sq(9)*3") << 5 << QStringLiteral("2+sqrt(9)*3") << 7;
+        QTest::newRow("existing-call-space") << QStringLiteral("@sq (9)") << 3 << QStringLiteral("sqrt (9)") << 6;
+        QTest::newRow("binary-function") << QStringLiteral("@pow") << 4 << QStringLiteral("pow(, )") << 4;
+        QTest::newRow("chinese-root") << QStringLiteral("@平方根") << 4 << QStringLiteral("sqrt()") << 5;
+        QTest::newRow("chinese-answer") << QStringLiteral("@上次") << 3 << QStringLiteral("ans") << 3;
+        QTest::newRow("uppercase") << QStringLiteral("@SQ") << 3 << QStringLiteral("sqrt()") << 5;
+        QTest::newRow("division-argument") << QStringLiteral("2/@pi") << 5 << QStringLiteral("2/pi") << 4;
+        QTest::newRow("nested-argument") << QStringLiteral("max(1,@pi)") << 9 << QStringLiteral("max(1,pi)") << 8;
+        QTest::newRow("unicode-operator") << QStringLiteral("2×@pi") << 5 << QStringLiteral("2×pi") << 4;
+    }
+    void completionTemplates()
+    {
+        QFETCH(QString, before);
+        QFETCH(int, position);
+        QFETCH(QString, after);
+        QFETCH(int, cursor);
+        CalculatorPage page;
+        prepare(page, before);
+        QTextCursor inputCursor = page.input()->textCursor();
+        inputCursor.setPosition(position);
+        page.input()->setTextCursor(inputCursor);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), after);
+        QCOMPARE(page.input()->textCursor().position(), cursor);
+        QCOMPARE(page.recordCount(), 0);
+        QVERIFY(!completion(page)->isVisible());
+    }
+    void completionSearchAndCalculation()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        QTest::keyClicks(page.input(), "@");
+        QTRY_VERIFY(completion(page)->isVisible());
+        QCOMPARE(completion(page)->model()->rowCount(), 17);
+        QTest::keyClicks(page.input(), "s");
+        QCOMPARE(completion(page)->model()->rowCount(), 2);
+        QTest::keyClicks(page.input(), "q");
+        QCOMPARE(completion(page)->model()->rowCount(), 1);
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt()"));
+        QTest::keyClicks(page.input(), "9");
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 3"));
+        page.input()->setPlainText(QStringLiteral("@对数"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QCOMPARE(completion(page)->model()->rowCount(), 2);
+    }
+    void completionNavigationCancellationAndMouse()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("@p"));
+        QTRY_VERIFY(completion(page)->isVisible());
+        QCOMPARE(completion(page)->model()->rowCount(), 2);
+        QTest::keyClick(completion(page), Qt::Key_Down);
+        QCOMPARE(completion(page)->currentIndex().row(), 1);
+        QTest::keyClick(completion(page), Qt::Key_Up);
+        QCOMPARE(completion(page)->currentIndex().row(), 0);
+        QTest::keyClick(completion(page), Qt::Key_Escape);
+        QVERIFY(!completion(page)->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("@p"));
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.recordCount(), 0);
+        QVERIFY(!completion(page)->isVisible());
+        QTest::keyClicks(page.input(), "i");
+        QTRY_VERIFY(completion(page)->isVisible());
+        const QModelIndex index = completion(page)->model()->index(0, 0);
+        QTest::mouseClick(completion(page)->viewport(), Qt::LeftButton, Qt::NoModifier,
+                         completion(page)->visualRect(index).center());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("pi"));
+        QCOMPARE(page.recordCount(), 0);
+    }
+    void incompleteCompletionDoesNotSubmit()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("6*7"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("ans+@s"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(completion(page), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+@s"));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("请先完成")));
+        page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(page.recordCount(), 1);
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        QCOMPARE(page.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+    }
+    void ordinaryInputAndNoMatches()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        for (const auto &formula : {QStringLiteral("8/4"), QStringLiteral("1e3"), QStringLiteral("sin(pi)"),
+                                   QStringLiteral("2@sq"), QStringLiteral("@unknown"), QStringLiteral("@@sq")})
+        {
+            page.input()->setPlainText(formula);
+            page.input()->moveCursor(QTextCursor::End);
+            QVERIFY(!completion(page)->isVisible());
+            QTest::keyClick(page.input(), Qt::Key_Return);
+            QCOMPARE(page.input()->toPlainText(), formula);
+            QCOMPARE(page.recordCount(), 0);
+        }
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        page.input()->selectAll();
+        QVERIFY(!completion(page)->isVisible());
+    }
+    void completionUndoRedoAndLifetime()
+    {
+        auto *page = new CalculatorPage;
+        prepare(*page, QStringLiteral("2+@sq*3"));
+        QTextCursor cursor = page->input()->textCursor();
+        cursor.setPosition(5);
+        page->input()->setTextCursor(cursor);
+        QTRY_VERIFY(completion(*page)->isVisible());
+        QTest::keyClick(page->input(), Qt::Key_Tab);
+        QCOMPARE(page->input()->toPlainText(), QStringLiteral("2+sqrt()*3"));
+        page->routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page->input()->toPlainText(), QStringLiteral("2+@sq*3"));
+        page->routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page->input()->toPlainText(), QStringLiteral("2+sqrt()*3"));
+        page->input()->setPlainText(QStringLiteral("@"));
+        page->input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(*page)->isVisible());
+        page->hide();
+        QVERIFY(!completion(*page)->isVisible());
+        prepare(*page, QStringLiteral("@sq"));
+        QTRY_VERIFY(completion(*page)->isVisible());
+        QPointer<QAbstractItemView> popup = completion(*page);
+        delete page;
+        QCoreApplication::processEvents();
+        QVERIFY(popup.isNull());
+    }
+    void completionRespectsInputMethod()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("@"));
+        QTRY_VERIFY(completion(page)->isVisible());
+        QInputMethodEvent preedit(QStringLiteral("平方"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(!completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 0);
+        QInputMethodEvent commit;
+        commit.setCommitString(QStringLiteral("平方根"));
+        QApplication::sendEvent(page.input(), &commit);
+        QTRY_COMPARE(page.input()->toPlainText(), QStringLiteral("@平方根"));
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt()"));
+        QCOMPARE(page.recordCount(), 0);
+    }
+    void searchableHelpAndAbout()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1+2"));
+        page.findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QVERIFY(dialog);
+        QVERIFY(dialog->isVisible());
+        QVERIFY(!dialog->isModal());
+        auto *search = dialog->findChild<QLineEdit *>(QStringLiteral("helpSearch"));
+        auto *operations = dialog->findChild<QTextBrowser *>(QStringLiteral("operationsHelp"));
+        auto *precision = dialog->findChild<QTextBrowser *>(QStringLiteral("precisionHelp"));
+        auto *tabs = dialog->findChild<QTabWidget *>();
+        for (const auto &entry : CalculationCatalog::entries())
+            QVERIFY2((entry.kind == CalculationCatalog::Kind::Precision ? precision : operations)->toPlainText().contains(entry.signature), qPrintable(entry.signature));
+        search->setText(QStringLiteral("平方根"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("sqrt(x)")));
+        QVERIFY(!operations->toPlainText().contains(QStringLiteral("cos(x)")));
+        search->setText(QStringLiteral("非正规数"));
+        QCOMPARE(tabs->currentIndex(), 1);
+        QVERIFY(precision->toPlainText().contains(QStringLiteral("4.9406564584124654e-324")));
+        search->setText(QStringLiteral("no-such-capability"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("没有匹配项")));
+        QVERIFY(precision->toPlainText().contains(QStringLiteral("没有匹配项")));
+        search->clear();
+        showCalculatorHelp(&page);
+        QCOMPARE(page.findChildren<QDialog *>(QStringLiteral("calctabddHelpDialog")).size(), 1);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+2"));
+        QPointer<QDialog> oldDialog = dialog;
+        dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(oldDialog.isNull());
+        showCalculatorAbout(&page);
+        auto *about = page.findChild<QDialog *>(QStringLiteral("calctabddAboutDialog"));
+        QVERIFY(about);
+        const QString text = about->findChild<QTextBrowser *>()->toPlainText();
+        QVERIFY(text.contains(QStringLiteral(CALCTABDD_VERSION)));
+        QVERIFY(text.contains(QStringLiteral("v3.8.3 / v3.9.0")));
+        QVERIFY(text.contains(QStringLiteral("源码接口参考")));
+        QVERIFY(text.contains(QStringLiteral("手动确认")));
+    }
     void paletteAndScreenshot()
     {
         CalculatorPage page;
@@ -161,7 +390,26 @@ private slots:
         page.setPalette(dark);
         QTest::qWait(30);
         QVERIFY(page.styleSheet().contains(QStringLiteral("#f2a49a")));
-        if (!directory.isEmpty()) QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-dark.png")));
+        if (!directory.isEmpty())
+        {
+            QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-dark.png")));
+            page.activateWindow();
+            page.focusInput();
+            page.input()->setPlainText(QStringLiteral("2+@s"));
+            page.input()->moveCursor(QTextCursor::End);
+            QTRY_VERIFY(completion(page)->isVisible());
+            QVERIFY(completion(page)->grab().save(directory + QStringLiteral("/completion-dark.png")));
+            QTest::keyClick(page.input(), Qt::Key_Escape);
+            showCalculatorHelp(&page);
+            auto *help = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+            QTest::qWait(30);
+            QVERIFY(help->styleSheet().contains(QStringLiteral("#e4e8ef")));
+            QVERIFY(help->grab().save(directory + QStringLiteral("/help-dark.png")));
+            showCalculatorAbout(&page);
+            auto *about = page.findChild<QDialog *>(QStringLiteral("calctabddAboutDialog"));
+            QTest::qWait(30);
+            QVERIFY(about->grab().save(directory + QStringLiteral("/about-dark.png")));
+        }
     }
 };
 QTEST_MAIN(PageTests)

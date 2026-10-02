@@ -1,5 +1,7 @@
 #include "calculator_page.h"
 #include "expression_engine.h"
+#include "calculator_help.h"
+#include "formula_completion.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -8,6 +10,8 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
+#include <QTextEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
@@ -36,6 +40,11 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_count = new QLabel(QStringLiteral("0 条记录"), this);
     m_count->setObjectName(QStringLiteral("recordCount"));
     header->addWidget(m_count);
+    auto *help = new QPushButton(QStringLiteral("帮助"), this);
+    help->setObjectName(QStringLiteral("helpButton"));
+    help->setToolTip(QStringLiteral("查看全部运算、函数、常量与精度限制"));
+    connect(help, &QPushButton::clicked, this, [this]() { showCalculatorHelp(window()); });
+    header->addWidget(help);
     layout->addLayout(header);
 
     m_scroll = new QScrollArea(this);
@@ -99,7 +108,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     inputRow->addWidget(calculate, 0, Qt::AlignBottom);
     connect(calculate, &QPushButton::clicked, this, &CalculatorPage::submit);
     composeLayout->addLayout(inputRow);
-    auto *hint = new QLabel(QStringLiteral("结果可选中复制 · 使用 ans 引用上次结果"), composer);
+    auto *hint = new QLabel(QStringLiteral("输入 @ 查找函数和常量 · Ctrl+Enter 计算 · 使用 ans 引用上次结果"), composer);
     hint->setWordWrap(true);
     hint->setObjectName(QStringLiteral("inputHint"));
     composeLayout->addWidget(hint);
@@ -108,6 +117,9 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_status->setWordWrap(true);
     composeLayout->addWidget(m_status);
     layout->addWidget(composer);
+    auto *completion = new FormulaCompletion(m_input);
+    connect(completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
+    connect(completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
     setFocusProxy(m_input);
     applyTheme();
 }
@@ -124,6 +136,12 @@ void CalculatorPage::submit()
     if (expression.isEmpty())
     {
         m_status->setText(QStringLiteral("请先输入公式"));
+        focusInput();
+        return;
+    }
+    if (expression.contains(QLatin1Char('@')))
+    {
+        m_status->setText(QStringLiteral("请先完成 @ 函数或常量补全，或删除 @ 查询后再计算"));
         focusInput();
         return;
     }
@@ -191,6 +209,27 @@ void CalculatorPage::submit()
 
 void CalculatorPage::routeEdit(const QString &command)
 {
+    // Host menu proxies remain active while a modeless help window is focused.
+    QWidget *focused = QApplication::focusWidget();
+    if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
+                    focused->window()->objectName() == QStringLiteral("calctabddAboutDialog")))
+    {
+        if (auto *line = qobject_cast<QLineEdit *>(focused))
+        {
+            if (command == QStringLiteral("actioncopy")) line->copy();
+            else if (command == QStringLiteral("actioncut")) line->cut();
+            else if (command == QStringLiteral("actionpaste")) line->paste();
+            else if (command == QStringLiteral("actionundo")) line->undo();
+            else if (command == QStringLiteral("actionredo")) line->redo();
+            else if (command == QStringLiteral("actionselect_All")) line->selectAll();
+        }
+        else if (auto *text = qobject_cast<QTextEdit *>(focused))
+        {
+            if (command == QStringLiteral("actioncopy")) text->copy();
+            else if (command == QStringLiteral("actionselect_All")) text->selectAll();
+        }
+        return;
+    }
     auto *selectedLabel = qobject_cast<QLabel *>(m_editTarget.data());
     if (selectedLabel)
     {

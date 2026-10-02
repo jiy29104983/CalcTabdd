@@ -40,6 +40,8 @@ private:
     QPointer<QAbstractScrollArea> m_editor;
     QPointer<CalculatorPage> m_page;
     QPointer<QAction> m_openAction;
+    QPointer<QAction> m_helpAction;
+    QPointer<QAction> m_aboutAction;
     NddHostCallback m_callback;
     QVector<ActionRoute> m_routes;
     bool m_routing = false;

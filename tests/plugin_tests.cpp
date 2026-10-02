@@ -2,6 +2,11 @@
 #include <Qsci/qsciscintilla.h>
 #include <plugin.h>
 #include <QApplication>
+#include <QAbstractItemView>
+#include <QCompleter>
+#include <QDialog>
+#include <QLineEdit>
+#include <QTextBrowser>
 #include <QClipboard>
 #include <QLabel>
 #include <QLibrary>
@@ -123,6 +128,71 @@ private slots:
         QCOMPARE(initialize(host), 0);
         QCOMPARE(initialize(host), 0);
         QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddOpen")).size(), 1);
+    }
+    void helpAboutMenusAndSharedWindow()
+    {
+        Host host;
+        QCOMPARE(initialize(host), 0);
+        QCOMPARE(initialize(host), 0);
+        QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddHelp")).size(), 1);
+        QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddAbout")).size(), 1);
+        QCOMPARE(host.plugins->actions().size(), 3);
+        host.findChild<QAction *>(QStringLiteral("calctabddHelp"))->trigger();
+        QPointer<QDialog> help = host.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QVERIFY(help && help->isVisible());
+        QCOMPARE(host.creations, 0);
+        help->hide();
+        host.openAction()->trigger();
+        host.page()->findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+        QCOMPARE(host.findChildren<QDialog *>(QStringLiteral("calctabddHelpDialog")).size(), 1);
+        QVERIFY(help->isVisible());
+        auto *search = help->findChild<QLineEdit *>();
+        search->setText(QStringLiteral("精度"));
+        help->activateWindow();
+        search->setFocus();
+        QTRY_VERIFY(search->hasFocus());
+        search->selectAll();
+        host.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncopy"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("精度"));
+        QApplication::clipboard()->setText(QStringLiteral("平方根"));
+        host.findChild<QAction *>(QStringLiteral("calctabddRoute_actionpaste"))->trigger();
+        QCOMPARE(search->text(), QStringLiteral("平方根"));
+        QVERIFY(host.input()->toPlainText().isEmpty());
+        host.findChild<QAction *>(QStringLiteral("calctabddAbout"))->trigger();
+        auto *about = host.findChild<QDialog *>(QStringLiteral("calctabddAboutDialog"));
+        QVERIFY(about && about->isVisible());
+        NddProcData data;
+        QVERIFY(m_identify(&data));
+        QVERIFY(about->findChild<QTextBrowser *>()->toPlainText().contains(data.version));
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
+    void completionKeepsNativeDocumentClean()
+    {
+        Host host;
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        host.activateWindow();
+        host.input()->setFocus();
+        QTRY_VERIFY(host.input()->hasFocus());
+        auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
+        QTest::keyClicks(host.input(), "2+@sq");
+        auto *popup = host.page()->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(host.input(), Qt::Key_Tab);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("2+sqrt()"));
+        QTest::keyClicks(host.input(), "9");
+        QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 5"));
+        QCOMPARE(native->text(), QString());
+        QVERIFY(!native->isModified());
+        QTest::keyClicks(host.input(), "@");
+        QTRY_VERIFY(popup->isVisible());
+        host.tabs->setCurrentWidget(host.ordinary);
+        QVERIFY(!popup->isVisible());
+        host.tabs->setCurrentWidget(native);
+        QPointer<QAbstractItemView> popupGuard = popup;
+        host.closeCurrent();
+        QVERIFY(popupGuard.isNull());
     }
     void nativeEmbeddingAndKeyIsolation()
     {
