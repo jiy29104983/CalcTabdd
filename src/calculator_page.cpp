@@ -12,7 +12,8 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
-#include <QMessageBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QToolButton>
 #include <QTextEdit>
 #include <QPlainTextEdit>
@@ -185,25 +186,44 @@ void CalculatorPage::submit()
 void CalculatorPage::requestClearSession()
 {
     if (m_composing || m_history.count() == 0 || m_clearConfirmation) return;
-    auto *dialog = new QMessageBox(QMessageBox::Warning, QStringLiteral("清空会话"),
-        QStringLiteral("清空当前窗口的 %1 条计算记录，并将 ans 重置为 0？").arg(m_history.count()),
-        QMessageBox::Ok | QMessageBox::Cancel, this);
+    // 使用与帮助窗口一致的 Qt 控件对话框，避免 Qt 5.15.2 QMessageBox
+    // 在 Windows offscreen 平台的原生系统菜单访问。
+    auto *dialog = new QDialog(this);
     m_clearConfirmation = dialog;
     dialog->setObjectName(QStringLiteral("clearSessionConfirmation"));
+    dialog->setWindowTitle(QStringLiteral("清空会话"));
+    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setAttribute(Qt::WA_WindowPropagation, true);
-    applyTheme();
-    dialog->setTextFormat(Qt::PlainText);
-    dialog->setInformativeText(m_historyPosition >= 0
+    auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(20, 18, 20, 18);
+    layout->setSpacing(14);
+    auto *question = new QLabel(
+        QStringLiteral("清空当前窗口的 %1 条计算记录，并将 ans 重置为 0？").arg(m_history.count()), dialog);
+    question->setTextFormat(Qt::PlainText);
+    question->setWordWrap(true);
+    layout->addWidget(question);
+    auto *details = new QLabel(m_historyPosition >= 0
         ? QStringLiteral("将返回召回前的草稿，并丢弃本轮历史公式的临时编辑。清空不可撤销；其他窗口不受影响。")
-        : QStringLiteral("输入区的草稿、光标和选区会保留。清空不可撤销；其他窗口不受影响。"));
-    dialog->button(QMessageBox::Ok)->setText(QStringLiteral("清空会话"));
-    dialog->button(QMessageBox::Cancel)->setText(QStringLiteral("取消"));
-    dialog->setDefaultButton(QMessageBox::Cancel);
-    dialog->setEscapeButton(QMessageBox::Cancel);
+        : QStringLiteral("输入区的草稿、光标和选区会保留。清空不可撤销；其他窗口不受影响。"), dialog);
+    details->setObjectName(QStringLiteral("clearSessionDetails"));
+    details->setTextFormat(Qt::PlainText);
+    details->setWordWrap(true);
+    layout->addWidget(details);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("清空会话"));
+    auto *cancel = buttons->button(QDialogButtonBox::Cancel);
+    cancel->setText(QStringLiteral("取消"));
+    cancel->setDefault(true);
+    cancel->setFocus();
+    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog->setMinimumWidth(380);
+    applyTheme();
     connect(dialog, &QDialog::finished, this, [this](int result) {
         m_clearConfirmation.clear();
-        if (result == QMessageBox::Ok) clearSession();
+        if (result == QDialog::Accepted) clearSession();
         if (isVisible())
         {
             // 从补全弹窗进入确认时，先恢复所属窗口，避免焦点留在已隐藏的候选窗。
@@ -524,7 +544,7 @@ void CalculatorPage::applyTheme()
     {
         m_clearConfirmation->setPalette(colors);
         m_clearConfirmation->setStyleSheet(QStringLiteral(
-            "QMessageBox { background: %1; } QLabel { color: %2; }"
+            "QDialog#clearSessionConfirmation { background: %1; } QLabel { color: %2; }"
             "QPushButton { background: %1; color: %2; border: 1px solid %3; padding: 5px 16px; }"
             "QPushButton:focus { border: 2px solid %4; }")
             .arg(base, text, border, colors.color(QPalette::Highlight).name()));

@@ -7,7 +7,7 @@
 
 class FormulaCompletion;
 class QLabel;
-class QMessageBox;
+class QDialog;
 class QPushButton;
 class QPlainTextEdit;
 class QScrollArea;
@@ -60,7 +60,7 @@ private:
     QVBoxLayout *m_records = nullptr;
     QLabel *m_count = nullptr;
     QPushButton *m_clearButton = nullptr;
-    QPointer<QMessageBox> m_clearConfirmation;
+    QPointer<QDialog> m_clearConfirmation;
     QLabel *m_empty = nullptr;
     QLabel *m_status = nullptr;
     CalculationHistory m_history;

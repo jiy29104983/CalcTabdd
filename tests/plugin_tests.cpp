@@ -13,7 +13,7 @@
 #include <QLabel>
 #include <QLibrary>
 #include <QMainWindow>
-#include <QMessageBox>
+#include <QDialogButtonBox>
 #include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -488,7 +488,7 @@ private slots:
         auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
         auto *clear = first.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
         QTest::mouseClick(clear, Qt::LeftButton);
-        auto *dialog = first.page()->findChild<QMessageBox *>();
+        auto *dialog = first.page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog && dialog->isVisible());
         QCOMPARE(dialog->windowModality(), Qt::WindowModal);
         // 当前窗口确认期间，另一个宿主仍可正常接收键盘并计算。
@@ -502,7 +502,7 @@ private slots:
         first.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncut"))->trigger();
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("42+9"));
         dialog->activateWindow();
-        QTest::mouseClick(dialog->button(QMessageBox::Ok), Qt::LeftButton);
+        QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
         QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
         QCOMPARE(second.input()->toPlainText(), QStringLiteral("second draft"));
@@ -539,7 +539,7 @@ private slots:
         host.input()->setPlainText(QStringLiteral("ans+1"));
         auto *native = host.tabs->currentWidget();
         host.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-        QPointer<QMessageBox> dialog = host.page()->findChild<QMessageBox *>();
+        QPointer<QDialog> dialog = host.page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog && dialog->isVisible());
         host.tabs->setCurrentWidget(host.ordinary);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
@@ -558,7 +558,7 @@ private slots:
         host->input()->setPlainText(QStringLiteral("42"));
         host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         host->page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-        QPointer<QMessageBox> dialog = host->page()->findChild<QMessageBox *>();
+        QPointer<QDialog> dialog = host->page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
         host->closeCurrent();
         QVERIFY(dialog.isNull());
@@ -567,7 +567,7 @@ private slots:
         host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         QCOMPARE(host->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 1"));
         host->page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-        dialog = host->page()->findChild<QMessageBox *>();
+        dialog = host->page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
         delete host;
         QCoreApplication::processEvents();

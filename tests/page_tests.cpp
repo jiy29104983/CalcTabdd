@@ -6,7 +6,7 @@
 #include <QDialog>
 #include <QLineEdit>
 #include <QMenu>
-#include <QMessageBox>
+#include <QDialogButtonBox>
 #include <QToolButton>
 #include <QTimer>
 #include <QTabWidget>
@@ -81,18 +81,18 @@ private slots:
         page.input()->setTextCursor(cursor);
         const QString status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text();
         QTest::mouseClick(clear, Qt::LeftButton);
-        QPointer<QMessageBox> dialog = page.findChild<QMessageBox *>();
+        QPointer<QDialog> dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog && dialog->isVisible());
         QCOMPARE(dialog->windowModality(), Qt::WindowModal);
-        QCOMPARE(dialog->defaultButton(), dialog->button(QMessageBox::Cancel));
-        QVERIFY(dialog->informativeText().contains(QStringLiteral("丢弃本轮")));
+        QVERIFY(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->isDefault());
+        QVERIFY(dialog->findChild<QLabel *>(QStringLiteral("clearSessionDetails"))->text().contains(QStringLiteral("丢弃本轮")));
         page.submit(); // 对话框期间延迟回调／菜单不得修改待确认会话。
         page.routeEdit(QStringLiteral("actioncut"));
         QCOMPARE(page.recordCount(), 1);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+3"));
         clear->click();
-        QCOMPARE(page.findChildren<QMessageBox *>().size(), 1);
-        if (method == 0) QTest::mouseClick(dialog->button(QMessageBox::Cancel), Qt::LeftButton);
+        QCOMPARE(page.findChildren<QDialog *>(QStringLiteral("clearSessionConfirmation")).size(), 1);
+        if (method == 0) QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel), Qt::LeftButton);
         else if (method == 1) QTest::keyClick(dialog, Qt::Key_Escape);
         else if (method == 2) dialog->close();
         else QTest::keyClick(dialog, Qt::Key_Return);
@@ -134,10 +134,10 @@ private slots:
         label->setSelection(0, label->text().size());
         auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
         QTest::mouseClick(clear, Qt::LeftButton);
-        auto *dialog = page.findChild<QMessageBox *>();
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
-        QVERIFY(dialog->informativeText().contains(QStringLiteral("选区会保留")));
-        QTest::mouseClick(dialog->button(QMessageBox::Ok), Qt::LeftButton);
+        QVERIFY(dialog->findChild<QLabel *>(QStringLiteral("clearSessionDetails"))->text().contains(QStringLiteral("选区会保留")));
+        QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
         QVERIFY(oldRow.isNull());
         QVERIFY(oldAction.isNull());
         QVERIFY(page.findChildren<QWidget *>(QStringLiteral("calculationRecord")).isEmpty());
@@ -196,9 +196,9 @@ private slots:
         QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
         QTest::keyClicks(page.input(), "+99");
         page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-        auto *dialog = page.findChild<QMessageBox *>();
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
-        dialog->button(QMessageBox::Ok)->click();
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(page.recordCount(), 0);
         QCOMPARE(page.input()->toPlainText(), draft);
         QCOMPARE(page.input()->textCursor().anchor(), draft.size());
@@ -230,7 +230,7 @@ private slots:
         auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
         QVERIFY(clear->isEnabled());
         clear->click();
-        page.findChild<QMessageBox *>()->button(QMessageBox::Ok)->click();
+        page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"))->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
         QTRY_COMPARE(bar->value(), 0);
         QTRY_COMPARE(bar->maximum(), 0);
@@ -243,7 +243,7 @@ private slots:
         QTRY_COMPARE(bar->value(), bar->maximum());
         QCOMPARE(page.history().answer(), 24.0);
         clear->click();
-        page.findChild<QMessageBox *>(QStringLiteral("clearSessionConfirmation"))->button(QMessageBox::Ok)->click();
+        page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"))->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(page.recordCount(), 0);
     }
     void clearDefersToCompositionAndKeepsCompletionDraft()
@@ -256,10 +256,10 @@ private slots:
         QTRY_VERIFY(completion(page)->isVisible());
         auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
         QTest::mouseClick(clear, Qt::LeftButton);
-        auto *dialog = page.findChild<QMessageBox *>();
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
         QTRY_VERIFY(!completion(page)->isVisible());
-        dialog->button(QMessageBox::Ok)->click();
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("@sq"));
         QCOMPARE(page.recordCount(), 0);
         QTRY_VERIFY(page.input()->hasFocus());
@@ -282,7 +282,7 @@ private slots:
         QVERIFY(clear->isEnabled());
         const QString committed = page.input()->toPlainText();
         clear->click();
-        page.findChild<QMessageBox *>(QStringLiteral("clearSessionConfirmation"))->button(QMessageBox::Ok)->click();
+        page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"))->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QCOMPARE(page.input()->toPlainText(), committed);
         QCOMPARE(page.recordCount(), 0);
     }
@@ -1126,10 +1126,10 @@ private slots:
             QVERIFY(QDir().mkpath(directory));
             QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-light.png")));
             page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-            auto *confirmation = page.findChild<QMessageBox *>();
+            auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
             QTest::qWait(30);
             QVERIFY(confirmation->grab().save(directory + QStringLiteral("/clear-confirmation-light.png")));
-            confirmation->button(QMessageBox::Cancel)->click();
+            confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
         QPalette dark = page.palette();
@@ -1144,12 +1144,12 @@ private slots:
         {
             QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-dark.png")));
             page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
-            auto *confirmation = page.findChild<QMessageBox *>();
+            auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
             QTest::qWait(30);
             QCOMPARE(confirmation->palette().color(QPalette::Window), QColor("#202329"));
             QVERIFY(confirmation->styleSheet().contains(QStringLiteral("#e4e8ef")));
             QVERIFY(confirmation->grab().save(directory + QStringLiteral("/clear-confirmation-dark.png")));
-            confirmation->button(QMessageBox::Cancel)->click();
+            confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             page.activateWindow();
             page.focusInput();
