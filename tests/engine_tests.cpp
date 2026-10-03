@@ -28,6 +28,53 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void clearingHistoryResetsSessionAndPreservesOtherHistories()
+    {
+        CalculationHistory history;
+        CalculationHistory other;
+        other.calculate(QStringLiteral("100"));
+        const auto first = history.calculate(QStringLiteral("6*7"));
+        history.calculate(QStringLiteral("1/0"));
+        const auto snapshot = history.records();
+        history.clear();
+        QCOMPARE(history.count(), 0);
+        QVERIFY(history.records().isEmpty());
+        QVERIFY(!history.record(first.id));
+        QVERIFY(!history.record(2));
+        QCOMPARE(bits(history.answer()), bits(0.0));
+        QCOMPARE(snapshot.size(), 2);
+        QCOMPARE(snapshot.first().result.value, 42.0);
+        QCOMPARE(other.count(), 1);
+        QCOMPARE(other.answer(), 100.0);
+        const auto next = history.calculate(QStringLiteral("ans+1"));
+        QCOMPARE(next.id, quint64(1));
+        QCOMPARE(next.answerBefore, 0.0);
+        QCOMPARE(next.result.value, 1.0);
+        QVERIFY(!history.record(2));
+        history.clear();
+        history.clear();
+        const auto error = history.calculate(QStringLiteral("1+"));
+        QCOMPARE(error.id, quint64(1));
+        QVERIFY(!error.result.ok);
+        QCOMPARE(history.answer(), 0.0);
+        history.clear();
+        QCOMPARE(history.calculate(QStringLiteral("ans")).result.value, 0.0);
+        history.calculate(QStringLiteral("-0"));
+        QVERIFY(std::signbit(history.answer()));
+        history.clear();
+        QCOMPARE(bits(history.answer()), bits(0.0));
+        QCOMPARE(other.calculate(QStringLiteral("ans+1")).result.value, 101.0);
+    }
+    void clearingEmptyHistoryIsSafe()
+    {
+        CalculationHistory history;
+        history.clear();
+        history.clear();
+        QCOMPARE(history.count(), 0);
+        QVERIFY(!history.record(1));
+        QCOMPARE(history.answer(), 0.0);
+        QCOMPARE(history.calculate(QStringLiteral("ans")).id, quint64(1));
+    }
     void historyStartsEmpty()
     {
         const CalculationHistory history;

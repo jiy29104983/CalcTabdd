@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QLibrary>
 #include <QMainWindow>
+#include <QMessageBox>
 #include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -464,6 +465,113 @@ private slots:
         QCOMPARE(host.hostEditCalls, 1);
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("42"));
         QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
+    void clearSessionKeepsOtherWindowAndNativeBuffersIndependent()
+    {
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.input()->setPlainText(QStringLiteral("42"));
+        first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        second.input()->setPlainText(QStringLiteral("100"));
+        second.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        first.input()->setPlainText(QStringLiteral("ans+1"));
+        second.input()->setPlainText(QStringLiteral("second draft"));
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        QTest::keyClick(first.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(first.input(), "+9");
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        auto *clear = first.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+        QTest::mouseClick(clear, Qt::LeftButton);
+        auto *dialog = first.page()->findChild<QMessageBox *>();
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        // 当前窗口确认期间，另一个宿主仍可正常接收键盘并计算。
+        second.activateWindow();
+        second.input()->setFocus();
+        QTRY_VERIFY(second.input()->hasFocus());
+        second.input()->setPlainText(QStringLiteral("ans+2"));
+        QTest::keyClick(second.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 102"));
+        second.input()->setPlainText(QStringLiteral("second draft"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncut"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("42+9"));
+        dialog->activateWindow();
+        QTest::mouseClick(dialog->button(QMessageBox::Ok), Qt::LeftButton);
+        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("second draft"));
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 2);
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 1"));
+        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        QCOMPARE(first.hostEditCalls, 0);
+        first.tabs->setCurrentWidget(first.ordinary);
+        QVERIFY(first.findChild<QAction *>(QStringLiteral("actionSave"))->isEnabled());
+        first.tabs->setCurrentWidget(native);
+        first.closeCurrent();
+        first.openAction()->trigger();
+        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(!first.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->isEnabled());
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        auto *secondNative = qobject_cast<QsciScintilla *>(second.tabs->currentWidget());
+        QVERIFY(secondNative->text().isEmpty());
+        QVERIFY(!secondNative->isModified());
+    }
+    void hidingPageCancelsClearConfirmation()
+    {
+        Host host;
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        host.input()->setPlainText(QStringLiteral("42"));
+        host.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        host.input()->setPlainText(QStringLiteral("ans+1"));
+        auto *native = host.tabs->currentWidget();
+        host.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        QPointer<QMessageBox> dialog = host.page()->findChild<QMessageBox *>();
+        QVERIFY(dialog && dialog->isVisible());
+        host.tabs->setCurrentWidget(host.ordinary);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        host.tabs->setCurrentWidget(native);
+        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 42"));
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("ans+1"));
+        host.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(host.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+    }
+    void destroyingPageWithClearConfirmationIsSafe()
+    {
+        auto *host = new Host;
+        QCOMPARE(initialize(*host), 0);
+        host->openAction()->trigger();
+        host->input()->setPlainText(QStringLiteral("42"));
+        host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        host->page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        QPointer<QMessageBox> dialog = host->page()->findChild<QMessageBox *>();
+        QVERIFY(dialog);
+        host->closeCurrent();
+        QVERIFY(dialog.isNull());
+        host->openAction()->trigger();
+        host->input()->setPlainText(QStringLiteral("ans+1"));
+        host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(host->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 1"));
+        host->page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        dialog = host->page()->findChild<QMessageBox *>();
+        QVERIFY(dialog);
+        delete host;
+        QCoreApplication::processEvents();
+        QVERIFY(dialog.isNull());
     }
     void failedCreationPreservesExistingDocument()
     {

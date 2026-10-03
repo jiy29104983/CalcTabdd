@@ -7,6 +7,8 @@
 
 class FormulaCompletion;
 class QLabel;
+class QMessageBox;
+class QPushButton;
 class QPlainTextEdit;
 class QScrollArea;
 class QVBoxLayout;
@@ -30,6 +32,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 
 private:
     struct InputState
@@ -43,6 +46,8 @@ private:
     void recallHistory(bool older);
     void showHistory(int position);
     void restoreDraft();
+    void requestClearSession();
+    void clearSession();
     void appendRecord(const CalculationRecord &entry);
     void reuseFormula(quint64 id);
     void copyRecord(quint64 id, bool valueOnly);
@@ -54,6 +59,8 @@ private:
     QScrollArea *m_scroll = nullptr;
     QVBoxLayout *m_records = nullptr;
     QLabel *m_count = nullptr;
+    QPushButton *m_clearButton = nullptr;
+    QPointer<QMessageBox> m_clearConfirmation;
     QLabel *m_empty = nullptr;
     QLabel *m_status = nullptr;
     CalculationHistory m_history;

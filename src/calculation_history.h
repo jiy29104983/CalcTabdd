@@ -5,7 +5,7 @@
 
 struct CalculationRecord
 {
-    // 编号仅在当前会话内有效，从 1 开始；追加不会改变已有编号。
+    // 编号仅在当前会话内有效，从 1 开始；清空开始新会话，追加不改已有编号。
     quint64 id = 0;
     QString expression;
     CalculationResult result;
@@ -23,6 +23,8 @@ class CalculationHistory
 public:
     // 返回值副本，供调用方安全使用，不受后续追加引起的存储移动影响。
     CalculationRecord calculate(const QString &expression);
+    // 同时清空成功和失败记录，重置 ans 与编号。
+    void clear();
     const QVector<CalculationRecord> &records() const { return m_records; }
     // 未找到时返回 nullptr；指针只在下次修改模型前有效。跨事件保存 id。
     const CalculationRecord *record(quint64 id) const;

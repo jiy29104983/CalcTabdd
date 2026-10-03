@@ -7,10 +7,12 @@
 #include <QFontDatabase>
 #include <QFrame>
 #include <QInputMethodEvent>
+#include <QHideEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QToolButton>
 #include <QTextEdit>
 #include <QPlainTextEdit>
@@ -41,6 +43,12 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_count = new QLabel(QStringLiteral("0 条记录"), this);
     m_count->setObjectName(QStringLiteral("recordCount"));
     header->addWidget(m_count);
+    m_clearButton = new QPushButton(QStringLiteral("清空会话"), this);
+    m_clearButton->setObjectName(QStringLiteral("clearSessionButton"));
+    m_clearButton->setToolTip(QStringLiteral("确认后清空记录并重置 ans，保留召回前的草稿"));
+    m_clearButton->setEnabled(false);
+    connect(m_clearButton, &QPushButton::clicked, this, &CalculatorPage::requestClearSession);
+    header->addWidget(m_clearButton);
     auto *help = new QPushButton(QStringLiteral("帮助"), this);
     help->setObjectName(QStringLiteral("helpButton"));
     help->setToolTip(QStringLiteral("查看全部运算、函数、常量与精度限制"));
@@ -127,12 +135,13 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 
 void CalculatorPage::focusInput()
 {
+    if (m_clearConfirmation) return;
     m_input->setFocus(Qt::OtherFocusReason);
 }
 
 void CalculatorPage::submit()
 {
-    if (m_composing) return;
+    if (m_composing || m_clearConfirmation) return;
     const QString expression = m_input->toPlainText().trimmed();
     if (expression.isEmpty())
     {
@@ -171,6 +180,62 @@ void CalculatorPage::submit()
     }
     focusInput();
     QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+}
+
+void CalculatorPage::requestClearSession()
+{
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation) return;
+    auto *dialog = new QMessageBox(QMessageBox::Warning, QStringLiteral("清空会话"),
+        QStringLiteral("清空当前窗口的 %1 条计算记录，并将 ans 重置为 0？").arg(m_history.count()),
+        QMessageBox::Ok | QMessageBox::Cancel, this);
+    m_clearConfirmation = dialog;
+    dialog->setObjectName(QStringLiteral("clearSessionConfirmation"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setAttribute(Qt::WA_WindowPropagation, true);
+    applyTheme();
+    dialog->setTextFormat(Qt::PlainText);
+    dialog->setInformativeText(m_historyPosition >= 0
+        ? QStringLiteral("将返回召回前的草稿，并丢弃本轮历史公式的临时编辑。清空不可撤销；其他窗口不受影响。")
+        : QStringLiteral("输入区的草稿、光标和选区会保留。清空不可撤销；其他窗口不受影响。"));
+    dialog->button(QMessageBox::Ok)->setText(QStringLiteral("清空会话"));
+    dialog->button(QMessageBox::Cancel)->setText(QStringLiteral("取消"));
+    dialog->setDefaultButton(QMessageBox::Cancel);
+    dialog->setEscapeButton(QMessageBox::Cancel);
+    connect(dialog, &QDialog::finished, this, [this](int result) {
+        m_clearConfirmation.clear();
+        if (result == QMessageBox::Ok) clearSession();
+        if (isVisible())
+        {
+            // 从补全弹窗进入确认时，先恢复所属窗口，避免焦点留在已隐藏的候选窗。
+            window()->activateWindow();
+            focusInput();
+        }
+    });
+    // 异步窗口模态确认，不阻塞其他宿主窗口；关闭页面会一起销毁对话框。
+    dialog->open();
+}
+
+void CalculatorPage::clearSession()
+{
+    if (m_historyPosition >= 0) restoreDraft();
+    m_historyPosition = -1;
+    m_draft = {};
+    m_recalledInputs.clear();
+    m_editTarget = m_input;
+    // 先销毁旧记录及其菜单回调，再允许新会话复用编号。
+    while (m_records->count() > 2)
+    {
+        QLayoutItem *item = m_records->takeAt(1); // 保留空状态提示和底部 stretch。
+        delete item->widget();
+        delete item;
+    }
+    m_history.clear();
+    m_count->setText(QStringLiteral("0 条记录"));
+    m_clearButton->setEnabled(false);
+    m_empty->show();
+    m_followLatest = true;
+    m_scroll->verticalScrollBar()->setValue(0);
+    m_status->setText(QStringLiteral("会话已清空 · ans = 0 · 草稿已保留"));
 }
 
 void CalculatorPage::appendRecord(const CalculationRecord &entry)
@@ -240,6 +305,7 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     row->addLayout(actions);
     m_records->insertWidget(m_records->count() - 1, record);
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
+    m_clearButton->setEnabled(!m_composing);
 }
 
 CalculatorPage::InputState CalculatorPage::captureInput() const
@@ -296,7 +362,7 @@ void CalculatorPage::recallHistory(bool older)
 
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    if (m_composing) return;
+    if (m_composing || m_clearConfirmation) return;
     const auto &records = m_history.records();
     for (int index = 0; index < records.size(); ++index)
     {
@@ -338,6 +404,7 @@ void CalculatorPage::insertResult(quint64 id)
 
 void CalculatorPage::routeEdit(const QString &command)
 {
+    if (m_clearConfirmation) return;
     // Host menu proxies remain active while a modeless help window is focused.
     QWidget *focused = QApplication::focusWidget();
     if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
@@ -386,7 +453,10 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
     if (object == m_input)
     {
         if (event->type() == QEvent::InputMethod)
+        {
             m_composing = !static_cast<QInputMethodEvent *>(event)->preeditString().isEmpty();
+            m_clearButton->setEnabled(m_history.count() > 0 && !m_composing);
+        }
         if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
         {
             auto *key = static_cast<QKeyEvent *>(event);
@@ -418,6 +488,12 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
 void CalculatorPage::keyPressEvent(QKeyEvent *event) { event->accept(); }
 void CalculatorPage::keyReleaseEvent(QKeyEvent *event) { event->accept(); }
 
+void CalculatorPage::hideEvent(QHideEvent *event)
+{
+    if (m_clearConfirmation) m_clearConfirmation->reject();
+    QWidget::hideEvent(event);
+}
+
 void CalculatorPage::changeEvent(QEvent *event)
 {
     QWidget::changeEvent(event);
@@ -444,4 +520,13 @@ void CalculatorPage::applyTheme()
         "QPushButton#calculateButton { background: %5; color: %6; border: none; border-radius: 4px; padding: 6px 16px; }"
         "QPushButton#calculateButton:focus { border: 2px solid %2; }")
         .arg(base, text, border, error, colors.color(QPalette::Highlight).name(), colors.color(QPalette::HighlightedText).name()));
+    if (m_clearConfirmation)
+    {
+        m_clearConfirmation->setPalette(colors);
+        m_clearConfirmation->setStyleSheet(QStringLiteral(
+            "QMessageBox { background: %1; } QLabel { color: %2; }"
+            "QPushButton { background: %1; color: %2; border: 1px solid %3; padding: 5px 16px; }"
+            "QPushButton:focus { border: 2px solid %4; }")
+            .arg(base, text, border, colors.color(QPalette::Highlight).name()));
+    }
 }

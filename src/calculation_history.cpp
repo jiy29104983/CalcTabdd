@@ -38,6 +38,13 @@ CalculationRecord CalculationHistory::calculate(const QString &expression)
     return record;
 }
 
+void CalculationHistory::clear()
+{
+    m_records.clear();
+    m_answer = 0;
+    m_nextId = 1;
+}
+
 const CalculationRecord *CalculationHistory::record(quint64 id) const
 {
     const auto found = std::lower_bound(m_records.cbegin(), m_records.cend(), id,

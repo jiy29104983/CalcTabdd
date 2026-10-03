@@ -6,6 +6,7 @@
 #include <QDialog>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QToolButton>
 #include <QTimer>
 #include <QTabWidget>
@@ -51,6 +52,240 @@ class PageTests : public QObject
         page.input()->moveCursor(QTextCursor::End);
     }
 private slots:
+    void clearConfirmationCanBeCancelled_data()
+    {
+        QTest::addColumn<int>("method");
+        QTest::newRow("cancel-button") << 0;
+        QTest::newRow("escape") << 1;
+        QTest::newRow("window-close") << 2;
+        QTest::newRow("default-enter") << 3;
+    }
+    void clearConfirmationCanBeCancelled()
+    {
+        QFETCH(int, method);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+        QVERIFY(clear && !clear->isEnabled());
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("  草稿😀\n100+ "));
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(8);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "+3");
+        cursor = page.input()->textCursor();
+        cursor.setPosition(3);
+        cursor.setPosition(1, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        const QString status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text();
+        QTest::mouseClick(clear, Qt::LeftButton);
+        QPointer<QMessageBox> dialog = page.findChild<QMessageBox *>();
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        QCOMPARE(dialog->defaultButton(), dialog->button(QMessageBox::Cancel));
+        QVERIFY(dialog->informativeText().contains(QStringLiteral("丢弃本轮")));
+        page.submit(); // 对话框期间延迟回调／菜单不得修改待确认会话。
+        page.routeEdit(QStringLiteral("actioncut"));
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+3"));
+        clear->click();
+        QCOMPARE(page.findChildren<QMessageBox *>().size(), 1);
+        if (method == 0) QTest::mouseClick(dialog->button(QMessageBox::Cancel), Qt::LeftButton);
+        else if (method == 1) QTest::keyClick(dialog, Qt::Key_Escape);
+        else if (method == 2) dialog->close();
+        else QTest::keyClick(dialog, Qt::Key_Return);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().answer(), 42.0);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+3"));
+        QCOMPARE(page.input()->textCursor().anchor(), 3);
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text(), status);
+        QTRY_VERIFY(page.input()->hasFocus());
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("  草稿😀\n100+ "));
+        QCOMPARE(page.input()->textCursor().anchor(), 8);
+        QCOMPARE(page.input()->textCursor().position(), 2);
+    }
+    void clearPreservesDraftUndoAndRemovesAllRecordWidgets()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("1/0"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral(" 100+ "));
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClicks(page.input(), "5");
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(5);
+        cursor.setPosition(1, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        const auto oldRows = page.findChildren<QWidget *>(QStringLiteral("calculationRecord"));
+        QPointer<QWidget> oldRow = oldRows.first();
+        QPointer<QAction> oldAction = page.findChild<QAction *>(QStringLiteral("insertResult"));
+        QApplication::clipboard()->setText(QStringLiteral("clipboard-unchanged"));
+        // 清空前焦点／菜单目标是历史结果，清空后必须安全转回输入框。
+        auto *label = page.findChild<QLabel *>(QStringLiteral("recordResult"));
+        label->setFocus();
+        label->setSelection(0, label->text().size());
+        auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+        QTest::mouseClick(clear, Qt::LeftButton);
+        auto *dialog = page.findChild<QMessageBox *>();
+        QVERIFY(dialog);
+        QVERIFY(dialog->informativeText().contains(QStringLiteral("选区会保留")));
+        QTest::mouseClick(dialog->button(QMessageBox::Ok), Qt::LeftButton);
+        QVERIFY(oldRow.isNull());
+        QVERIFY(oldAction.isNull());
+        QVERIFY(page.findChildren<QWidget *>(QStringLiteral("calculationRecord")).isEmpty());
+        QCOMPARE(page.recordCount(), 0);
+        QCOMPARE(page.history().answer(), 0.0);
+        QVERIFY(!page.history().record(1));
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("recordCount"))->text(), QStringLiteral("0 条记录"));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("emptyHistory"))->isVisible());
+        QVERIFY(!clear->isEnabled());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral(" 100+ 5"));
+        QCOMPARE(page.input()->textCursor().anchor(), 5);
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("clipboard-unchanged"));
+        QVERIFY(page.input()->document()->isUndoAvailable());
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral(" 100+ "));
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral(" 100+ 5"));
+        QCOMPARE(page.recordCount(), 0); // 输入撤销不会恢复历史。
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral(" 100+ 5"));
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().records().first().id, quint64(1));
+        QCOMPARE(page.history().records().first().answerBefore, 0.0);
+        QCOMPARE(page.history().answer(), 1.0);
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
+        QVERIFY(!page.findChild<QLabel *>(QStringLiteral("emptyHistory"))->isVisible());
+        QVERIFY(clear->isEnabled());
+        page.findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("1"));
+    }
+    void clearWhileRecallingRestoresOriginalDraft_data()
+    {
+        QTest::addColumn<QString>("draft");
+        QTest::newRow("empty") << QString();
+        QTest::newRow("unicode-multiline") << QStringLiteral("  草稿😀\n 12+34\t ");
+        QTest::newRow("over-input-limit") << QString(4200, QLatin1Char('1')) + QStringLiteral("\n尾部 ");
+    }
+    void clearWhileRecallingRestoresOriginalDraft()
+    {
+        QFETCH(QString, draft);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("11"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("1+"));
+        page.submit();
+        page.input()->setPlainText(draft);
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(draft.size());
+        cursor.setPosition(0, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "9");
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "+99");
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *dialog = page.findChild<QMessageBox *>();
+        QVERIFY(dialog);
+        dialog->button(QMessageBox::Ok)->click();
+        QCOMPARE(page.recordCount(), 0);
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().anchor(), draft.size());
+        QCOMPARE(page.input()->textCursor().position(), 0);
+        QVERIFY(!page.input()->document()->isUndoAvailable());
+        for (int key : {Qt::Key_Up, Qt::Key_Down})
+        {
+            QTest::keyClick(page.input(), Qt::Key(key), Qt::AltModifier);
+            QCOMPARE(page.input()->toPlainText(), draft);
+        }
+        page.input()->setPlainText(QStringLiteral("ans+2"));
+        page.submit();
+        QVERIFY(page.input()->toPlainText().isEmpty()); // 不得再次恢复旧草稿。
+        QCOMPARE(page.history().answer(), 2.0);
+        page.input()->setPlainText(QStringLiteral("new draft"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+2"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("new draft"));
+    }
+    void clearWorksWithOnlyErrorsAndResetsScrolling()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1/0"));
+        for (int i = 0; i < 24; ++i) page.submit();
+        auto *bar = page.findChild<QScrollArea *>()->verticalScrollBar();
+        QTRY_VERIFY(bar->maximum() > 0);
+        bar->triggerAction(QAbstractSlider::SliderToMinimum);
+        auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+        QVERIFY(clear->isEnabled());
+        clear->click();
+        page.findChild<QMessageBox *>()->button(QMessageBox::Ok)->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
+        QTRY_COMPARE(bar->value(), 0);
+        QTRY_COMPARE(bar->maximum(), 0);
+        for (int i = 0; i < 24; ++i)
+        {
+            page.input()->setPlainText(QStringLiteral("ans+1"));
+            page.submit();
+        }
+        QTRY_VERIFY(bar->maximum() > 0);
+        QTRY_COMPARE(bar->value(), bar->maximum());
+        QCOMPARE(page.history().answer(), 24.0);
+        clear->click();
+        page.findChild<QMessageBox *>(QStringLiteral("clearSessionConfirmation"))->button(QMessageBox::Ok)->click();
+        QCOMPARE(page.recordCount(), 0);
+    }
+    void clearDefersToCompositionAndKeepsCompletionDraft()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+        QTest::mouseClick(clear, Qt::LeftButton);
+        auto *dialog = page.findChild<QMessageBox *>();
+        QVERIFY(dialog);
+        QTRY_VERIFY(!completion(page)->isVisible());
+        dialog->button(QMessageBox::Ok)->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("@sq"));
+        QCOMPARE(page.recordCount(), 0);
+        QTRY_VERIFY(page.input()->hasFocus());
+        QTest::keyClick(page.input(), Qt::Key_End);
+        QTest::keyClick(page.input(), Qt::Key_Backspace);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QVERIFY(!page.input()->toPlainText().contains(QLatin1Char('@')));
+        page.input()->setPlainText(QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("9+"));
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(!clear->isEnabled());
+        clear->click();
+        QCOMPARE(page.recordCount(), 1);
+        QInputMethodEvent finish;
+        finish.setCommitString(QStringLiteral("中文"));
+        QApplication::sendEvent(page.input(), &finish);
+        QVERIFY(clear->isEnabled());
+        const QString committed = page.input()->toPlainText();
+        clear->click();
+        page.findChild<QMessageBox *>(QStringLiteral("clearSessionConfirmation"))->button(QMessageBox::Ok)->click();
+        QCOMPARE(page.input()->toPlainText(), committed);
+        QCOMPARE(page.recordCount(), 0);
+    }
     void historyRecallRestoresDraft_data()
     {
         QTest::addColumn<QString>("draft");
@@ -847,6 +1082,9 @@ private slots:
         QVERIFY(operations->toPlainText().contains(QStringLiteral("Alt+↑ / Alt+↓")));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("光标和选区")));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("重置输入框撤销栈")));
+        search->setText(QStringLiteral("清空会话"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("ans 重置为 0")));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("不可撤销")));
         search->setText(QStringLiteral("非正规数"));
         QCOMPARE(tabs->currentIndex(), 1);
         QVERIFY(precision->toPlainText().contains(QStringLiteral("4.9406564584124654e-324")));
@@ -887,6 +1125,12 @@ private slots:
         {
             QVERIFY(QDir().mkpath(directory));
             QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-light.png")));
+            page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+            auto *confirmation = page.findChild<QMessageBox *>();
+            QTest::qWait(30);
+            QVERIFY(confirmation->grab().save(directory + QStringLiteral("/clear-confirmation-light.png")));
+            confirmation->button(QMessageBox::Cancel)->click();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
         QPalette dark = page.palette();
         dark.setColor(QPalette::Window, QColor("#202329"));
@@ -899,8 +1143,17 @@ private slots:
         if (!directory.isEmpty())
         {
             QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-dark.png")));
+            page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+            auto *confirmation = page.findChild<QMessageBox *>();
+            QTest::qWait(30);
+            QCOMPARE(confirmation->palette().color(QPalette::Window), QColor("#202329"));
+            QVERIFY(confirmation->styleSheet().contains(QStringLiteral("#e4e8ef")));
+            QVERIFY(confirmation->grab().save(directory + QStringLiteral("/clear-confirmation-dark.png")));
+            confirmation->button(QMessageBox::Cancel)->click();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             page.activateWindow();
             page.focusInput();
+            QTRY_VERIFY(page.input()->hasFocus());
             page.input()->setPlainText(QStringLiteral("2+@s"));
             page.input()->moveCursor(QTextCursor::End);
             QTRY_VERIFY(completion(page)->isVisible());
