@@ -60,6 +60,11 @@ FormulaCompletion::Token FormulaCompletion::tokenAtCursor() const
     return {start, end, text.mid(start + 1, cursor.position() - start - 1)};
 }
 
+bool FormulaCompletion::hasVisiblePopup() const
+{
+    return m_completer->popup()->isVisible();
+}
+
 void FormulaCompletion::hide()
 {
     m_completer->popup()->hide();
@@ -154,6 +159,12 @@ bool FormulaCompletion::eventFilter(QObject *object, QEvent *event)
     auto *key = static_cast<QKeyEvent *>(event);
     const bool enter = key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter;
     const Qt::KeyboardModifiers modifiers = key->modifiers() & ~Qt::KeypadModifier;
+    // 候选可见时不让历史召回替换正在补全的输入；普通方向键仍选择候选。
+    if (modifiers == Qt::AltModifier && (key->key() == Qt::Key_Up || key->key() == Qt::Key_Down))
+    {
+        key->accept();
+        return true;
+    }
     const bool submit = enter && modifiers == Qt::ControlModifier;
     const bool confirm = (enter || key->key() == Qt::Key_Tab) && modifiers == Qt::NoModifier;
     const bool cancel = key->key() == Qt::Key_Escape && modifiers == Qt::NoModifier;

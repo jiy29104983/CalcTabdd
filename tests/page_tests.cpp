@@ -51,6 +51,252 @@ class PageTests : public QObject
         page.input()->moveCursor(QTextCursor::End);
     }
 private slots:
+    void historyRecallRestoresDraft_data()
+    {
+        QTest::addColumn<QString>("draft");
+        QTest::addColumn<int>("anchor");
+        QTest::addColumn<int>("position");
+        QTest::newRow("empty") << QString() << 0 << 0;
+        QTest::newRow("cursor-in-middle") << QStringLiteral("12+34") << 2 << 2;
+        QTest::newRow("reverse-selection") << QStringLiteral("  草稿😀\n 12 + 34\t ") << 12 << 2;
+        QTest::newRow("long-multiline") << QString(4200, QLatin1Char('1')) + QStringLiteral("\n尾部 ") << 1 << 4204;
+    }
+    void historyRecallRestoresDraft()
+    {
+        QFETCH(QString, draft);
+        QFETCH(int, anchor);
+        QFETCH(int, position);
+        CalculatorPage page;
+        prepare(page, QString());
+        for (const auto &formula : {QStringLiteral("11"), QStringLiteral("1+"), QStringLiteral("ans+1")})
+        {
+            page.input()->setPlainText(formula);
+            page.submit();
+        }
+        page.input()->setPlainText(draft);
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(anchor);
+        cursor.setPosition(position, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.input()->textCursor().anchor(), anchor);
+        for (const auto &formula : {QStringLiteral("ans+1"), QStringLiteral("1+"), QStringLiteral("11"), QStringLiteral("11")})
+        {
+            QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+            QCOMPARE(page.input()->toPlainText(), formula);
+        }
+        for (const auto &formula : {QStringLiteral("1+"), QStringLiteral("ans+1"), draft, draft})
+        {
+            QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+            QCOMPARE(page.input()->toPlainText(), formula);
+        }
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.input()->textCursor().anchor(), anchor);
+        QCOMPARE(page.recordCount(), 3);
+        QCOMPARE(page.history().answer(), 12.0);
+        // 返回草稿后重新开始浏览，应保存此时的新草稿，而非上一轮旧快照。
+        page.input()->insertPlainText(QStringLiteral("更新"));
+        const QString edited = page.input()->toPlainText();
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), edited);
+    }
+    void historyEditsSurviveBrowsing()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("2"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("8+"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "+3");
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(3);
+        cursor.setPosition(1, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "+7");
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+7"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("2+3"));
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.input()->textCursor().anchor(), 3);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("8+"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("2"));
+        QCOMPARE(page.history().record(1)->expression, QStringLiteral("1"));
+        QCOMPARE(page.history().record(2)->expression, QStringLiteral("2"));
+        QCOMPARE(page.recordCount(), 2);
+        QCOMPARE(page.history().answer(), 2.0);
+    }
+    void recalledSubmissionUsesCurrentAnswerAndReturnsDraft()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("6*7"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("未提交\n 100+ "));
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(5);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+1"));
+        QCOMPARE(page.recordCount(), 2);
+        QTest::keyClick(page.input(), Qt::Key_Enter, Qt::ControlModifier | Qt::KeypadModifier);
+        QCOMPARE(page.history().records().last().answerBefore, 43.0);
+        QCOMPARE(page.history().answer(), 44.0);
+        QCOMPARE(page.history().record(2)->result.value, 43.0);
+        QCOMPARE(page.recordCount(), 3);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("未提交\n 100+ "));
+        QCOMPARE(page.input()->textCursor().position(), 2);
+        QCOMPARE(page.input()->textCursor().anchor(), 5);
+        page.input()->setPlainText(QStringLiteral("2+3"));
+        page.submit();
+        QVERIFY(page.input()->toPlainText().isEmpty());
+    }
+    void failedRecallPreservesDraftUntilCorrection()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1+"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("7*8"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 2);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+"));
+        QCOMPARE(page.input()->textCursor().position(), 2);
+        QCOMPARE(page.history().answer(), 0.0);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("7*8"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "2");
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().answer(), 3.0);
+        QCOMPARE(page.recordCount(), 3);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("7*8"));
+        QVERIFY(!page.history().record(1)->result.ok);
+        QVERIFY(!page.history().record(2)->result.ok);
+    }
+    void rejectedRecallSubmissionsKeepSavedDraft()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("draft"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        page.input()->setPlainText(QStringLiteral(" \n "));
+        page.submit();
+        QCOMPARE(page.recordCount(), 1);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("draft"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.recordCount(), 1);
+        QTest::keyClick(page.input(), Qt::Key_Escape);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("draft"));
+    }
+    void historyKeysYieldToCompletionAndComposition()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("@p"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(completion(page), Qt::Key_Down);
+        QCOMPARE(completion(page)->currentIndex().row(), 1);
+        for (QWidget *target : {static_cast<QWidget *>(page.input()), static_cast<QWidget *>(completion(page))})
+        {
+            QTest::keyClick(target, Qt::Key_Up, Qt::AltModifier);
+            QTest::keyClick(target, Qt::Key_Down, Qt::AltModifier);
+            QCOMPARE(page.input()->toPlainText(), QStringLiteral("@p"));
+            QVERIFY(completion(page)->isVisible());
+            QCOMPARE(completion(page)->currentIndex().row(), 1);
+        }
+        QTest::keyClick(page.input(), Qt::Key_Escape);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("@p"));
+        page.input()->setPlainText(QStringLiteral("9+"));
+        page.input()->moveCursor(QTextCursor::End);
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9+"));
+        QCOMPARE(page.recordCount(), 1);
+        QInputMethodEvent commit;
+        commit.setCommitString(QStringLiteral("1"));
+        QApplication::sendEvent(page.input(), &commit);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9+1"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9+1"));
+    }
+    void ordinaryArrowsAndEmptyHistoryKeepEditing()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("123\n456"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("123\n456"));
+        QCOMPARE(page.input()->textCursor().position(), 7);
+        page.input()->setPlainText(QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("123\n456"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClick(page.input(), Qt::Key_Up);
+        QCOMPARE(page.input()->textCursor().position(), 3);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::ShiftModifier);
+        QVERIFY(page.input()->textCursor().hasSelection());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("123\n456"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier | Qt::ShiftModifier);
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier | Qt::ControlModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("123\n456"));
+        QCOMPARE(page.recordCount(), 1);
+    }
+    void reuseAndResultInsertionPreserveNavigationDraft()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("4"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("-2"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("99*2"));
+        page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).first()->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("4"));
+        page.input()->selectAll();
+        page.findChildren<QAction *>(QStringLiteral("insertResult")).last()->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("(-2)"));
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("4"));
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("(-2)"));
+        page.findChildren<QAction *>(QStringLiteral("copyValue")).first()->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("4"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("-2"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("99*2"));
+        QCOMPARE(page.history().answer(), -2.0);
+        QCOMPARE(page.recordCount(), 2);
+    }
     void initialState()
     {
         CalculatorPage page;
@@ -597,6 +843,10 @@ private slots:
         search->setText(QStringLiteral("平方根"));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("sqrt(x)")));
         QVERIFY(!operations->toPlainText().contains(QStringLiteral("cos(x)")));
+        search->setText(QStringLiteral("草稿"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("Alt+↑ / Alt+↓")));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("光标和选区")));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("重置输入框撤销栈")));
         search->setText(QStringLiteral("非正规数"));
         QCOMPARE(tabs->currentIndex(), 1);
         QVERIFY(precision->toPlainText().contains(QStringLiteral("4.9406564584124654e-324")));

@@ -109,7 +109,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     inputRow->addWidget(calculate, 0, Qt::AlignBottom);
     connect(calculate, &QPushButton::clicked, this, &CalculatorPage::submit);
     composeLayout->addLayout(inputRow);
-    auto *hint = new QLabel(QStringLiteral("输入 @ 查找函数和常量 · Ctrl+Enter 计算 · 使用 ans 引用上次结果"), composer);
+    auto *hint = new QLabel(QStringLiteral("输入 @ 补全 · Alt+↑↓ 召回历史／返回草稿 · Ctrl+Enter 计算 · ans 引用上次结果"), composer);
     hint->setWordWrap(true);
     hint->setObjectName(QStringLiteral("inputHint"));
     composeLayout->addWidget(hint);
@@ -118,9 +118,9 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_status->setWordWrap(true);
     composeLayout->addWidget(m_status);
     layout->addWidget(composer);
-    auto *completion = new FormulaCompletion(m_input);
-    connect(completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
-    connect(completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
+    m_completion = new FormulaCompletion(m_input);
+    connect(m_completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
+    connect(m_completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
     setFocusProxy(m_input);
     applyTheme();
 }
@@ -151,8 +151,16 @@ void CalculatorPage::submit()
     const CalculationResult &result = entry.result;
     if (result.ok)
     {
-        m_input->clear();
-        m_status->setText(QStringLiteral("计算完成 · 关闭标签后清空记录"));
+        if (m_historyPosition >= 0)
+        {
+            restoreDraft();
+            m_status->setText(QStringLiteral("计算完成 · 已返回召回前的草稿"));
+        }
+        else
+        {
+            m_input->clear();
+            m_status->setText(QStringLiteral("计算完成 · 关闭标签后清空记录"));
+        }
     }
     else
     {
@@ -234,14 +242,70 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
 }
 
+CalculatorPage::InputState CalculatorPage::captureInput() const
+{
+    const QTextCursor cursor = m_input->textCursor();
+    return {m_input->toPlainText(), cursor.position(), cursor.anchor()};
+}
+
+void CalculatorPage::restoreInput(const InputState &state)
+{
+    m_input->setPlainText(state.text);
+    QTextCursor cursor = m_input->textCursor();
+    cursor.setPosition(qBound(0, state.anchor, state.text.size()));
+    cursor.setPosition(qBound(0, state.position, state.text.size()), QTextCursor::KeepAnchor);
+    m_input->setTextCursor(cursor);
+    m_editTarget = m_input;
+    focusInput();
+}
+
+void CalculatorPage::showHistory(int position)
+{
+    const auto &records = m_history.records();
+    if (position < 0 || position >= records.size()) return;
+    if (m_historyPosition < 0) m_draft = captureInput();
+    else m_recalledInputs.insert(records.at(m_historyPosition).id, captureInput());
+    m_historyPosition = position;
+    const auto &entry = records.at(position);
+    const InputState initial{entry.expression, entry.expression.size(), entry.expression.size()};
+    restoreInput(m_recalledInputs.value(entry.id, initial));
+    m_status->setText(QStringLiteral("已召回第 %1 条公式 · Alt+↑↓ 浏览，向后越过最新记录返回草稿").arg(entry.id));
+}
+
+void CalculatorPage::restoreDraft()
+{
+    m_historyPosition = -1;
+    m_recalledInputs.clear();
+    restoreInput(m_draft);
+    m_draft = {};
+}
+
+void CalculatorPage::recallHistory(bool older)
+{
+    if (m_history.count() == 0 || (!older && m_historyPosition < 0)) return;
+    const int position = m_historyPosition < 0 ? m_history.count() - 1
+                                               : m_historyPosition + (older ? -1 : 1);
+    if (position < 0) return; // 最旧记录不循环跳到最新，也不覆盖当前编辑。
+    if (position == m_history.count())
+    {
+        restoreDraft();
+        m_status->setText(QStringLiteral("已返回召回前的草稿"));
+    }
+    else showHistory(position);
+}
+
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    const CalculationRecord *entry = m_history.record(id);
-    if (!entry) return;
-    m_input->setPlainText(entry->expression);
-    m_input->moveCursor(QTextCursor::End);
-    focusInput();
-    m_status->setText(QStringLiteral("公式已放入输入框，可修改后重新计算"));
+    if (m_composing) return;
+    const auto &records = m_history.records();
+    for (int index = 0; index < records.size(); ++index)
+    {
+        if (records.at(index).id == id)
+        {
+            showHistory(index);
+            return;
+        }
+    }
 }
 
 void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
@@ -326,6 +390,19 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
         if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
         {
             auto *key = static_cast<QKeyEvent *>(event);
+            const Qt::KeyboardModifiers modifiers = key->modifiers() & ~Qt::KeypadModifier;
+            const bool historyKey = modifiers == Qt::AltModifier &&
+                (key->key() == Qt::Key_Up || key->key() == Qt::Key_Down);
+            if (historyKey)
+            {
+                // 在输入区阻止同键宿主快捷键；预编辑中的按键仍交给输入控件。
+                if (event->type() == QEvent::KeyPress && m_composing)
+                    return QWidget::eventFilter(object, event);
+                key->accept();
+                if (event->type() == QEvent::KeyPress && !m_completion->hasVisiblePopup())
+                    recallHistory(key->key() == Qt::Key_Up);
+                return true;
+            }
             if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter)
             {
                 if (m_composing) return QWidget::eventFilter(object, event);

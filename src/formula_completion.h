@@ -12,6 +12,7 @@ class FormulaCompletion : public QObject
     Q_OBJECT
 public:
     explicit FormulaCompletion(QPlainTextEdit *input);
+    bool hasVisiblePopup() const;
 
 signals:
     void calculationRequested();

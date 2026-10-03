@@ -6,6 +6,7 @@
 #include <QCompleter>
 #include <QDialog>
 #include <QLineEdit>
+#include <QInputMethodEvent>
 #include <QToolButton>
 #include <QTextBrowser>
 #include <QClipboard>
@@ -366,6 +367,103 @@ private slots:
         QVERIFY(first.page()->findChildren<QToolButton *>(QStringLiteral("recordActions")).isEmpty());
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
+    void historyRecallKeepsWindowDraftsAndNativeBuffersIndependent()
+    {
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.input()->setPlainText(QStringLiteral("6*7"));
+        first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        second.input()->setPlainText(QStringLiteral("100"));
+        second.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        first.input()->setPlainText(QStringLiteral("第一份草稿"));
+        second.input()->setPlainText(QStringLiteral("第二份草稿"));
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        QTest::keyClick(first.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("6*7"));
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二份草稿"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        first.tabs->setCurrentWidget(first.ordinary);
+        first.tabs->setCurrentWidget(native);
+        QTRY_VERIFY(first.input()->hasFocus());
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("6*7"));
+        QTest::keyClicks(first.input(), "+1");
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("第一份草稿"));
+        second.activateWindow();
+        second.input()->setFocus();
+        QTRY_VERIFY(second.input()->hasFocus());
+        QTest::keyClick(second.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("100"));
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        first.closeCurrent();
+        first.openAction()->trigger();
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        QTest::keyClick(first.input(), Qt::Key_Up, Qt::AltModifier);
+        QVERIFY(first.input()->toPlainText().isEmpty());
+        second.activateWindow();
+        second.input()->setFocus();
+        QTRY_VERIFY(second.input()->hasFocus());
+        QTest::keyClick(second.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二份草稿"));
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
+    void historyShortcutOverridesHostOnlyInInput()
+    {
+        Host host;
+        auto *conflict = host.edit->addAction(QStringLiteral("宿主 Alt+Up 命令"));
+        conflict->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Up));
+        connect(conflict, &QAction::triggered, &host, [&host]() { ++host.hostEditCalls; });
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        host.activateWindow();
+        host.input()->setFocus();
+        QTRY_VERIFY(host.input()->hasFocus());
+        host.input()->setPlainText(QStringLiteral("42"));
+        QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
+        host.input()->setPlainText(QStringLiteral("draft"));
+        QTest::keyClick(host.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("42"));
+        QCOMPARE(host.hostEditCalls, 0);
+        QTest::keyClick(host.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("draft"));
+        host.input()->setPlainText(QStringLiteral("@p"));
+        host.input()->moveCursor(QTextCursor::End);
+        auto *popup = host.page()->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(popup, Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.hostEditCalls, 0);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("@p"));
+        QTest::keyClick(popup, Qt::Key_Escape);
+        host.input()->setPlainText(QStringLiteral("9+"));
+        host.input()->moveCursor(QTextCursor::End);
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(host.input(), &preedit);
+        QTest::keyClick(host.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("9+"));
+        QCOMPARE(host.hostEditCalls, 0);
+        QInputMethodEvent finish;
+        QApplication::sendEvent(host.input(), &finish);
+        QTest::keyClick(host.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("42"));
+        host.tabs->setCurrentWidget(host.ordinary);
+        host.ordinary->setFocus();
+        QTRY_VERIFY(host.ordinary->hasFocus());
+        QTest::keyClick(host.ordinary, Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.hostEditCalls, 1);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("42"));
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
     }
     void failedCreationPreservesExistingDocument()
     {
