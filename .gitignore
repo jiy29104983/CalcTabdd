@@ -2,9 +2,10 @@
 /dist/
 /AGENTS.md
 /notepad--
-/docs/bug-backlog-*.md
-/docs/bug-fix-handoffs-*.md
-/docs/requirements/
+/.agents/
+/.codex/
+/docs/*
+!/docs/releases/
 /.vs/
 /.qmake.stash
 /Makefile

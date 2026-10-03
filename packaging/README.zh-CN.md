@@ -22,7 +22,7 @@ Ctrl+Enter 或点击“计算”。普通 Enter 不提交。错误会保留公�
 
 计算器标签激活时保存、另存为和查找替换等文档命令不可用；切回普通文档恢复。
 
-本包包含 手测清单 `TESTING.md`、变更说明 `CHANGELOG.md`、构建信息 `BUILD-INFO.json`
-与 许可证 `LICENSE`。Windows 自动化测试通过不代表真实宿主体验已验收。
+本包包含使用检查清单 `TESTING.md`、变更说明 `CHANGELOG.md`、构建信息 `BUILD-INFO.json`
+与许可证 `LICENSE`。可按清单确认插件在当前宿主中的使用情况。
 
 卸载：退出宿主后删除 `plugin/calctabdd.dll`。

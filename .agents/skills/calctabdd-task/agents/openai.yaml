@@ -1,6 +1,0 @@
-interface:
-  display_name: "CalcTabdd 任务交付"
-  short_description: "查询需求与交接，完成实现、本地测试、GitHub 流水线和下项任务交付"
-  default_prompt: "使用 $calctabdd-task 执行下一个任务，先核对需求与交接，再完成实现、测试、推送、CI 调试和交接。"
-policy:
-  allow_implicit_invocation: true
