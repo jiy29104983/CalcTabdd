@@ -10,6 +10,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
+#include <QToolButton>
 #include <QTextEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -202,7 +204,32 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     reuse->setObjectName(QStringLiteral("reuseFormula"));
     reuse->setFlat(true);
     connect(reuse, &QPushButton::clicked, this, [this, id = entry.id]() { reuseFormula(id); });
-    row->addWidget(reuse, 0, Qt::AlignVCenter);
+    auto *actions = new QVBoxLayout;
+    actions->addWidget(reuse);
+    auto *more = new QToolButton(record);
+    more->setObjectName(QStringLiteral("recordActions"));
+    more->setText(QStringLiteral("记录操作"));
+    more->setAccessibleName(QStringLiteral("第 %1 条计算记录操作").arg(entry.id));
+    more->setPopupMode(QToolButton::InstantPopup);
+    auto *menu = new QMenu(more);
+    more->setMenu(menu);
+    if (result.ok)
+    {
+        auto *copyValue = menu->addAction(QStringLiteral("复制纯数值"));
+        copyValue->setObjectName(QStringLiteral("copyValue"));
+        connect(copyValue, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, true); });
+    }
+    auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
+    copyCalculation->setObjectName(QStringLiteral("copyCalculation"));
+    connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
+    if (result.ok)
+    {
+        auto *insert = menu->addAction(QStringLiteral("插入历史结果"));
+        insert->setObjectName(QStringLiteral("insertResult"));
+        connect(insert, &QAction::triggered, this, [this, id = entry.id]() { insertResult(id); });
+    }
+    actions->addWidget(more, 0, Qt::AlignRight);
+    row->addLayout(actions);
     m_records->insertWidget(m_records->count() - 1, record);
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
 }
@@ -215,6 +242,34 @@ void CalculatorPage::reuseFormula(quint64 id)
     m_input->moveCursor(QTextCursor::End);
     focusInput();
     m_status->setText(QStringLiteral("公式已放入输入框，可修改后重新计算"));
+}
+
+void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
+{
+    const CalculationRecord *entry = m_history.record(id);
+    if (!entry || (valueOnly && !entry->result.ok)) return;
+    QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
+    m_status->setText(valueOnly ? QStringLiteral("已复制纯数值，保留内部计算精度")
+                               : QStringLiteral("已复制公式与结果"));
+}
+
+void CalculatorPage::insertResult(quint64 id)
+{
+    const CalculationRecord *entry = m_history.record(id);
+    if (!entry || !entry->result.ok) return;
+    if (m_composing)
+    {
+        m_status->setText(QStringLiteral("请先完成输入法组词，再插入历史结果"));
+        return;
+    }
+    QTextCursor cursor = m_input->textCursor();
+    cursor.beginEditBlock();
+    cursor.insertText(entry->insertionText());
+    cursor.endEditBlock();
+    m_input->setTextCursor(cursor);
+    m_editTarget = m_input;
+    focusInput();
+    m_status->setText(QStringLiteral("已插入当时的固定结果，可继续编辑后计算"));
 }
 
 void CalculatorPage::routeEdit(const QString &command)

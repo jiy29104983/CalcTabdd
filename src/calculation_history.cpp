@@ -1,6 +1,29 @@
 #include "calculation_history.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
+
+QString CalculationRecord::valueText() const
+{
+    if (!result.ok) return {};
+    // QString 的 C 区域格式不含分组符；保留负零，避免往返时丢失符号。
+    if (result.value == 0 && std::signbit(result.value)) return QStringLiteral("-0");
+    return QString::number(result.value, 'g', std::numeric_limits<double>::max_digits10);
+}
+
+QString CalculationRecord::calculationText() const
+{
+    return expression + (result.ok ? QStringLiteral("\n= ") + valueText()
+                                   : QStringLiteral("\n无法计算：") + result.text);
+}
+
+QString CalculationRecord::insertionText() const
+{
+    const QString value = valueText();
+    // 一元负号的优先级低于乘方；作为一个操作数插入时必须括起来。
+    return value.startsWith(QLatin1Char('-')) ? QStringLiteral("(%1)").arg(value) : value;
+}
 
 CalculationRecord CalculationHistory::calculate(const QString &expression)
 {

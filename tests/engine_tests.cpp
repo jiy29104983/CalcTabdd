@@ -4,6 +4,25 @@
 #include <QSet>
 #include <QtTest>
 #include <cmath>
+#include <cstring>
+#include <limits>
+#include <random>
+
+namespace {
+quint64 bits(double value)
+{
+    quint64 result;
+    static_assert(sizeof(result) == sizeof(value), "Expected 64-bit double");
+    std::memcpy(&result, &value, sizeof(value));
+    return result;
+}
+
+struct RestoreLocale
+{
+    QLocale previous;
+    ~RestoreLocale() { QLocale::setDefault(previous); }
+};
+}
 
 class EngineTests : public QObject
 {
@@ -139,6 +158,90 @@ private slots:
         QCOMPARE(entry.id, quint64(1));
         QCOMPARE(entry.result.value, 0.0);
         QCOMPARE(second.calculate(QStringLiteral("ans+1")).result.value, 2.0);
+    }
+    void reusableValueBoundaries_data()
+    {
+        QTest::addColumn<double>("value");
+        QTest::newRow("positive-zero") << 0.0;
+        QTest::newRow("negative-zero") << -0.0;
+        QTest::newRow("decimal-residue") << (0.1 + 0.2);
+        QTest::newRow("third") << (1.0 / 3.0);
+        QTest::newRow("negative-root") << -std::sqrt(2.0);
+        QTest::newRow("integer-boundary") << 9007199254740992.0;
+        QTest::newRow("next-large-integer") << 9007199254740994.0;
+        QTest::newRow("minimum-normal") << std::numeric_limits<double>::min();
+        QTest::newRow("maximum-subnormal") << std::nextafter(std::numeric_limits<double>::min(), 0.0);
+        QTest::newRow("minimum-subnormal") << std::numeric_limits<double>::denorm_min();
+        QTest::newRow("negative-subnormal") << -std::numeric_limits<double>::denorm_min();
+        QTest::newRow("maximum-finite") << std::numeric_limits<double>::max();
+        QTest::newRow("negative-maximum") << -std::numeric_limits<double>::max();
+        QTest::newRow("next-after-one") << std::nextafter(1.0, 2.0);
+        QTest::newRow("next-before-one") << std::nextafter(1.0, 0.0);
+    }
+    void reusableValueBoundaries()
+    {
+        QFETCH(double, value);
+        RestoreLocale restore;
+        QLocale::setDefault(QLocale(QLocale::German));
+        CalculationRecord entry;
+        entry.result.ok = true;
+        entry.result.value = value;
+        entry.result.text = QStringLiteral("显示文本不能用于数值复用");
+        const QString text = entry.valueText();
+        QVERIFY(!text.isEmpty());
+        QVERIFY(!text.contains(QLatin1Char('=')));
+        QVERIFY(!text.contains(QLatin1Char(',')));
+        const auto parsed = ExpressionEngine::evaluate(text);
+        QVERIFY2(parsed.ok, qPrintable(text + QStringLiteral(": ") + parsed.text));
+        QCOMPARE(bits(parsed.value), bits(value));
+        const auto inserted = ExpressionEngine::evaluate(entry.insertionText());
+        QVERIFY(inserted.ok);
+        QCOMPARE(bits(inserted.value), bits(value));
+    }
+    void reusableValuesAcrossBinaryExponents()
+    {
+        // 遍历指数边界，再覆盖确定性随机位模式；逐位相等包括负零。
+        std::mt19937_64 random(0xCA1C7ABD);
+        for (int index = 0; index < 6144; ++index)
+        {
+            const quint64 raw = index < 4096
+                ? (quint64(index / 2) << 52) | (index % 2 ? Q_UINT64_C(0x000fffffffffffff) : 0)
+                : random();
+            double value;
+            std::memcpy(&value, &raw, sizeof(value));
+            if (!std::isfinite(value)) continue;
+            CalculationRecord entry;
+            entry.result.ok = true;
+            entry.result.value = value;
+            const auto parsed = ExpressionEngine::evaluate(entry.valueText());
+            QVERIFY2(parsed.ok, qPrintable(entry.valueText()));
+            QCOMPARE(bits(parsed.value), raw);
+        }
+    }
+    void recordCopyFormatsAndFixedValues()
+    {
+        CalculationHistory history;
+        const auto first = history.calculate(QStringLiteral("0.1+0.2"));
+        QCOMPARE(first.result.text, QStringLiteral("0.3"));
+        QCOMPARE(first.valueText(), QStringLiteral("0.30000000000000004"));
+        QCOMPARE(first.calculationText(), QStringLiteral("0.1+0.2\n= 0.30000000000000004"));
+        const auto second = history.calculate(QStringLiteral("ans*2"));
+        history.calculate(QStringLiteral("100"));
+        QCOMPARE(history.record(second.id)->calculationText(), second.calculationText());
+        const auto fixed = ExpressionEngine::evaluate(second.insertionText(), history.answer());
+        QVERIFY(fixed.ok);
+        QCOMPARE(bits(fixed.value), bits(second.result.value));
+        QCOMPARE(history.answer(), 100.0);
+        const auto error = history.calculate(QStringLiteral("1+中"));
+        QVERIFY(!error.result.ok);
+        QVERIFY(error.valueText().isEmpty());
+        QVERIFY(error.insertionText().isEmpty());
+        QCOMPARE(error.calculationText(), QStringLiteral("1+中\n无法计算：") + error.result.text);
+        QCOMPARE(history.answer(), 100.0);
+        const auto negative = history.calculate(QStringLiteral("-2"));
+        QCOMPARE(negative.valueText(), QStringLiteral("-2"));
+        QCOMPARE(negative.insertionText(), QStringLiteral("(-2)"));
+        QCOMPARE(ExpressionEngine::evaluate(negative.insertionText() + QStringLiteral("^2")).value, 4.0);
     }
     void arithmetic_data()
     {

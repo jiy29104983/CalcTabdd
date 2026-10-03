@@ -6,6 +6,7 @@
 #include <QCompleter>
 #include <QDialog>
 #include <QLineEdit>
+#include <QToolButton>
 #include <QTextBrowser>
 #include <QClipboard>
 #include <QLabel>
@@ -312,6 +313,57 @@ private slots:
         submit(second, QStringLiteral("ans+1"));
         QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 6"));
         QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordNumber")).last()->text(), QStringLiteral("02"));
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
+    void historyActionsKeepHostAndOtherWindowsIsolated()
+    {
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        first.input()->setPlainText(QStringLiteral("0.1+0.2"));
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        first.page()->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.30000000000000004"));
+        first.page()->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.1+0.2\n= 0.30000000000000004"));
+        first.input()->setPlainText(QStringLiteral("-2"));
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        first.input()->setPlainText(QStringLiteral("99^2"));
+        QTextCursor cursor = first.input()->textCursor();
+        cursor.setPosition(0);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        first.input()->setTextCursor(cursor);
+        first.page()->findChildren<QAction *>(QStringLiteral("insertResult")).last()->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("(-2)^2"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionundo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("99^2"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionredo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("(-2)^2"));
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 4"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        QCOMPARE(first.hostEditCalls, 0);
+        QVERIFY(second.input()->toPlainText().isEmpty());
+        QVERIFY(second.page()->findChildren<QToolButton *>(QStringLiteral("recordActions")).isEmpty());
+        first.tabs->setCurrentWidget(first.ordinary);
+        QVERIFY(first.findChild<QAction *>(QStringLiteral("actioncopy"))->isEnabled());
+        first.tabs->setCurrentWidget(native);
+        first.page()->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.30000000000000004"));
+        QPointer<QToolButton> menuOwner = first.page()->findChild<QToolButton *>(QStringLiteral("recordActions"));
+        first.closeCurrent();
+        QVERIFY(menuOwner.isNull());
+        first.openAction()->trigger();
+        QVERIFY(first.page()->findChildren<QToolButton *>(QStringLiteral("recordActions")).isEmpty());
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
     }

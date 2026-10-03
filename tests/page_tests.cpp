@@ -5,6 +5,9 @@
 #include <QCompleter>
 #include <QDialog>
 #include <QLineEdit>
+#include <QMenu>
+#include <QToolButton>
+#include <QTimer>
 #include <QTabWidget>
 #include <QTextBrowser>
 #include <QApplication>
@@ -24,6 +27,18 @@ class PageTests : public QObject
     QAbstractItemView *completion(CalculatorPage &page)
     {
         return page.findChild<QCompleter *>()->popup();
+    }
+    bool chooseRecordAction(QToolButton *button, QAction *action)
+    {
+        bool opened = false;
+        QTimer::singleShot(20, button, [&]() {
+            opened = button->menu()->isVisible();
+            QTest::mouseClick(button->menu(), Qt::LeftButton, Qt::NoModifier,
+                             button->menu()->actionGeometry(action).center());
+            button->menu()->close();
+        });
+        QTest::mouseClick(button, Qt::LeftButton);
+        return opened;
     }
     void prepare(CalculatorPage &page, const QString &text)
     {
@@ -232,6 +247,149 @@ private slots:
         page.input()->selectAll();
         page.routeEdit(QStringLiteral("actioncopy"));
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("99"));
+    }
+    void recordMenuCopiesInternalValues()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("0.1+0.2"));
+        page.submit();
+        auto *more = page.findChild<QToolButton *>(QStringLiteral("recordActions"));
+        QVERIFY(more);
+        QCOMPARE(more->menu()->actions().size(), 3);
+        auto *copy = more->findChild<QAction *>(QStringLiteral("copyValue"));
+        QVERIFY(copy);
+        page.input()->setPlainText(QStringLiteral("未提交草稿"));
+        page.input()->selectAll();
+        const QTextCursor before = page.input()->textCursor();
+        QApplication::clipboard()->setText(QStringLiteral("before"));
+        QVERIFY(chooseRecordAction(more, copy));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.30000000000000004"));
+        QVERIFY(ExpressionEngine::evaluate(QApplication::clipboard()->text()).value == page.history().answer());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("未提交草稿"));
+        QCOMPARE(page.input()->textCursor().position(), before.position());
+        QCOMPARE(page.input()->textCursor().anchor(), before.anchor());
+        QCOMPARE(page.recordCount(), 1);
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.1+0.2\n= 0.30000000000000004"));
+    }
+    void recordActionsReadModelAfterGrowth()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("ans+2"));
+        page.submit();
+        auto *more = page.findChild<QToolButton *>(QStringLiteral("recordActions"));
+        for (int index = 0; index < 64; ++index)
+        {
+            page.input()->setPlainText(QString::number(index));
+            page.submit();
+        }
+        page.findChild<QLabel *>(QStringLiteral("recordFormula"))->setText(QStringLiteral("999"));
+        page.findChild<QLabel *>(QStringLiteral("recordResult"))->setText(QStringLiteral("= 999"));
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("ans+2\n= 2"));
+        more->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("2"));
+        page.input()->setPlainText(QStringLiteral("10+"));
+        page.input()->moveCursor(QTextCursor::End);
+        more->findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+2"));
+        QCOMPARE(page.history().answer(), 63.0);
+        QCOMPARE(page.recordCount(), 65);
+        page.submit();
+        QCOMPARE(page.history().answer(), 12.0);
+        QCOMPARE(page.history().record(1)->result.value, 2.0);
+    }
+    void failedRecordsOnlyCopyFormulaAndError()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1+中"));
+        page.submit();
+        auto *more = page.findChild<QToolButton *>(QStringLiteral("recordActions"));
+        QCOMPARE(more->menu()->actions().size(), 1);
+        QVERIFY(!more->findChild<QAction *>(QStringLiteral("copyValue")));
+        QVERIFY(!more->findChild<QAction *>(QStringLiteral("insertResult")));
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("1+中\n无法计算：未知常量，或函数缺少括号"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+中"));
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().answer(), 0.0);
+    }
+    void insertionPreservesSurroundingFormula_data()
+    {
+        QTest::addColumn<QString>("draft");
+        QTest::addColumn<int>("start");
+        QTest::addColumn<int>("end");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<double>("value");
+        QTest::newRow("base-of-power") << QStringLiteral("^2") << 0 << 0 << QStringLiteral("(-2)^2") << 4.0;
+        QTest::newRow("exponent") << QStringLiteral("2^") << 2 << 2 << QStringLiteral("2^(-2)") << .25;
+        QTest::newRow("subtract") << QStringLiteral("3-") << 2 << 2 << QStringLiteral("3-(-2)") << 5.0;
+        QTest::newRow("divide") << QStringLiteral("8/") << 2 << 2 << QStringLiteral("8/(-2)") << -4.0;
+        QTest::newRow("function-argument") << QStringLiteral("max(,1)") << 4 << 4 << QStringLiteral("max((-2),1)") << 1.0;
+        QTest::newRow("replace-selection") << QStringLiteral("3+99*4") << 2 << 4 << QStringLiteral("3+(-2)*4") << -5.0;
+        QTest::newRow("reverse-selection") << QStringLiteral("3+99*4") << 4 << 2 << QStringLiteral("3+(-2)*4") << -5.0;
+        QTest::newRow("unicode-prefix") << QStringLiteral("8÷99×3") << 2 << 4 << QStringLiteral("8÷(-2)×3") << -12.0;
+    }
+    void insertionPreservesSurroundingFormula()
+    {
+        QFETCH(QString, draft);
+        QFETCH(int, start);
+        QFETCH(int, end);
+        QFETCH(QString, expected);
+        QFETCH(double, value);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("-2"));
+        page.submit();
+        page.input()->setPlainText(draft);
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(start);
+        cursor.setPosition(end, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        // 在结果标签取得焦点后仍使用输入区原选区，撤销路由返回输入框。
+        page.findChild<QLabel *>(QStringLiteral("recordResult"))->setFocus();
+        QApplication::clipboard()->setText(QStringLiteral("keep clipboard"));
+        QVERIFY(chooseRecordAction(page.findChild<QToolButton *>(QStringLiteral("recordActions")),
+                                   page.findChild<QAction *>(QStringLiteral("insertResult"))));
+        QCOMPARE(page.input()->toPlainText(), expected);
+        QCOMPARE(page.input()->textCursor().position(), qMin(start, end) + 4);
+        QTRY_VERIFY(page.input()->hasFocus());
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("keep clipboard"));
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().answer(), -2.0);
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), draft);
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), expected);
+        page.submit();
+        QCOMPARE(page.history().answer(), value);
+    }
+    void insertionRespectsCompositionAndCompletion()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("0.1+0.2"));
+        page.submit();
+        auto *insert = page.findChild<QAction *>(QStringLiteral("insertResult"));
+        page.input()->setPlainText(QStringLiteral("2+@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(2);
+        cursor.setPosition(5, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        insert->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("2+0.30000000000000004"));
+        QVERIFY(!completion(page)->isVisible());
+        page.input()->setPlainText(QStringLiteral("10+"));
+        page.input()->moveCursor(QTextCursor::End);
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        insert->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+"));
+        QCOMPARE(page.recordCount(), 1);
+        QInputMethodEvent finish;
+        QApplication::sendEvent(page.input(), &finish);
+        insert->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+0.30000000000000004"));
     }
     void compositionDoesNotSubmit()
     {

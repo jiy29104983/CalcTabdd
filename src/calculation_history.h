@@ -10,6 +10,11 @@ struct CalculationRecord
     QString expression;
     CalculationResult result;
     double answerBefore = 0;
+
+    // 数值复用读取内部值；失败记录没有可复制或插入的数值。
+    QString valueText() const;
+    QString calculationText() const;
+    QString insertionText() const;
 };
 
 // 计算会话的数据源，不依赖页面或控件；每个页面独立持有一个实例。

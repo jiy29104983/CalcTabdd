@@ -32,6 +32,8 @@ protected:
 private:
     void appendRecord(const CalculationRecord &entry);
     void reuseFormula(quint64 id);
+    void copyRecord(quint64 id, bool valueOnly);
+    void insertResult(quint64 id);
     void applyTheme();
     QPlainTextEdit *m_input = nullptr;
     QPointer<QWidget> m_editTarget;
