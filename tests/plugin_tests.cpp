@@ -276,6 +276,45 @@ private slots:
         QVERIFY(first.page());
         QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 0);
     }
+    void recordSessionsSurviveSwitchingAndResetOnReopen()
+    {
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        auto submit = [](Host &host, const QString &formula) {
+            host.input()->setPlainText(formula);
+            host.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        };
+        submit(first, QStringLiteral("6*7"));
+        submit(first, QStringLiteral("1/0"));
+        submit(second, QStringLiteral("ans+5"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        first.tabs->setCurrentWidget(first.ordinary);
+        first.tabs->setCurrentWidget(native);
+        submit(first, QStringLiteral("ans+1"));
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 5"));
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordNumber")).last()->text(), QStringLiteral("03"));
+        first.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).last()->click();
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 44"));
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        first.closeCurrent();
+        first.openAction()->trigger();
+        submit(first, QStringLiteral("ans"));
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 1);
+        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 0"));
+        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
+        submit(second, QStringLiteral("ans+1"));
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 6"));
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordNumber")).last()->text(), QStringLiteral("02"));
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
     void failedCreationPreservesExistingDocument()
     {
         Host host;

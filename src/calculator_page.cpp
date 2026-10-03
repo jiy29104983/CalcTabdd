@@ -1,5 +1,4 @@
 #include "calculator_page.h"
-#include "expression_engine.h"
 #include "calculator_help.h"
 #include "formula_completion.h"
 
@@ -145,7 +144,28 @@ void CalculatorPage::submit()
         focusInput();
         return;
     }
-    const CalculationResult result = ExpressionEngine::evaluate(expression, m_answer);
+    const CalculationRecord entry = m_history.calculate(expression);
+    appendRecord(entry);
+    const CalculationResult &result = entry.result;
+    if (result.ok)
+    {
+        m_input->clear();
+        m_status->setText(QStringLiteral("计算完成 · 关闭标签后清空记录"));
+    }
+    else
+    {
+        m_status->setText(result.text);
+        QTextCursor cursor = m_input->textCursor();
+        cursor.setPosition(qBound(0, result.errorPosition, m_input->toPlainText().size()));
+        m_input->setTextCursor(cursor);
+    }
+    focusInput();
+    QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+}
+
+void CalculatorPage::appendRecord(const CalculationRecord &entry)
+{
+    const CalculationResult &result = entry.result;
     m_followLatest = true;
     m_empty->hide();
     auto *record = new QFrame;
@@ -154,13 +174,13 @@ void CalculatorPage::submit()
     auto *row = new QHBoxLayout(record);
     row->setContentsMargins(10, 13, 10, 13);
     row->setSpacing(14);
-    auto *number = new QLabel(QStringLiteral("%1").arg(++m_recordCount, 2, 10, QLatin1Char('0')), record);
+    auto *number = new QLabel(QStringLiteral("%1").arg(entry.id, 2, 10, QLatin1Char('0')), record);
     number->setObjectName(QStringLiteral("recordNumber"));
     number->setMinimumWidth(24);
     row->addWidget(number, 0, Qt::AlignTop);
     auto *values = new QVBoxLayout;
     values->setSpacing(5);
-    auto *formula = new QLabel(expression, record);
+    auto *formula = new QLabel(entry.expression, record);
     formula->setObjectName(QStringLiteral("recordFormula"));
     formula->setTextFormat(Qt::PlainText);
     formula->setWordWrap(true);
@@ -181,30 +201,20 @@ void CalculatorPage::submit()
     auto *reuse = new QPushButton(result.ok ? QStringLiteral("再次使用") : QStringLiteral("修改公式"), record);
     reuse->setObjectName(QStringLiteral("reuseFormula"));
     reuse->setFlat(true);
-    connect(reuse, &QPushButton::clicked, this, [this, expression]() {
-        m_input->setPlainText(expression);
-        m_input->moveCursor(QTextCursor::End);
-        focusInput();
-        m_status->setText(QStringLiteral("公式已放入输入框，可修改后重新计算"));
-    });
+    connect(reuse, &QPushButton::clicked, this, [this, id = entry.id]() { reuseFormula(id); });
     row->addWidget(reuse, 0, Qt::AlignVCenter);
     m_records->insertWidget(m_records->count() - 1, record);
-    m_count->setText(QStringLiteral("%1 条记录").arg(m_recordCount));
-    if (result.ok)
-    {
-        m_answer = result.value;
-        m_input->clear();
-        m_status->setText(QStringLiteral("计算完成 · 关闭标签后清空记录"));
-    }
-    else
-    {
-        m_status->setText(result.text);
-        QTextCursor cursor = m_input->textCursor();
-        cursor.setPosition(qBound(0, result.errorPosition, m_input->toPlainText().size()));
-        m_input->setTextCursor(cursor);
-    }
+    m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
+}
+
+void CalculatorPage::reuseFormula(quint64 id)
+{
+    const CalculationRecord *entry = m_history.record(id);
+    if (!entry) return;
+    m_input->setPlainText(entry->expression);
+    m_input->moveCursor(QTextCursor::End);
     focusInput();
-    QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+    m_status->setText(QStringLiteral("公式已放入输入框，可修改后重新计算"));
 }
 
 void CalculatorPage::routeEdit(const QString &command)

@@ -78,6 +78,104 @@ private slots:
         page.submit();
         QCOMPARE(page.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
     }
+    void historyMatchesRenderedRecords()
+    {
+        CalculatorPage page;
+        for (const auto &formula : {QStringLiteral(" 2 × 3 "), QStringLiteral("1+"),
+                                   QStringLiteral("ans+1"), QStringLiteral("0.1+0.2")})
+        {
+            page.input()->setPlainText(formula);
+            page.submit();
+        }
+        const auto &entries = page.history().records();
+        const auto formulas = page.findChildren<QLabel *>(QStringLiteral("recordFormula"));
+        const auto results = page.findChildren<QLabel *>(QStringLiteral("recordResult"));
+        const auto numbers = page.findChildren<QLabel *>(QStringLiteral("recordNumber"));
+        QCOMPARE(page.recordCount(), 4);
+        QCOMPARE(entries.size(), page.recordCount());
+        QCOMPARE(formulas.size(), entries.size());
+        QCOMPARE(results.size(), entries.size());
+        QCOMPARE(numbers.size(), entries.size());
+        QCOMPARE(entries.first().expression, QStringLiteral("2 × 3"));
+        for (int index = 0; index < entries.size(); ++index)
+        {
+            const auto &entry = entries.at(index);
+            QCOMPARE(numbers.at(index)->text(), QStringLiteral("%1").arg(entry.id, 2, 10, QLatin1Char('0')));
+            QCOMPARE(formulas.at(index)->text(), entry.expression);
+            QCOMPARE(results.at(index)->text(), entry.result.ok
+                ? QStringLiteral("= %1").arg(entry.result.text)
+                : QStringLiteral("无法计算：%1").arg(entry.result.text));
+            QCOMPARE(results.at(index)->property("error").toBool(), !entry.result.ok);
+        }
+        QVERIFY(!entries.at(1).result.ok);
+        QCOMPARE(entries.at(1).answerBefore, 6.0);
+        QCOMPARE(entries.at(1).result.errorPosition, 2);
+        QCOMPARE(entries.at(2).answerBefore, 6.0);
+        QCOMPARE(entries.at(2).result.value, 7.0);
+        QVERIFY(entries.last().result.value != entries.last().result.text.toDouble());
+    }
+    void reuseReadsModelAndUsesCurrentAnswer()
+    {
+        CalculatorPage page;
+        for (const auto &formula : {QStringLiteral("6*7"), QStringLiteral("ans+1"), QStringLiteral("1+")})
+        {
+            page.input()->setPlainText(formula);
+            page.submit();
+        }
+        auto *reuse = page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(1);
+        auto *retry = page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(2);
+        // 追加足够多次后再点击旧按钮，检验回调没有持有失效的记录引用。
+        for (int index = 0; index < 64; ++index)
+        {
+            page.input()->setPlainText(QString::number(index));
+            page.submit();
+        }
+        page.input()->setPlainText(QStringLiteral("100"));
+        page.submit();
+        page.findChildren<QLabel *>(QStringLiteral("recordFormula")).at(1)->setText(QStringLiteral("999"));
+        page.findChildren<QLabel *>(QStringLiteral("recordResult")).at(1)->setText(QStringLiteral("= 999"));
+        reuse->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+1"));
+        QCOMPARE(page.history().answer(), 100.0);
+        const int count = page.recordCount();
+        page.submit();
+        QCOMPARE(page.recordCount(), count + 1);
+        QCOMPARE(page.history().records().last().answerBefore, 100.0);
+        QCOMPARE(page.history().records().last().result.value, 101.0);
+        QCOMPARE(page.history().record(2)->answerBefore, 42.0);
+        QCOMPARE(page.history().record(2)->result.value, 43.0);
+        retry->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+"));
+        page.input()->insertPlainText(QStringLiteral("2"));
+        page.submit();
+        QCOMPARE(page.history().records().last().result.value, 3.0);
+        QVERIFY(!page.history().record(3)->result.ok);
+    }
+    void rejectedSubmissionsDoNotConsumeIds()
+    {
+        CalculatorPage page;
+        page.input()->setPlainText(QStringLiteral(" \n "));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        page.submit();
+        QCOMPARE(page.history().count(), 0);
+        QCOMPARE(page.history().answer(), 0.0);
+        QInputMethodEvent finish;
+        QApplication::sendEvent(page.input(), &finish);
+        page.submit();
+        QCOMPARE(page.history().records().first().id, quint64(1));
+        QCOMPARE(page.history().answer(), 1.0);
+        page.input()->setPlainText(QStringLiteral("1+"));
+        page.submit();
+        QCOMPARE(page.history().records().last().id, quint64(2));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+"));
+        QCOMPARE(page.input()->textCursor().position(), 2);
+        QCOMPARE(page.history().answer(), 1.0);
+    }
     void stackedLayoutAndScrolling()
     {
         CalculatorPage page;

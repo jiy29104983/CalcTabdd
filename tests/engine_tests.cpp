@@ -1,4 +1,5 @@
 #include "expression_engine.h"
+#include "calculation_history.h"
 #include "calculation_catalog.h"
 #include <QSet>
 #include <QtTest>
@@ -8,6 +9,137 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void historyStartsEmpty()
+    {
+        const CalculationHistory history;
+        QCOMPARE(history.count(), 0);
+        QVERIFY(history.records().isEmpty());
+        QCOMPARE(history.answer(), 0.0);
+        QVERIFY(!history.record(0));
+        QVERIFY(!history.record(1));
+    }
+    void historyPreservesSuccessFailureAndAnswer()
+    {
+        CalculationHistory history;
+        const auto first = history.calculate(QStringLiteral("6*7"));
+        const auto error = history.calculate(QStringLiteral("12/(3-3)"));
+        const auto next = history.calculate(QStringLiteral("ans+1"));
+        QCOMPARE(history.count(), 3);
+        QCOMPARE(first.id, quint64(1));
+        QCOMPARE(first.expression, QStringLiteral("6*7"));
+        QVERIFY(first.result.ok);
+        QCOMPARE(first.result.value, 42.0);
+        QCOMPARE(first.result.text, QStringLiteral("42"));
+        QCOMPARE(first.result.errorPosition, -1);
+        QCOMPARE(first.answerBefore, 0.0);
+        QCOMPARE(error.id, quint64(2));
+        QCOMPARE(error.expression, QStringLiteral("12/(3-3)"));
+        QVERIFY(!error.result.ok);
+        QCOMPARE(error.result.text, QStringLiteral("除数不能为 0"));
+        QCOMPARE(error.result.errorPosition, 8);
+        QCOMPARE(error.answerBefore, 42.0);
+        QCOMPARE(next.id, quint64(3));
+        QCOMPARE(next.answerBefore, 42.0);
+        QVERIFY(next.result.ok);
+        QCOMPARE(next.result.value, 43.0);
+        QCOMPARE(history.answer(), 43.0);
+        for (int index = 0; index < history.count(); ++index)
+        {
+            const auto &entry = history.records().at(index);
+            QCOMPARE(entry.id, quint64(index + 1));
+            const auto *byId = history.record(entry.id);
+            QVERIFY(byId);
+            QCOMPARE(byId->expression, entry.expression);
+            QCOMPARE(byId->result.ok, entry.result.ok);
+            QCOMPARE(byId->result.text, entry.result.text);
+            QCOMPARE(byId->result.errorPosition, entry.result.errorPosition);
+            QCOMPARE(byId->answerBefore, entry.answerBefore);
+        }
+        QVERIFY(!history.record(0));
+        QVERIFY(!history.record(4));
+        QVERIFY(!history.record(quint64(-1)));
+    }
+    void historyKeepsUnroundedValues()
+    {
+        CalculationHistory history;
+        const auto first = history.calculate(QStringLiteral("0.1+0.2"));
+        QVERIFY(first.result.ok);
+        QCOMPARE(first.result.text, QStringLiteral("0.3"));
+        // 精确比较，避免模糊浮点断言掩盖错误的“显示文本转回 double”。
+        QVERIFY(first.result.value == 0.1 + 0.2);
+        QVERIFY(first.result.value != first.result.text.toDouble());
+        history.calculate(QStringLiteral("1/0"));
+        const auto next = history.calculate(QStringLiteral("ans-0.3"));
+        QVERIFY(next.answerBefore == first.result.value);
+        QVERIFY(next.result.value == (0.1 + 0.2) - 0.3);
+        QVERIFY(next.result.value > 0);
+        QVERIFY(history.answer() == next.result.value);
+        QVERIFY(history.record(first.id)->result.value == first.result.value);
+    }
+    void historyPreservesSubmittedFormulaAndErrors()
+    {
+        CalculationHistory history;
+        const QString expression = QStringLiteral("  2 × 3 ÷ 2 − 1\n");
+        const auto first = history.calculate(expression);
+        QCOMPARE(first.expression, expression);
+        QCOMPARE(first.result.value, 2.0);
+        for (const auto &formula : {QStringLiteral("1+"), QStringLiteral("sqrt(-1)"),
+                                   QStringLiteral("1+中"), QStringLiteral("1e309")})
+        {
+            const auto entry = history.calculate(formula);
+            const auto expected = ExpressionEngine::evaluate(formula, 2);
+            QVERIFY(!entry.result.ok);
+            QCOMPARE(entry.expression, formula);
+            QCOMPARE(entry.result.text, expected.text);
+            QCOMPARE(entry.result.errorPosition, expected.errorPosition);
+            QCOMPARE(entry.answerBefore, 2.0);
+            QCOMPARE(history.answer(), 2.0);
+        }
+    }
+    void historyIdsAndSnapshotsSurviveGrowth()
+    {
+        CalculationHistory history;
+        const auto first = history.calculate(QStringLiteral("ans+1"));
+        const auto failed = history.calculate(QStringLiteral("1+"));
+        const auto snapshot = history.records();
+        for (int index = 0; index < 512; ++index)
+        {
+            const auto entry = history.calculate(QStringLiteral("ans+1"));
+            QCOMPARE(entry.id, quint64(index + 3));
+            QCOMPARE(entry.answerBefore, double(index + 1));
+            QCOMPARE(entry.result.value, double(index + 2));
+        }
+        QCOMPARE(history.count(), 514);
+        QCOMPARE(snapshot.size(), 2);
+        QCOMPARE(first.result.value, 1.0);
+        QCOMPARE(history.record(first.id)->result.value, 1.0);
+        QCOMPARE(history.record(failed.id)->result.text, failed.result.text);
+        QCOMPARE(history.record(failed.id)->answerBefore, 1.0);
+        for (int index = 0; index < history.count(); ++index)
+            QCOMPARE(history.records().at(index).id, quint64(index + 1));
+    }
+    void historiesAreIndependent()
+    {
+        CalculationHistory second;
+        {
+            CalculationHistory first;
+            first.calculate(QStringLiteral("123"));
+            first.calculate(QStringLiteral("1/0"));
+            const auto entry = second.calculate(QStringLiteral("ans+1"));
+            QCOMPARE(entry.id, quint64(1));
+            QCOMPARE(entry.answerBefore, 0.0);
+            QCOMPARE(entry.result.value, 1.0);
+            QCOMPARE(first.count(), 2);
+            QCOMPARE(first.answer(), 123.0);
+        }
+        QCOMPARE(second.count(), 1);
+        QCOMPARE(second.answer(), 1.0);
+        CalculationHistory reopened;
+        const auto entry = reopened.calculate(QStringLiteral("ans"));
+        QCOMPARE(entry.id, quint64(1));
+        QCOMPARE(entry.result.value, 0.0);
+        QCOMPARE(second.calculate(QStringLiteral("ans+1")).result.value, 2.0);
+    }
     void arithmetic_data()
     {
         QTest::addColumn<QString>("formula");

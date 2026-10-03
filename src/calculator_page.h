@@ -1,5 +1,6 @@
 #pragma once
 
+#include "calculation_history.h"
 #include <QWidget>
 #include <QPointer>
 
@@ -14,7 +15,8 @@ class CalculatorPage : public QWidget
 public:
     explicit CalculatorPage(QWidget *parent = nullptr);
     QPlainTextEdit *input() const { return m_input; }
-    int recordCount() const { return m_recordCount; }
+    int recordCount() const { return m_history.count(); }
+    const CalculationHistory &history() const { return m_history; }
     void focusInput();
     void routeEdit(const QString &command);
 
@@ -28,6 +30,8 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
+    void appendRecord(const CalculationRecord &entry);
+    void reuseFormula(quint64 id);
     void applyTheme();
     QPlainTextEdit *m_input = nullptr;
     QPointer<QWidget> m_editTarget;
@@ -36,8 +40,7 @@ private:
     QLabel *m_count = nullptr;
     QLabel *m_empty = nullptr;
     QLabel *m_status = nullptr;
-    double m_answer = 0;
-    int m_recordCount = 0;
+    CalculationHistory m_history;
     bool m_composing = false;
     bool m_followLatest = true;
     bool m_applyingTheme = false;
