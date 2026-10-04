@@ -5,6 +5,9 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QFontDatabase>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QFrame>
 #include <QInputMethodEvent>
 #include <QHideEvent>
@@ -45,6 +48,21 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_count = new QLabel(QStringLiteral("0 条记录"), this);
     m_count->setObjectName(QStringLiteral("recordCount"));
     header->addWidget(m_count);
+    m_exportButton = new QToolButton(this);
+    m_exportButton->setObjectName(QStringLiteral("exportHistoryButton"));
+    m_exportButton->setText(QStringLiteral("导出记录"));
+    m_exportButton->setToolTip(QStringLiteral("将当前窗口的全部记录导出为 TXT 或 Markdown"));
+    m_exportButton->setPopupMode(QToolButton::InstantPopup);
+    m_exportButton->setEnabled(false);
+    auto *exportMenu = new QMenu(m_exportButton);
+    m_exportButton->setMenu(exportMenu);
+    auto *exportText = exportMenu->addAction(QStringLiteral("导出为 TXT…"));
+    exportText->setObjectName(QStringLiteral("exportText"));
+    connect(exportText, &QAction::triggered, this, [this]() { requestExport(CalculationExport::Format::Text); });
+    auto *exportMarkdown = exportMenu->addAction(QStringLiteral("导出为 Markdown…"));
+    exportMarkdown->setObjectName(QStringLiteral("exportMarkdown"));
+    connect(exportMarkdown, &QAction::triggered, this, [this]() { requestExport(CalculationExport::Format::Markdown); });
+    header->addWidget(m_exportButton);
     m_clearButton = new QPushButton(QStringLiteral("清空会话"), this);
     m_clearButton->setObjectName(QStringLiteral("clearSessionButton"));
     m_clearButton->setToolTip(QStringLiteral("确认后清空记录并重置 ans，保留召回前的草稿"));
@@ -126,6 +144,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_status = new QLabel(QStringLiteral("就绪 · 关闭标签后清空记录"), composer);
     m_status->setObjectName(QStringLiteral("calculationStatus"));
     m_status->setWordWrap(true);
+    m_status->setTextFormat(Qt::PlainText);
     composeLayout->addWidget(m_status);
     layout->addWidget(composer);
     connect(m_input, &QPlainTextEdit::textChanged, this, &CalculatorPage::clearInputError);
@@ -138,13 +157,13 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 
 void CalculatorPage::focusInput()
 {
-    if (m_clearConfirmation) return;
+    if (m_clearConfirmation || m_exportDialog) return;
     m_input->setFocus(Qt::OtherFocusReason);
 }
 
 void CalculatorPage::submit()
 {
-    if (m_composing || m_clearConfirmation) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog) return;
     const QString inputText = m_input->toPlainText();
     const QString expression = inputText.trimmed();
     if (expression.isEmpty())
@@ -238,9 +257,115 @@ void CalculatorPage::applyErrorHighlight()
     m_input->setExtraSelections({selection});
 }
 
+void CalculatorPage::requestExport(CalculationExport::Format format)
+{
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog) return;
+    const bool markdown = format == CalculationExport::Format::Markdown;
+    const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
+    auto *dialog = new QFileDialog(this);
+    m_exportDialog = dialog;
+    // 使用可随页面关闭的异步 Qt 对话框。覆盖确认也使用 Qt 控件，保持相同生命周期。
+    dialog->setOption(QFileDialog::DontUseNativeDialog);
+    dialog->setAttribute(Qt::WA_WindowPropagation, true);
+    dialog->setOption(QFileDialog::DontConfirmOverwrite);
+    dialog->setObjectName(QStringLiteral("exportHistoryDialog"));
+    dialog->setWindowTitle(markdown ? QStringLiteral("导出 Markdown 计算记录") : QStringLiteral("导出 TXT 计算记录"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    dialog->setAcceptMode(QFileDialog::AcceptSave);
+    dialog->setFileMode(QFileDialog::AnyFile);
+    dialog->setNameFilter(markdown ? QStringLiteral("Markdown (*.md)") : QStringLiteral("文本文件 (*.txt)"));
+    dialog->setDefaultSuffix(markdown ? QStringLiteral("md") : QStringLiteral("txt"));
+    dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
+    dialog->setLabelText(QFileDialog::FileName, QStringLiteral("文件名："));
+    dialog->setLabelText(QFileDialog::FileType, QStringLiteral("文件类型："));
+    dialog->setLabelText(QFileDialog::Accept, QStringLiteral("导出"));
+    dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
+    const QString previous = markdown ? m_markdownExportPath : m_textExportPath;
+    if (previous.isEmpty())
+    {
+        dialog->setDirectory(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+        dialog->selectFile(markdown ? QStringLiteral("CalcTabdd.md") : QStringLiteral("CalcTabdd.txt"));
+    }
+    else
+    {
+        dialog->setDirectory(QFileInfo(previous).absolutePath());
+        dialog->selectFile(QFileInfo(previous).fileName());
+    }
+    connect(dialog, &QDialog::finished, this, [this, dialog, markdown, contents](int result) {
+        m_exportDialog.clear();
+        if (result == QDialog::Accepted && !dialog->selectedFiles().isEmpty())
+        {
+            const QString path = dialog->selectedFiles().first();
+            (markdown ? m_markdownExportPath : m_textExportPath) = path;
+            confirmExport(path, contents);
+        }
+        if (isVisible() && !m_exportDialog)
+        {
+            window()->activateWindow();
+            focusInput();
+        }
+    });
+    dialog->open();
+    // 文件对话框显示时会初始化调色板，之后同步页面配色。
+    dialog->setPalette(palette());
+}
+
+void CalculatorPage::confirmExport(const QString &path, const QByteArray &contents)
+{
+    const QFileInfo target(path);
+    if (!target.exists() && !target.isSymLink())
+    {
+        writeExport(path, contents);
+        return;
+    }
+    auto *dialog = new QDialog(this);
+    m_exportDialog = dialog;
+    dialog->setAttribute(Qt::WA_WindowPropagation, true);
+    dialog->setObjectName(QStringLiteral("exportOverwriteConfirmation"));
+    dialog->setWindowTitle(QStringLiteral("确认覆盖导出文件"));
+    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *question = new QLabel(QStringLiteral("文件已存在，是否用当前计算记录覆盖？\n%1").arg(path), dialog);
+    question->setTextFormat(Qt::PlainText);
+    question->setWordWrap(true);
+    layout->addWidget(question);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("覆盖"));
+    auto *cancel = buttons->button(QDialogButtonBox::Cancel);
+    cancel->setText(QStringLiteral("取消"));
+    cancel->setDefault(true);
+    cancel->setFocus();
+    layout->addWidget(buttons);
+    dialog->resize(480, dialog->sizeHint().height());
+    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(dialog, &QDialog::finished, this, [this, path, contents](int result) {
+        m_exportDialog.clear();
+        if (result == QDialog::Accepted) writeExport(path, contents);
+        if (isVisible())
+        {
+            window()->activateWindow();
+            focusInput();
+        }
+    });
+    dialog->open();
+    dialog->setPalette(palette());
+}
+
+void CalculatorPage::writeExport(const QString &path, const QByteArray &contents)
+{
+    const QString error = CalculationExport::writeFile(path, contents);
+    m_status->setText(error.isEmpty()
+        ? QStringLiteral("已导出 %1 条记录：%2").arg(m_history.count()).arg(path)
+        : QStringLiteral("导出失败：%1\n%2\n记录仍保留，可再次点击“导出记录”重试或选择其他位置。")
+              .arg(path, error));
+}
+
 void CalculatorPage::requestClearSession()
 {
-    if (m_composing || m_history.count() == 0 || m_clearConfirmation) return;
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog) return;
     // 使用与帮助窗口一致的 Qt 控件对话框，避免 Qt 5.15.2 QMessageBox
     // 在 Windows offscreen 平台的原生系统菜单访问。
     auto *dialog = new QDialog(this);
@@ -308,6 +433,7 @@ void CalculatorPage::clearSession()
     m_history.clear();
     m_count->setText(QStringLiteral("0 条记录"));
     m_clearButton->setEnabled(false);
+    m_exportButton->setEnabled(false);
     m_empty->show();
     m_followLatest = true;
     m_scroll->verticalScrollBar()->setValue(0);
@@ -382,6 +508,7 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     m_records->insertWidget(m_records->count() - 1, record);
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
     m_clearButton->setEnabled(!m_composing);
+    m_exportButton->setEnabled(!m_composing);
 }
 
 CalculatorPage::InputState CalculatorPage::captureInput() const
@@ -441,7 +568,7 @@ void CalculatorPage::recallHistory(bool older)
 
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    if (m_composing || m_clearConfirmation) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog) return;
     const auto &records = m_history.records();
     for (int index = 0; index < records.size(); ++index)
     {
@@ -455,6 +582,7 @@ void CalculatorPage::reuseFormula(quint64 id)
 
 void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 {
+    if (m_exportDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || (valueOnly && !entry->result.ok)) return;
     QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
@@ -464,6 +592,7 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 
 void CalculatorPage::insertResult(quint64 id)
 {
+    if (m_clearConfirmation || m_exportDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
     if (m_composing)
@@ -483,7 +612,7 @@ void CalculatorPage::insertResult(quint64 id)
 
 void CalculatorPage::routeEdit(const QString &command)
 {
-    if (m_clearConfirmation) return;
+    if (m_clearConfirmation || m_exportDialog) return;
     // Host menu proxies remain active while a modeless help window is focused.
     QWidget *focused = QApplication::focusWidget();
     if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
@@ -536,6 +665,7 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
             m_composing = !static_cast<QInputMethodEvent *>(event)->preeditString().isEmpty();
             if (m_composing) clearInputError();
             m_clearButton->setEnabled(m_history.count() > 0 && !m_composing);
+            m_exportButton->setEnabled(m_history.count() > 0 && !m_composing);
         }
         if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
         {
@@ -571,6 +701,7 @@ void CalculatorPage::keyReleaseEvent(QKeyEvent *event) { event->accept(); }
 void CalculatorPage::hideEvent(QHideEvent *event)
 {
     if (m_clearConfirmation) m_clearConfirmation->reject();
+    if (m_exportDialog) m_exportDialog->reject();
     QWidget::hideEvent(event);
 }
 
@@ -602,6 +733,7 @@ void CalculatorPage::applyTheme()
         "QPushButton#calculateButton:focus { border: 2px solid %2; }")
         .arg(base, text, border, error, colors.color(QPalette::Highlight).name(), colors.color(QPalette::HighlightedText).name()));
     applyErrorHighlight();
+    if (m_exportDialog) m_exportDialog->setPalette(colors);
     if (m_clearConfirmation)
     {
         m_clearConfirmation->setPalette(colors);

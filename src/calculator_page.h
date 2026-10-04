@@ -1,6 +1,7 @@
 #pragma once
 
 #include "calculation_history.h"
+#include "calculation_export.h"
 #include <QWidget>
 #include <QHash>
 #include <QPointer>
@@ -9,6 +10,7 @@ class FormulaCompletion;
 class QLabel;
 class QDialog;
 class QPushButton;
+class QToolButton;
 class QPlainTextEdit;
 class QScrollArea;
 class QVBoxLayout;
@@ -46,6 +48,9 @@ private:
     void recallHistory(bool older);
     void showHistory(int position);
     void restoreDraft();
+    void requestExport(CalculationExport::Format format);
+    void confirmExport(const QString &path, const QByteArray &contents);
+    void writeExport(const QString &path, const QByteArray &contents);
     void requestClearSession();
     void clearSession();
     void appendRecord(const CalculationRecord &entry);
@@ -64,6 +69,10 @@ private:
     QLabel *m_count = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPointer<QDialog> m_clearConfirmation;
+    QToolButton *m_exportButton = nullptr;
+    QPointer<QDialog> m_exportDialog;
+    QString m_textExportPath;
+    QString m_markdownExportPath;
     QLabel *m_empty = nullptr;
     QLabel *m_status = nullptr;
     CalculationHistory m_history;

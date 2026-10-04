@@ -1,5 +1,9 @@
 #include "expression_engine.h"
 #include "calculation_history.h"
+#include "calculation_export.h"
+#include <QFile>
+#include <QTemporaryDir>
+#include <QDir>
 #include "calculation_catalog.h"
 #include <QSet>
 #include <QtTest>
@@ -28,6 +32,145 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void exportKeepsOrderAndHistoricalResults_data()
+    {
+        QTest::addColumn<bool>("markdown");
+        QTest::newRow("txt") << false;
+        QTest::newRow("markdown") << true;
+    }
+    void exportKeepsOrderAndHistoricalResults()
+    {
+        QFETCH(bool, markdown);
+        CalculationHistory history;
+        history.calculate(QStringLiteral("6*7"));
+        history.calculate(QStringLiteral("ans+1"));
+        history.calculate(QStringLiteral("1/0"));
+        history.calculate(QStringLiteral("100"));
+        const auto snapshot = history.records();
+        const QByteArray bytes = CalculationExport::serialize(snapshot, markdown
+            ? CalculationExport::Format::Markdown : CalculationExport::Format::Text);
+        const QString text = QString::fromUtf8(bytes);
+        QVERIFY(text.contains(QStringLiteral("6*7\n= 42")));
+        QVERIFY(text.contains(QStringLiteral("ans+1\n= 43")));
+        QVERIFY(text.contains(QStringLiteral("1/0\n无法计算：")));
+        QVERIFY(text.contains(QStringLiteral("100\n= 100")));
+        QVERIFY(text.indexOf(QStringLiteral("6*7\n= 42")) < text.indexOf(QStringLiteral("ans+1\n= 43")));
+        QVERIFY(text.indexOf(QStringLiteral("ans+1\n= 43")) < text.indexOf(QStringLiteral("1/0\n无法计算：")));
+        QVERIFY(text.indexOf(QStringLiteral("1/0\n无法计算：")) < text.indexOf(QStringLiteral("100\n= 100")));
+        QVERIFY(text.contains(snapshot.at(2).result.text));
+        QVERIFY(!text.contains(QStringLiteral("= 101"))); // 不按当前 ans 重算历史。
+        QVERIFY(text.contains(markdown ? QStringLiteral("## 记录 04") : QStringLiteral("[04]")));
+        QCOMPARE(history.count(), 4);
+        QCOMPARE(history.answer(), 100.0);
+        QCOMPARE(history.record(2)->result.value, 43.0);
+        QCOMPARE(history.calculate(QStringLiteral("ans+1")).id, quint64(5));
+        QCOMPARE(CalculationExport::serialize(snapshot, markdown
+            ? CalculationExport::Format::Markdown : CalculationExport::Format::Text), bytes);
+    }
+    void exportKeepsUnicodeAndMarkdownLiteral_data()
+    {
+        QTest::addColumn<bool>("markdown");
+        QTest::newRow("txt") << false;
+        QTest::newRow("markdown") << true;
+    }
+    void exportKeepsUnicodeAndMarkdownLiteral()
+    {
+        QFETCH(bool, markdown);
+        CalculationHistory history;
+        const QString expression = QStringLiteral("2×3 ÷ 4 − 1\n中文😀\n```\n# 标题 | [链接](x) <b>& \\\n````");
+        auto entry = history.calculate(expression);
+        entry.result.text = QStringLiteral("参数错误：中文😀\n`````\n<img src=x> & | * _ `");
+        const QByteArray bytes = CalculationExport::serialize({entry}, markdown
+            ? CalculationExport::Format::Markdown : CalculationExport::Format::Text);
+        const QString text = QString::fromUtf8(bytes);
+        QVERIFY(text.contains(expression));
+        QVERIFY(text.contains(entry.result.text));
+        QVERIFY(!text.contains(QChar::ReplacementCharacter));
+        QCOMPARE(text.toUtf8(), bytes);
+        QVERIFY(!bytes.startsWith(QByteArray::fromHex("efbbbf")));
+        QVERIFY(!bytes.contains('\r'));
+        if (markdown)
+        {
+            QVERIFY(text.contains(QStringLiteral("\n``````text\n") + expression));
+            QVERIFY(text.endsWith(QStringLiteral("\n``````\n\n")));
+            QCOMPARE(text.count(QStringLiteral("``````")), 2);
+        }
+        else QVERIFY(text.contains(QStringLiteral("[01]\n") + expression + QStringLiteral("\n无法计算：")));
+    }
+    void exportedValuesRoundTrip_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<bool>("markdown");
+        for (const bool markdown : {false, true})
+        {
+            for (const char *formula : {"0.1+0.2", "-0", "-2", "4.9406564584124654e-324", "1.7976931348623157e308"})
+                QTest::newRow((QByteArray(markdown ? "md-" : "txt-") + formula).constData())
+                    << QString::fromLatin1(formula) << markdown;
+        }
+    }
+    void exportedValuesRoundTrip()
+    {
+        QFETCH(QString, formula);
+        QFETCH(bool, markdown);
+        RestoreLocale restore;
+        QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
+        CalculationHistory history;
+        const auto entry = history.calculate(formula);
+        QVERIFY(entry.result.ok);
+        const QString text = QString::fromUtf8(CalculationExport::serialize(history.records(), markdown
+            ? CalculationExport::Format::Markdown : CalculationExport::Format::Text));
+        const int start = text.indexOf(QStringLiteral("\n= "));
+        QVERIFY(start >= 0);
+        const QString number = text.mid(start + 3).section(QLatin1Char('\n'), 0, 0);
+        const auto parsed = ExpressionEngine::evaluate(number);
+        QVERIFY2(parsed.ok, qPrintable(number));
+        QCOMPARE(bits(parsed.value), bits(entry.result.value));
+        QCOMPARE(bits(history.answer()), bits(entry.result.value));
+        if (formula == QStringLiteral("0.1+0.2")) QCOMPARE(number, QStringLiteral("0.30000000000000004"));
+        if (formula == QStringLiteral("-0")) QCOMPARE(number, QStringLiteral("-0"));
+    }
+    void exportWritesUtf8AndReplacesCompleteFile()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("计算记录 测试.txt"));
+        QFile original(path);
+        QVERIFY(original.open(QIODevice::WriteOnly));
+        QCOMPARE(original.write(QByteArray(2048, 'x')), qint64(2048));
+        original.close();
+        CalculationHistory history;
+        history.calculate(QStringLiteral("1+中"));
+        const QByteArray bytes = CalculationExport::serialize(history.records(), CalculationExport::Format::Text);
+        const QString error = CalculationExport::writeFile(path, bytes);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), bytes);
+        original.close();
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden), QStringList{QFileInfo(path).fileName()});
+    }
+    void exportFailurePreservesFilesAndCanRetry()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString oldPath = directory.filePath(QStringLiteral("原记录.txt"));
+        QFile old(oldPath);
+        QVERIFY(old.open(QIODevice::WriteOnly));
+        const QByteArray original("previous saved calculation");
+        QCOMPARE(old.write(original), qint64(original.size()));
+        old.close();
+        const QByteArray bytes("new export\n");
+        QVERIFY(!CalculationExport::writeFile(oldPath + QStringLiteral("/cannot-create.txt"), bytes).isEmpty());
+        QVERIFY(!CalculationExport::writeFile(directory.filePath(QStringLiteral("missing/result.txt")), bytes).isEmpty());
+        QVERIFY(!CalculationExport::writeFile(directory.path(), bytes).isEmpty());
+        QVERIFY(old.open(QIODevice::ReadOnly));
+        QCOMPARE(old.readAll(), original);
+        old.close();
+        QCOMPARE(QDir(directory.path()).entryList(QDir::Files | QDir::Hidden), QStringList{QFileInfo(oldPath).fileName()});
+        const QString error = CalculationExport::writeFile(oldPath, bytes);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(old.open(QIODevice::ReadOnly));
+        QCOMPARE(old.readAll(), bytes);
+    }
     void clearingHistoryResetsSessionAndPreservesOtherHistories()
     {
         CalculationHistory history;

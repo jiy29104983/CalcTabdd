@@ -5,6 +5,9 @@
 #include <QAbstractItemView>
 #include <QCompleter>
 #include <QDialog>
+#include <QFileDialog>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QLineEdit>
 #include <QInputMethodEvent>
 #include <QToolButton>
@@ -620,6 +623,132 @@ private slots:
         delete host;
         QCoreApplication::processEvents();
         QVERIFY(dialog.isNull());
+    }
+    void exportUsesCurrentWindowAndKeepsNativeBuffersClean()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.input()->setPlainText(QStringLiteral("42"));
+        first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        second.input()->setPlainText(QStringLiteral("100"));
+        second.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        first.input()->setPlainText(QStringLiteral("ans+1"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        first.page()->findChild<QAction *>(QStringLiteral("exportMarkdown"))->trigger();
+        QPointer<QFileDialog> dialog = first.page()->findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        second.activateWindow();
+        second.input()->setFocus();
+        QTRY_VERIFY(second.input()->hasFocus());
+        second.input()->setPlainText(QStringLiteral("ans+2"));
+        QTest::keyClick(second.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 102"));
+        second.input()->setPlainText(QStringLiteral("第二窗口草稿"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncut"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
+        dialog->setDirectory(directory.path());
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("第一窗口.md"));
+        dialog->activateWindow();
+        QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save), Qt::LeftButton);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QFile file(directory.filePath(QStringLiteral("第一窗口.md")));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray contents = file.readAll();
+        QVERIFY(contents.startsWith("# CalcTabdd"));
+        QVERIFY(contents.contains("42\n= 42"));
+        QVERIFY(!contents.contains("100"));
+        QVERIFY(!contents.contains("102"));
+        QVERIFY(!contents.contains("ans+1"));
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
+        first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二窗口草稿"));
+        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 2);
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        QCOMPARE(first.hostEditCalls, 0);
+        first.tabs->setCurrentWidget(first.ordinary);
+        QVERIFY(first.findChild<QAction *>(QStringLiteral("actionSave"))->isEnabled());
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        auto *secondNative = qobject_cast<QsciScintilla *>(second.tabs->currentWidget());
+        QVERIFY(secondNative->text().isEmpty());
+        QVERIFY(!secondNative->isModified());
+    }
+    void exportDialogsFollowPageLifetime_data()
+    {
+        QTest::addColumn<bool>("overwrite");
+        QTest::addColumn<int>("closeMode");
+        for (const bool overwrite : {false, true})
+        {
+            QTest::newRow(overwrite ? "overwrite-switch" : "file-switch") << overwrite << 0;
+            QTest::newRow(overwrite ? "overwrite-close-tab" : "file-close-tab") << overwrite << 1;
+            QTest::newRow(overwrite ? "overwrite-close-window" : "file-close-window") << overwrite << 2;
+        }
+    }
+    void exportDialogsFollowPageLifetime()
+    {
+        QFETCH(bool, overwrite);
+        QFETCH(int, closeMode);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("result.txt"));
+        QFile original(path);
+        QVERIFY(original.open(QIODevice::WriteOnly));
+        original.write("old file");
+        original.close();
+        auto *host = new Host;
+        QCOMPARE(initialize(*host), 0);
+        host->openAction()->trigger();
+        host->input()->setPlainText(QStringLiteral("42"));
+        host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        host->input()->setPlainText(QStringLiteral("ans+1"));
+        auto *native = host->tabs->currentWidget();
+        host->page()->findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        auto *fileDialog = host->page()->findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(fileDialog);
+        QPointer<QDialog> dialog = fileDialog;
+        if (overwrite)
+        {
+            fileDialog->setDirectory(directory.path());
+            fileDialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("result.txt"));
+            fileDialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            dialog = host->page()->findChild<QDialog *>(QStringLiteral("exportOverwriteConfirmation"));
+            QVERIFY(dialog);
+        }
+        if (closeMode == 0) host->tabs->setCurrentWidget(host->ordinary);
+        else if (closeMode == 1) host->closeCurrent();
+        else { delete host; host = nullptr; }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArray("old file"));
+        if (host)
+        {
+            if (closeMode == 0) host->tabs->setCurrentWidget(native);
+            else host->openAction()->trigger();
+            QVERIFY(!host->page()->findChild<QFileDialog *>());
+            if (closeMode == 0)
+            {
+                QCOMPARE(host->input()->toPlainText(), QStringLiteral("ans+1"));
+                host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+                QCOMPARE(host->findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+            }
+            else
+            {
+                QVERIFY(host->page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+                QVERIFY(!host->page()->findChild<QToolButton *>(QStringLiteral("exportHistoryButton"))->isEnabled());
+            }
+            delete host;
+        }
     }
     void failedCreationPreservesExistingDocument()
     {

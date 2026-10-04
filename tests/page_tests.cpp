@@ -15,6 +15,9 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDir>
+#include <QFileDialog>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QInputMethodEvent>
 #include <QLabel>
 #include <QPlainTextEdit>
@@ -53,6 +56,303 @@ class PageTests : public QObject
         page.input()->moveCursor(QTextCursor::End);
     }
 private slots:
+    void exportDialogWritesSelectedFormatWithoutChangingSession_data()
+    {
+        QTest::addColumn<bool>("markdown");
+        QTest::newRow("txt") << false;
+        QTest::newRow("markdown") << true;
+    }
+    void exportDialogWritesSelectedFormatWithoutChangingSession()
+    {
+        QFETCH(bool, markdown);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        CalculatorPage page;
+        prepare(page, QStringLiteral("0.1+0.2"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("1+中"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("草稿😀\nans+ "));
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClicks(page.input(), "9");
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(1);
+        cursor.setPosition(5, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        const QString draft = page.input()->toPlainText();
+        QApplication::clipboard()->setText(QStringLiteral("keep clipboard"));
+        auto *button = page.findChild<QToolButton *>(QStringLiteral("exportHistoryButton"));
+        QVERIFY(button && button->isEnabled());
+        auto *action = page.findChild<QAction *>(markdown ? QStringLiteral("exportMarkdown") : QStringLiteral("exportText"));
+        QVERIFY(chooseRecordAction(button, action));
+        QPointer<QFileDialog> dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        QCOMPARE(dialog->acceptMode(), QFileDialog::AcceptSave);
+        QCOMPARE(dialog->defaultSuffix(), markdown ? QStringLiteral("md") : QStringLiteral("txt"));
+        // 使用用户实际可达的文件名输入和导出按钮，验证扩展名自动补齐。
+        dialog->setDirectory(directory.path());
+        auto *fileName = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+        QVERIFY(fileName);
+        fileName->setText(QStringLiteral("计算记录"));
+        page.submit();
+        page.routeEdit(QStringLiteral("actioncut"));
+        page.findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        action->trigger();
+        QCOMPARE(page.findChildren<QFileDialog *>().size(), 1);
+        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation")));
+        auto *save = dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save);
+        QVERIFY(save && save->isEnabled());
+        QTest::mouseClick(save, Qt::LeftButton);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QFile file(directory.filePath(markdown ? QStringLiteral("计算记录.md") : QStringLiteral("计算记录.txt")));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.errorString()));
+        const QString exported = QString::fromUtf8(file.readAll());
+        QVERIFY(exported.contains(QStringLiteral("0.1+0.2\n= 0.30000000000000004")));
+        QVERIFY(exported.contains(QStringLiteral("1+中\n无法计算：")));
+        QCOMPARE(exported.startsWith(QStringLiteral("# CalcTabdd")), markdown);
+        QVERIFY(!exported.contains(draft));
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().anchor(), 1);
+        QCOMPARE(page.input()->textCursor().position(), 5);
+        QCOMPARE(page.recordCount(), 2);
+        QCOMPARE(page.history().answer(), 0.1 + 0.2);
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("keep clipboard"));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().startsWith(QStringLiteral("已导出 2 条记录")));
+        QTRY_VERIFY(page.input()->hasFocus());
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("草稿😀\nans+ "));
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), draft);
+    }
+    void cancellingExportKeepsRecallDraftAndDiagnostics_data()
+    {
+        QTest::addColumn<int>("method");
+        QTest::newRow("cancel") << 0;
+        QTest::newRow("escape") << 1;
+        QTest::newRow("close") << 2;
+    }
+    void cancellingExportKeepsRecallDraftAndDiagnostics()
+    {
+        QFETCH(int, method);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("ln(0)"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("  草稿😀\nans+1 "));
+        page.input()->selectAll();
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QVERIFY(!page.input()->extraSelections().isEmpty());
+        const QString status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text();
+        const int position = page.input()->textCursor().position();
+        const QString tooltip = page.input()->toolTip();
+        page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        QPointer<QFileDialog> dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog);
+        if (method == 0) dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+        else if (method == 1) QTest::keyClick(dialog, Qt::Key_Escape);
+        else dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ln(0)"));
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.input()->toolTip(), tooltip);
+        QVERIFY(!page.input()->extraSelections().isEmpty());
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text(), status);
+        QCOMPARE(page.history().answer(), 0.0);
+        QCOMPARE(page.recordCount(), 1);
+        QTRY_VERIFY(page.input()->hasFocus());
+        QTest::keyClicks(page.input(), "9");
+        const QString temporary = page.input()->toPlainText();
+        page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"))->reject();
+        QCOMPARE(page.input()->toPlainText(), temporary);
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("  草稿😀\nans+1 "));
+        QCOMPARE(page.input()->textCursor().selectedText(), QStringLiteral("  草稿😀\u2029ans+1 "));
+    }
+    void exportOverwriteRequiresConfirmation_data()
+    {
+        QTest::addColumn<bool>("overwrite");
+        QTest::newRow("default-cancel") << false;
+        QTest::newRow("confirm") << true;
+    }
+    void exportOverwriteRequiresConfirmation()
+    {
+        QFETCH(bool, overwrite);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("existing.txt"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const QByteArray original("old file contents");
+        file.write(original);
+        file.close();
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog);
+        dialog->setDirectory(directory.path());
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("existing.txt"));
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        QPointer<QDialog> confirmation = page.findChild<QDialog *>(QStringLiteral("exportOverwriteConfirmation"));
+        QVERIFY(confirmation && confirmation->isVisible());
+        QCOMPARE(confirmation->windowModality(), Qt::WindowModal);
+        auto *buttons = confirmation->findChild<QDialogButtonBox *>();
+        QVERIFY(buttons->button(QDialogButtonBox::Cancel)->isDefault());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), original);
+        file.close();
+        page.submit();
+        QCOMPARE(page.recordCount(), 1);
+        if (overwrite) buttons->button(QDialogButtonBox::Ok)->click();
+        else QTest::keyClick(confirmation, Qt::Key_Return);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(confirmation.isNull());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray contents = file.readAll();
+        if (overwrite) QVERIFY(contents.contains("42\n= 42"));
+        else QCOMPARE(contents, original);
+        QCOMPARE(page.history().answer(), 42.0);
+    }
+    void failedExportCanRetryAndKeepsHistoryEdits()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString destination = directory.filePath(QStringLiteral("destination"));
+        QVERIFY(QDir().mkdir(destination));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("草稿"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QTest::keyClicks(page.input(), "+7");
+        auto *exportAction = page.findChild<QAction *>(QStringLiteral("exportText"));
+        exportAction->trigger();
+        auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog);
+        dialog->setDirectory(destination);
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("result.txt"));
+        bool removed = false;
+        // 文件选择通过后目录消失：真实写入失败，不依赖 root 权限或平台 ACL。
+        connect(dialog, &QFileDialog::fileSelected, dialog, [&](const QString &) { removed = QDir().rmdir(destination); });
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        QVERIFY(removed);
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("导出失败")));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("重试")));
+        QVERIFY(!QFileInfo::exists(destination + QStringLiteral("/result.txt")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+7"));
+        QCOMPARE(page.history().answer(), 42.0);
+        QCOMPARE(page.recordCount(), 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(QDir().mkdir(destination));
+        exportAction->trigger();
+        dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog);
+        QCOMPARE(dialog->selectedFiles().first(), destination + QStringLiteral("/result.txt"));
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        QFile file(destination + QStringLiteral("/result.txt"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray contents = file.readAll();
+        QVERIFY(contents.contains("42\n= 42"));
+        QVERIFY(!contents.contains("42+7"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+7"));
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42"));
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("42+7"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("草稿"));
+    }
+    void exportAvailabilityFollowsRecordsAndComposition()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1+"));
+        auto *button = page.findChild<QToolButton *>(QStringLiteral("exportHistoryButton"));
+        QVERIFY(button && !button->isEnabled());
+        auto *action = page.findChild<QAction *>(QStringLiteral("exportText"));
+        action->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        page.submit();
+        QVERIFY(button->isEnabled()); // 仅错误记录也可导出。
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(!button->isEnabled());
+        action->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QInputMethodEvent finish;
+        finish.setCommitString(QStringLiteral("中文"));
+        QApplication::sendEvent(page.input(), &finish);
+        QVERIFY(button->isEnabled());
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QVERIFY(chooseRecordAction(button, action));
+        QTRY_VERIFY(!completion(page)->isVisible());
+        auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog);
+        dialog->reject();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("@sq"));
+        QTRY_VERIFY(page.input()->hasFocus());
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        action->trigger();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!page.findChild<QFileDialog *>());
+        page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"))->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(!button->isEnabled());
+    }
+    void exportPaletteAndNarrowLayout()
+    {
+        QTemporaryDir temporary;
+        QVERIFY(temporary.isValid());
+        QFile file(temporary.filePath(QStringLiteral("已有记录.txt")));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("previous contents");
+        file.close();
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.resize(560, 480);
+        const QString screenshots = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        for (const bool dark : {false, true})
+        {
+            QPalette colors = page.palette();
+            colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+            colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+            colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+            colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
+            page.setPalette(colors);
+            QCoreApplication::processEvents();
+            auto *button = page.findChild<QToolButton *>(QStringLiteral("exportHistoryButton"));
+            QVERIFY(page.rect().contains(QRect(button->mapTo(&page, QPoint()), button->size())));
+            if (!screenshots.isEmpty())
+            {
+                QVERIFY(QDir().mkpath(screenshots));
+                QVERIFY(page.grab().save(screenshots + (dark ? QStringLiteral("/export-page-dark.png") : QStringLiteral("/export-page-light.png"))));
+            }
+            page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+            auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+            QVERIFY(dialog);
+            dialog->setDirectory(temporary.path());
+            dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("已有记录.txt"));
+            QTest::qWait(30);
+            QCOMPARE(dialog->palette().color(QPalette::Window), page.palette().color(QPalette::Window));
+            if (!screenshots.isEmpty())
+                QVERIFY(dialog->grab().save(screenshots + (dark ? QStringLiteral("/export-dialog-dark.png") : QStringLiteral("/export-dialog-light.png"))));
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            auto *confirmation = page.findChild<QDialog *>(QStringLiteral("exportOverwriteConfirmation"));
+            QVERIFY(confirmation);
+            QCOMPARE(confirmation->palette().color(QPalette::Window), page.palette().color(QPalette::Window));
+            QTest::qWait(30);
+            if (!screenshots.isEmpty())
+                QVERIFY(confirmation->grab().save(screenshots + (dark ? QStringLiteral("/export-overwrite-dark.png") : QStringLiteral("/export-overwrite-light.png"))));
+            confirmation->reject();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+    }
     void clearConfirmationCanBeCancelled_data()
     {
         QTest::addColumn<int>("method");
