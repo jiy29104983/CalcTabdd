@@ -94,6 +94,7 @@ private slots:
         QVERIFY(selectSession(page, path, false));
         page.resize(600, 500);
         const QString screenshots = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!screenshots.isEmpty()) QVERIFY(QDir().mkpath(screenshots));
         for (const bool dark : {false, true})
         {
             QPalette colors = page.palette();
