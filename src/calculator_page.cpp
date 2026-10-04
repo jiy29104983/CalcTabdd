@@ -16,6 +16,7 @@
 #include <QDialogButtonBox>
 #include <QToolButton>
 #include <QTextEdit>
+#include <QTextBlock>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
@@ -127,6 +128,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_status->setWordWrap(true);
     composeLayout->addWidget(m_status);
     layout->addWidget(composer);
+    connect(m_input, &QPlainTextEdit::textChanged, this, &CalculatorPage::clearInputError);
     m_completion = new FormulaCompletion(m_input);
     connect(m_completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
     connect(m_completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
@@ -143,7 +145,8 @@ void CalculatorPage::focusInput()
 void CalculatorPage::submit()
 {
     if (m_composing || m_clearConfirmation) return;
-    const QString expression = m_input->toPlainText().trimmed();
+    const QString inputText = m_input->toPlainText();
+    const QString expression = inputText.trimmed();
     if (expression.isEmpty())
     {
         m_status->setText(QStringLiteral("请先输入公式"));
@@ -174,13 +177,65 @@ void CalculatorPage::submit()
     }
     else
     {
-        m_status->setText(result.text);
-        QTextCursor cursor = m_input->textCursor();
-        cursor.setPosition(qBound(0, result.errorPosition, m_input->toPlainText().size()));
-        m_input->setTextCursor(cursor);
+        int offset = 0;
+        while (offset < inputText.size() && inputText.at(offset).isSpace()) ++offset;
+        showInputError(result, offset);
     }
     focusInput();
     QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+}
+
+void CalculatorPage::showInputError(const CalculationResult &result, int offset, bool moveCursor)
+{
+    const QString text = m_input->toPlainText();
+    m_errorPosition = qBound(0, offset + result.errorPosition, text.size());
+    m_errorLength = qBound(0, result.errorLength, text.size() - m_errorPosition);
+    QTextCursor cursor(m_input->document());
+    cursor.setPosition(m_errorPosition);
+    // 行列给用户阅读；内部范围仍用 Qt 的 UTF-16 偏移，代理对按一个字符计列。
+    const int column = cursor.block().text().left(cursor.positionInBlock()).toUcs4().size() + 1;
+    const QString location = QStringLiteral("第 %1 行，第 %2 列").arg(cursor.blockNumber() + 1).arg(column);
+    const QString message = result.text + QStringLiteral(" · ") + location;
+    m_status->setText(message);
+    m_input->setToolTip(message);
+    m_input->setAccessibleDescription(message);
+    applyErrorHighlight();
+    if (moveCursor)
+    {
+        m_input->setTextCursor(cursor);
+        m_input->ensureCursorVisible();
+    }
+}
+
+void CalculatorPage::clearInputError()
+{
+    if (m_errorPosition < 0) return;
+    m_errorPosition = -1;
+    m_errorLength = 0;
+    m_input->setExtraSelections({});
+    m_input->setToolTip(QString());
+    m_input->setAccessibleDescription(QString());
+    m_status->setText(QStringLiteral("继续编辑 · Ctrl+Enter 重新计算"));
+}
+
+void CalculatorPage::applyErrorHighlight()
+{
+    if (m_errorPosition < 0) return;
+    const bool dark = palette().color(QPalette::Window).lightness() < 128;
+    QTextEdit::ExtraSelection selection;
+    selection.cursor = QTextCursor(m_input->document());
+    selection.cursor.setPosition(m_errorPosition);
+    selection.cursor.setPosition(m_errorPosition + m_errorLength, QTextCursor::KeepAnchor);
+    selection.format.setBackground(QColor(dark ? "#583a39" : "#fbe4e1"));
+    selection.format.setForeground(QColor(dark ? "#ffe2dd" : "#8f2922"));
+    if (m_errorLength > 0)
+    {
+        selection.format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+        selection.format.setUnderlineColor(QColor(dark ? "#f2a49a" : "#b3443b"));
+    }
+    else selection.format.setProperty(QTextFormat::FullWidthSelection, true);
+    // 额外格式不改变实际选区，继续输入不会替换被标记的参数。
+    m_input->setExtraSelections({selection});
 }
 
 void CalculatorPage::requestClearSession()
@@ -237,6 +292,7 @@ void CalculatorPage::requestClearSession()
 
 void CalculatorPage::clearSession()
 {
+    clearInputError();
     if (m_historyPosition >= 0) restoreDraft();
     m_historyPosition = -1;
     m_draft = {};
@@ -356,6 +412,9 @@ void CalculatorPage::showHistory(int position)
     const InputState initial{entry.expression, entry.expression.size(), entry.expression.size()};
     restoreInput(m_recalledInputs.value(entry.id, initial));
     m_status->setText(QStringLiteral("已召回第 %1 条公式 · Alt+↑↓ 浏览，向后越过最新记录返回草稿").arg(entry.id));
+    // 仅对未修改的错误公式使用历史诊断，已有临时编辑须重新提交才能定位。
+    if (!entry.result.ok && m_input->toPlainText() == entry.expression)
+        showInputError(entry.result, 0, !m_recalledInputs.contains(entry.id));
 }
 
 void CalculatorPage::restoreDraft()
@@ -475,6 +534,7 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
         if (event->type() == QEvent::InputMethod)
         {
             m_composing = !static_cast<QInputMethodEvent *>(event)->preeditString().isEmpty();
+            if (m_composing) clearInputError();
             m_clearButton->setEnabled(m_history.count() > 0 && !m_composing);
         }
         if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
@@ -533,13 +593,15 @@ void CalculatorPage::applyTheme()
     setStyleSheet(QStringLiteral(
         "QWidget#calctabddPage { background: %1; color: %2; }"
         "QScrollArea#calculationHistory, QScrollArea#calculationHistory > QWidget > QWidget { background: %1; }"
+        "QWidget#calctabddPage QLabel, QPushButton#reuseFormula { color: %2; }"
         "QFrame#calculationRecord { border-bottom: 1px solid %3; }"
         "QLabel#recordResult[error=\"true\"] { color: %4; }"
         "QFrame#formulaComposer { border-top: 1px solid %3; }"
-        "QPlainTextEdit#formulaInput { border: 1px solid %3; border-radius: 4px; padding: 6px; }"
+        "QPlainTextEdit#formulaInput { background: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 6px; }"
         "QPushButton#calculateButton { background: %5; color: %6; border: none; border-radius: 4px; padding: 6px 16px; }"
         "QPushButton#calculateButton:focus { border: 2px solid %2; }")
         .arg(base, text, border, error, colors.color(QPalette::Highlight).name(), colors.color(QPalette::HighlightedText).name()));
+    applyErrorHighlight();
     if (m_clearConfirmation)
     {
         m_clearConfirmation->setPalette(colors);

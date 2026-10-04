@@ -52,6 +52,9 @@ private:
     void reuseFormula(quint64 id);
     void copyRecord(quint64 id, bool valueOnly);
     void insertResult(quint64 id);
+    void showInputError(const CalculationResult &result, int offset, bool moveCursor = true);
+    void clearInputError();
+    void applyErrorHighlight();
     void applyTheme();
     QPlainTextEdit *m_input = nullptr;
     FormulaCompletion *m_completion = nullptr;
@@ -68,6 +71,8 @@ private:
     int m_historyPosition = -1;
     InputState m_draft;
     QHash<quint64, InputState> m_recalledInputs;
+    int m_errorPosition = -1;
+    int m_errorLength = 0;
     bool m_composing = false;
     bool m_followLatest = true;
     bool m_applyingTheme = false;

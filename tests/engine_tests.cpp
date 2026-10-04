@@ -102,7 +102,9 @@ private slots:
         QCOMPARE(error.expression, QStringLiteral("12/(3-3)"));
         QVERIFY(!error.result.ok);
         QCOMPARE(error.result.text, QStringLiteral("除数不能为 0"));
-        QCOMPARE(error.result.errorPosition, 8);
+        QCOMPARE(error.result.errorPosition, 3);
+        QCOMPARE(error.result.errorLength, 5);
+        QCOMPARE(error.result.error, CalculationError::DivisionByZero);
         QCOMPARE(error.answerBefore, 42.0);
         QCOMPARE(next.id, quint64(3));
         QCOMPARE(next.answerBefore, 42.0);
@@ -119,6 +121,8 @@ private slots:
             QCOMPARE(byId->result.ok, entry.result.ok);
             QCOMPARE(byId->result.text, entry.result.text);
             QCOMPARE(byId->result.errorPosition, entry.result.errorPosition);
+            QCOMPARE(byId->result.errorLength, entry.result.errorLength);
+            QCOMPARE(byId->result.error, entry.result.error);
             QCOMPARE(byId->answerBefore, entry.answerBefore);
         }
         QVERIFY(!history.record(0));
@@ -348,7 +352,154 @@ private slots:
         const auto result = ExpressionEngine::evaluate(formula);
         QVERIFY(!result.ok);
         QVERIFY(!result.text.isEmpty());
+        QVERIFY(result.error != CalculationError::None);
         QVERIFY(result.errorPosition >= 0);
+        QVERIFY(result.errorLength >= 0);
+        QVERIFY(result.errorPosition + result.errorLength <= formula.size());
+    }
+    void diagnosticRanges_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<int>("length");
+        QTest::addColumn<QString>("message");
+        const auto row = [](const char *name, const QString &text, CalculationError kind,
+                            int position, int length, const QString &message) {
+            QTest::newRow(name) << text << int(kind) << position << length << message;
+        };
+        row("missing-parenthesis", QStringLiteral("(2+3"), CalculationError::Syntax, 4, 0, QStringLiteral("缺少右括号"));
+        row("missing-function-parenthesis", QStringLiteral("sqrt(9"), CalculationError::Syntax, 6, 0, QStringLiteral("缺少右括号"));
+        row("nested-parenthesis", QStringLiteral("max(1, sqrt(4)"), CalculationError::Syntax, 14, 0, QStringLiteral("缺少右括号"));
+        row("extra-parenthesis", QStringLiteral("2+3)"), CalculationError::Syntax, 3, 1, QStringLiteral("多余字符"));
+        row("missing-left-parenthesis", QStringLiteral("sqrt 9"), CalculationError::Syntax, 5, 1, QStringLiteral("缺少左括号"));
+        row("missing-value", QStringLiteral("1+"), CalculationError::Syntax, 2, 0, QStringLiteral("需要数字"));
+        row("illegal-character", QStringLiteral("2+$3"), CalculationError::Syntax, 2, 1, QStringLiteral("需要数字"));
+        row("surrogate-pair", QStringLiteral("2+😀"), CalculationError::Syntax, 2, 2, QStringLiteral("需要数字"));
+        row("whitespace-and-unicode-operator", QStringLiteral(" \n 2 × $3  "), CalculationError::Syntax, 7, 1, QStringLiteral("需要数字"));
+        row("unknown-constant", QStringLiteral("1+未知"), CalculationError::UnknownName, 2, 2, QStringLiteral("未知函数或常量"));
+        row("unknown-empty-function", QStringLiteral("what()"), CalculationError::UnknownName, 0, 4, QStringLiteral("未知函数或常量"));
+        row("unknown-multiple-arguments", QStringLiteral("what(1,2,3)"), CalculationError::UnknownName, 0, 4, QStringLiteral("未知函数或常量"));
+        row("decimal-without-digits", QStringLiteral("1+."), CalculationError::Syntax, 2, 1, QStringLiteral("需要数字"));
+        row("missing-exponent", QStringLiteral("1e+"), CalculationError::Syntax, 1, 2, QStringLiteral("缺少指数"));
+        row("empty-arguments", QStringLiteral("sqrt()"), CalculationError::ArgumentCount, 5, 1, QStringLiteral("需要 1 个参数"));
+        row("too-few-arguments", QStringLiteral("min(1)"), CalculationError::ArgumentCount, 5, 1, QStringLiteral("需要 2 个参数"));
+        row("too-many-arguments", QStringLiteral("sqrt(1,2)"), CalculationError::ArgumentCount, 7, 1, QStringLiteral("参数过多"));
+        row("third-argument", QStringLiteral("max(1,2,3)"), CalculationError::ArgumentCount, 8, 1, QStringLiteral("参数过多"));
+        row("missing-first-argument", QStringLiteral("pow(,2)"), CalculationError::ArgumentCount, 4, 1, QStringLiteral("缺少第 1 个参数"));
+        row("missing-last-argument", QStringLiteral("pow(2, )"), CalculationError::ArgumentCount, 7, 1, QStringLiteral("缺少第 2 个参数"));
+        row("incomplete-argument", QStringLiteral("max(2, "), CalculationError::ArgumentCount, 7, 0, QStringLiteral("缺少第 2 个参数"));
+        row("division", QStringLiteral("12/(3-3)"), CalculationError::DivisionByZero, 3, 5, QStringLiteral("除数不能为 0"));
+        row("spaced-division", QStringLiteral("1 ÷ (2 − 2)   + 4"), CalculationError::DivisionByZero, 4, 7, QStringLiteral("除数不能为 0"));
+        row("remainder-zero", QStringLiteral("2 % -0"), CalculationError::DivisionByZero, 4, 2, QStringLiteral("取余的除数"));
+        row("ln-zero", QStringLiteral("ln(0)"), CalculationError::Domain, 3, 1, QStringLiteral("参数必须大于 0"));
+        row("ln-negative-zero", QStringLiteral("LN(-0)"), CalculationError::Domain, 3, 2, QStringLiteral("参数必须大于 0"));
+        row("log-negative", QStringLiteral("log(-2)"), CalculationError::Domain, 4, 2, QStringLiteral("参数必须大于 0"));
+        row("nested-domain", QStringLiteral("1+ln( 2-2 )"), CalculationError::Domain, 6, 3, QStringLiteral("没有实数对数"));
+        row("sqrt-negative", QStringLiteral("sqrt(-1)"), CalculationError::Domain, 5, 2, QStringLiteral("大于或等于 0"));
+        row("power-domain", QStringLiteral("(-8)^(1/3)"), CalculationError::Domain, 5, 5, QStringLiteral("指数必须为整数"));
+        row("pow-domain", QStringLiteral("pow(-8,1/3)"), CalculationError::Domain, 7, 3, QStringLiteral("指数必须为整数"));
+        row("zero-negative-power", QStringLiteral("0^-1"), CalculationError::Domain, 2, 2, QStringLiteral("指数不能为负数"));
+        row("zero-negative-pow", QStringLiteral("pow(0,-2)"), CalculationError::Domain, 6, 2, QStringLiteral("指数不能为负数"));
+        row("literal-overflow", QStringLiteral("1e309"), CalculationError::Overflow, 0, 5, QStringLiteral("字面量过大"));
+        row("literal-underflow", QStringLiteral("1e-400"), CalculationError::Underflow, 0, 6, QStringLiteral("字面量过小"));
+        row("literal-near-zero", QStringLiteral("1e-324"), CalculationError::Underflow, 0, 6, QStringLiteral("下溢"));
+        row("arithmetic-overflow", QStringLiteral("1e308 * 2"), CalculationError::Overflow, 6, 1, QStringLiteral("数值溢出"));
+        row("addition-overflow", QStringLiteral("1e308+1e308"), CalculationError::Overflow, 5, 1, QStringLiteral("数值溢出"));
+        row("power-overflow", QStringLiteral("2^1024"), CalculationError::Overflow, 1, 1, QStringLiteral("数值溢出"));
+        row("function-overflow", QStringLiteral("1+exp(1000)"), CalculationError::Overflow, 2, 3, QStringLiteral("数值溢出"));
+        row("input-limit", QString(4097, QLatin1Char('1')), CalculationError::Limit, 4096, 1, QStringLiteral("公式过长"));
+        row("surrogate-at-limit", QString(4095, QLatin1Char('1')) + QStringLiteral("😀"), CalculationError::Limit, 4095, 2, QStringLiteral("公式过长"));
+        row("nesting-limit", QString(129, QLatin1Char('-')) + QLatin1Char('1'), CalculationError::Limit, 128, 1, QStringLiteral("嵌套过深"));
+    }
+    void diagnosticRanges()
+    {
+        QFETCH(QString, formula);
+        QFETCH(int, kind);
+        QFETCH(int, position);
+        QFETCH(int, length);
+        QFETCH(QString, message);
+        CalculationHistory history;
+        history.calculate(QStringLiteral("42"));
+        const auto entry = history.calculate(formula);
+        QVERIFY(!entry.result.ok);
+        QCOMPARE(int(entry.result.error), kind);
+        QCOMPARE(entry.result.errorPosition, position);
+        QCOMPARE(entry.result.errorLength, length);
+        QVERIFY2(entry.result.text.contains(message), qPrintable(entry.result.text));
+        QCOMPARE(entry.expression, formula);
+        QCOMPARE(history.answer(), 42.0);
+        QCOMPARE(entry.answerBefore, 42.0);
+        const auto next = history.calculate(QStringLiteral("ans+1"));
+        QCOMPARE(next.result.value, 43.0);
+        QCOMPARE(next.result.error, CalculationError::None);
+        QCOMPARE(next.result.errorPosition, -1);
+        QCOMPARE(next.result.errorLength, 0);
+        QCOMPARE(history.record(entry.id)->result.errorLength, length);
+        // 失败不能把负零 ans 的符号改成正零。
+        history.calculate(QStringLiteral("-0"));
+        history.calculate(formula);
+        QCOMPARE(bits(history.answer()), bits(-0.0));
+    }
+    void numericBoundaries_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<double>("expected");
+        const QVector<QPair<QString, double>> cases = {
+            {QStringLiteral("9007199254740991"), 9007199254740991.0},
+            {QStringLiteral("9007199254740993"), 9007199254740992.0},
+            {QStringLiteral("9007199254740994-9007199254740992"), 2.0},
+            {QStringLiteral("(2^53+1)-2^53"), 0.0},
+            {QStringLiteral("-9007199254740993"), -9007199254740992.0},
+            {QStringLiteral("(1e16+1)-1e16"), 0.0},
+            {QStringLiteral("(1e16-1e16)+1"), 1.0},
+            {QStringLiteral("(0.1+0.2)-0.3"), 5.5511151231257827021181583404541015625e-17},
+            {QStringLiteral("5.5%2"), 1.5},
+            {QStringLiteral("-5.5%2"), -1.5},
+            {QStringLiteral("5.5%-2"), 1.5},
+            {QStringLiteral("-5.5%-2"), -1.5},
+            {QStringLiteral("-4%2"), -0.0},
+            {QStringLiteral("0.3%0.1"), 0.09999999999999998},
+            {QStringLiteral("round(1.005*100)/100"), 1.0},
+            {QStringLiteral("1e-200*1e-200"), 0.0},
+            {QStringLiteral("-1e-200*1e-200"), -0.0},
+            {QStringLiteral("2.2250738585072014e-308/2"), std::numeric_limits<double>::min() / 2},
+            {QStringLiteral("4.9406564584124654e-324"), std::numeric_limits<double>::denorm_min()},
+            {QStringLiteral("4.9406564584124654e-324/2"), 0.0},
+            {QStringLiteral("-4.9406564584124654e-324/2"), -0.0},
+            {QStringLiteral("exp(-1000)"), 0.0},
+            {QStringLiteral("0^0"), 1.0},
+            {QStringLiteral("pow(0,0)"), 1.0},
+            {QStringLiteral("(-2)^-3"), -0.125},
+            {QStringLiteral("sqrt(-0)"), -0.0}
+        };
+        for (const auto &entry : cases) QTest::newRow(qPrintable(entry.first)) << entry.first << entry.second;
+    }
+    void numericBoundaries()
+    {
+        QFETCH(QString, formula);
+        QFETCH(double, expected);
+        CalculationHistory history;
+        const auto entry = history.calculate(formula);
+        QVERIFY2(entry.result.ok, qPrintable(entry.result.text));
+        // 精确逐位比较；微小值和有符号零不能被统一绝对误差容限掩盖。
+        QCOMPARE(bits(entry.result.value), bits(expected));
+        QCOMPARE(bits(history.answer()), bits(expected));
+        const auto parsed = ExpressionEngine::evaluate(entry.valueText());
+        const auto inserted = ExpressionEngine::evaluate(entry.insertionText());
+        QVERIFY(parsed.ok && inserted.ok);
+        QCOMPARE(bits(parsed.value), bits(expected));
+        QCOMPARE(bits(inserted.value), bits(expected));
+    }
+    void nonFiniteAnswerIsRejectedAtItsToken()
+    {
+        for (double value : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+        {
+            const auto result = ExpressionEngine::evaluate(QStringLiteral("1+ans"), value);
+            QVERIFY(!result.ok);
+            QCOMPARE(result.errorPosition, 2);
+            QCOMPARE(result.errorLength, 3);
+        }
     }
     void advertisedCapabilitiesAreExecutable()
     {

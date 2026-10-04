@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QTabWidget>
 #include <QTextBrowser>
+#include <QTextEdit>
 #include <QApplication>
 #include <QClipboard>
 #include <QDir>
@@ -560,6 +561,174 @@ private slots:
         QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
         QCOMPARE(page.recordCount(), 2);
     }
+    void inputDiagnosticRanges_data()
+    {
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<int>("length");
+        QTest::addColumn<QString>("location");
+        QTest::newRow("leading-and-trailing-whitespace") << QStringLiteral(" \n ln(0)  ") << 6 << 1 << QStringLiteral("第 2 行，第 5 列");
+        QTest::newRow("missing-at-end") << QStringLiteral(" \n (1+2  ") << 7 << 0 << QStringLiteral("第 2 行，第 6 列");
+        QTest::newRow("surrogate-pair") << QStringLiteral("2+\n😀") << 3 << 2 << QStringLiteral("第 2 行，第 1 列");
+        QTest::newRow("argument") << QStringLiteral("  pow(2, ) ") << 9 << 1 << QStringLiteral("第 1 行，第 10 列");
+        QTest::newRow("unicode-operators") << QStringLiteral(" \n1 ÷ (2 − 2)   ") << 6 << 7 << QStringLiteral("第 2 行，第 5 列");
+    }
+    void inputDiagnosticRanges()
+    {
+        QFETCH(QString, text);
+        QFETCH(int, position);
+        QFETCH(int, length);
+        QFETCH(QString, location);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(text);
+        const bool modified = page.input()->document()->isModified();
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.input()->toPlainText(), text);
+        QCOMPARE(page.history().answer(), 42.0);
+        QCOMPARE(page.recordCount(), 2);
+        QCOMPARE(page.input()->document()->isModified(), modified);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QVERIFY(!page.input()->textCursor().hasSelection());
+        const auto selections = page.input()->extraSelections();
+        QCOMPARE(selections.size(), 1);
+        QCOMPARE(selections.first().cursor.selectionStart(), position);
+        QCOMPARE(selections.first().cursor.selectionEnd(), position + length);
+        if (length)
+            QCOMPARE(selections.first().format.underlineStyle(), QTextCharFormat::WaveUnderline);
+        else QVERIFY(selections.first().format.boolProperty(QTextFormat::FullWidthSelection));
+        auto *status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"));
+        QVERIFY2(status->text().contains(location), qPrintable(status->text()));
+        QCOMPARE(page.input()->accessibleDescription(), status->text());
+        QCOMPARE(page.input()->toolTip(), status->text());
+        // 标记不进入文本撤销栈，也不会作为输入时的替换选区。
+        page.input()->insertPlainText(QStringLiteral("1"));
+        QString edited = text;
+        edited.insert(position, QLatin1Char('1'));
+        QCOMPARE(page.input()->toPlainText(), edited);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        QVERIFY(page.input()->toolTip().isEmpty());
+        QVERIFY(page.input()->accessibleDescription().isEmpty());
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), text);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        QCOMPARE(page.history().answer(), 43.0);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+    }
+    void recalledErrorsUseOnlyUnmodifiedFormulaRanges()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral(" \nln(0)  "));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("未提交草稿"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ln(0)"));
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        QCOMPARE(page.input()->extraSelections().first().cursor.selectionStart(), 3);
+        QCOMPARE(page.input()->textCursor().position(), 3);
+        QTest::keyClick(page.input(), Qt::Key_Delete);
+        QTest::keyClicks(page.input(), "1");
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ln(1)"));
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().answer(), 0.0);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("未提交草稿"));
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).first()->click();
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        page.input()->insertPlainText(QStringLiteral("1"));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ln(10)"));
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        QVERIFY(!page.history().record(1)->result.ok);
+    }
+    void preeditAndClearSessionRemoveDiagnosticDecoration()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("sqrt(-1)"));
+        page.submit();
+        QVERIFY(!page.input()->extraSelections().isEmpty());
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt(-1)"));
+        page.submit();
+        QCOMPARE(page.recordCount(), 1);
+        QInputMethodEvent finish;
+        QApplication::sendEvent(page.input(), &finish);
+        page.submit();
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        QVERIFY(confirmation);
+        confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt(-1)"));
+        QCOMPARE(page.recordCount(), 0);
+        page.input()->setPlainText(QStringLiteral("@sq"));
+        page.input()->moveCursor(QTextCursor::End);
+        page.activateWindow();
+        page.focusInput();
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt()"));
+        QVERIFY(page.input()->extraSelections().isEmpty());
+    }
+    void diagnosticPaletteAndScreenshots()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("  12 + ln(2 - 2)"));
+        page.submit();
+        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        for (bool dark : {false, true})
+        {
+            QPalette colors = page.palette();
+            colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+            colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+            colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+            colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
+            page.setPalette(colors);
+            QCoreApplication::processEvents();
+            const auto selections = page.input()->extraSelections();
+            QCOMPARE(selections.size(), 1);
+            QCOMPARE(selections.first().cursor.selectedText(), QStringLiteral("2 - 2"));
+            QCOMPARE(selections.first().format.foreground().color(), QColor(dark ? "#ffe2dd" : "#8f2922"));
+            QCOMPARE(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->palette().color(QPalette::WindowText), colors.color(QPalette::Text));
+            QCOMPARE(page.input()->palette().color(QPalette::Text), colors.color(QPalette::Text));
+            QCOMPARE(page.input()->palette().color(QPalette::Base), colors.color(QPalette::Base));
+            QVERIFY(!page.input()->textCursor().hasSelection());
+            if (!directory.isEmpty())
+            {
+                QVERIFY(QDir().mkpath(directory));
+                QVERIFY(page.grab().save(directory + (dark ? QStringLiteral("/error-dark.png") : QStringLiteral("/error-light.png"))));
+            }
+        }
+        page.resize(560, 480);
+        page.input()->setPlainText(QStringLiteral(" \n (2+3  "));
+        page.submit();
+        QCoreApplication::processEvents();
+        const auto selection = page.input()->extraSelections().first();
+        QVERIFY(selection.format.boolProperty(QTextFormat::FullWidthSelection));
+        QCOMPARE(selection.cursor.position(), 7);
+        if (!directory.isEmpty())
+        {
+            QTest::qWait(30);
+            QVERIFY(page.grab().save(directory + QStringLiteral("/error-missing-narrow.png")));
+        }
+    }
     void errorsPreserveInputAndAnswer()
     {
         CalculatorPage page;
@@ -790,7 +959,7 @@ private slots:
         QVERIFY(!more->findChild<QAction *>(QStringLiteral("copyValue")));
         QVERIFY(!more->findChild<QAction *>(QStringLiteral("insertResult")));
         more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
-        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("1+中\n无法计算：未知常量，或函数缺少括号"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("1+中\n无法计算：未知函数或常量：中"));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("1+中"));
         QCOMPARE(page.recordCount(), 1);
         QCOMPARE(page.history().answer(), 0.0);

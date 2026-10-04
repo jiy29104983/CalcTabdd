@@ -369,6 +369,54 @@ private slots:
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
     }
+    void diagnosticRangesStayInsideCalculatorInput()
+    {
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.input()->setPlainText(QStringLiteral("42"));
+        first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        second.input()->setPlainText(QStringLiteral("第二窗口草稿"));
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        first.input()->setPlainText(QStringLiteral(" \n ln(0) "));
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.input()->extraSelections().size(), 1);
+        QCOMPARE(first.input()->extraSelections().first().cursor.selectedText(), QStringLiteral("0"));
+        QCOMPARE(first.input()->textCursor().position(), 6);
+        QVERIFY(first.page()->findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("第 2 行，第 5 列")));
+        QVERIFY(second.input()->extraSelections().isEmpty());
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二窗口草稿"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        QVERIFY(native);
+        first.tabs->setCurrentWidget(first.ordinary);
+        first.tabs->setCurrentWidget(native);
+        QTRY_VERIFY(first.input()->hasFocus());
+        QCOMPARE(first.input()->extraSelections().size(), 1);
+        QTest::keyClick(first.input(), Qt::Key_Delete);
+        QTest::keyClicks(first.input(), "1");
+        QVERIFY(first.input()->extraSelections().isEmpty());
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral(" \n ln(1) "));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionundo"))->trigger();
+        QVERIFY(first.input()->extraSelections().isEmpty());
+        first.input()->setPlainText(QStringLiteral("ans+1"));
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        QCOMPARE(first.hostEditCalls, 0);
+        first.closeCurrent();
+        first.openAction()->trigger();
+        QVERIFY(first.input()->extraSelections().isEmpty());
+        QVERIFY(first.input()->accessibleDescription().isEmpty());
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二窗口草稿"));
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+    }
     void historyRecallKeepsWindowDraftsAndNativeBuffersIndependent()
     {
         Host first;
