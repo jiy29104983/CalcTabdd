@@ -1,6 +1,12 @@
 #include "expression_engine.h"
 #include "calculation_history.h"
 #include "calculation_export.h"
+#include "calculation_session.h"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QProcess>
+#include <cstdio>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QDir>
@@ -32,6 +38,301 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void unsupportedVersionFileStaysUnchanged()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("future.calctabdd"));
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("42"));
+        auto root = QJsonDocument::fromJson(SessionFormat::encode(original)).object();
+        root.insert(QStringLiteral("version"), 2);
+        root.insert(QStringLiteral("futureState"), QStringLiteral("preserve unknown data"));
+        const QByteArray bytes = QJsonDocument(root).toJson();
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        CalculationSessionFile store;
+        CalculationSession restored;
+        QVERIFY(store.load(path, restored).contains(QStringLiteral("格式版本")));
+        QCOMPARE(restored.history.count(), 0);
+        QVERIFY(store.path().isEmpty());
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), bytes);
+    }
+    void sessionFilesSurviveProcessExit_data()
+    {
+        QTest::addColumn<bool>("crash");
+        QTest::newRow("normal-exit") << false;
+        QTest::newRow("abrupt-exit") << true;
+    }
+    void sessionFilesSurviveProcessExit()
+    {
+        QFETCH(bool, crash);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("process.calctabdd"));
+        QProcess process;
+        process.start(QCoreApplication::applicationFilePath(), {QStringLiteral("--hold-session"), path});
+        QVERIFY(process.waitForStarted(5000));
+        QVERIFY(process.waitForReadyRead(5000));
+        QCOMPARE(process.readAllStandardOutput().trimmed(), QByteArray("LOCKED"));
+        CalculationSessionFile file;
+        CalculationSession session;
+        QVERIFY(!file.load(path, session).isEmpty());
+        if (crash) process.kill();
+        else process.write("close\n");
+        QVERIFY(process.waitForFinished(5000));
+        if (!crash) QCOMPARE(process.exitCode(), 0);
+        QVERIFY2(file.load(path, session).isEmpty(), "Session should be available after its process exits");
+        QCOMPARE(session.history.count(), 2);
+        QCOMPARE(session.history.answer(), 42.0);
+        QCOMPARE(session.input.text, QStringLiteral("跨进程草稿😀"));
+        QCOMPARE(session.history.records().last().result.error, CalculationError::DivisionByZero);
+    }
+    void sessionRoundTripKeepsSnapshotsAndNavigation()
+    {
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("0.1+0.2"));
+        original.history.calculate(QStringLiteral("ans+1"));
+        original.history.calculate(QStringLiteral("ln(0)"));
+        original.input = {QStringLiteral("临时😀\nans + 7"), 5, 1};
+        original.draft = {QStringLiteral("  草稿😀\n99 + "), 3, 8};
+        original.historyPosition = 1;
+        original.recalledInputs.insert(2, original.input);
+        original.recalledInputs.insert(3, {QStringLiteral("ln(9)"), 4, 4});
+        // 模拟旧版本计算出的结果：恢复绝不能以当前引擎重新求值。
+        auto records = original.history.records();
+        records[0].expression = QStringLiteral("old_function(中文😀)");
+        records[0].result.text = QStringLiteral("历史显示文本");
+        QVERIFY(original.history.restoreRecords(records));
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        const QByteArray bytes = SessionFormat::encode(original);
+        CalculationSession restored;
+        const QString error = SessionFormat::decode(bytes, restored);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(SessionFormat::encode(restored), bytes);
+        QCOMPARE(restored.id, original.id);
+        QCOMPARE(bits(restored.history.answer()), bits(original.history.answer()));
+        QCOMPARE(restored.history.records().first().expression, records[0].expression);
+        QCOMPARE(restored.history.records().first().result.text, records[0].result.text);
+        QCOMPARE(restored.history.records().last().result.error, CalculationError::Domain);
+        QCOMPARE(restored.input.text, original.input.text);
+        QCOMPARE(restored.input.anchor, 1);
+        QCOMPARE(restored.draft.position, 3);
+        QCOMPARE(restored.recalledInputs.value(3).text, QStringLiteral("ln(9)"));
+        QCOMPARE(restored.history.calculate(QStringLiteral("ans+1")).id, quint64(4));
+        QCOMPARE(bits(restored.history.answer()), bits(original.history.answer() + 1));
+    }
+    void sessionNumbersRoundTripExactly()
+    {
+        QVector<double> values{0, -0.0, std::numeric_limits<double>::max(),
+            std::numeric_limits<double>::min(), std::numeric_limits<double>::denorm_min(),
+            -std::numeric_limits<double>::denorm_min(), 0.1 + 0.2, 9007199254740992.0};
+        std::mt19937_64 random(803);
+        while (values.size() < 500)
+        {
+            const quint64 raw = random();
+            double value;
+            std::memcpy(&value, &raw, sizeof(value));
+            if (std::isfinite(value)) values.append(value);
+        }
+        CalculationSession original;
+        QVector<CalculationRecord> records;
+        double before = 0;
+        for (const double value : values)
+        {
+            CalculationRecord entry;
+            entry.id = static_cast<quint64>(records.size()) + 1;
+            entry.expression = QStringLiteral("historical result");
+            entry.result.ok = true;
+            entry.result.value = value;
+            entry.result.text = QStringLiteral("saved display");
+            entry.answerBefore = before;
+            records.append(entry);
+            before = value;
+        }
+        QVERIFY(original.history.restoreRecords(records));
+        CalculationSession restored;
+        const QString error = SessionFormat::decode(SessionFormat::encode(original), restored);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        for (int i = 0; i < values.size(); ++i)
+        {
+            QCOMPARE(bits(restored.history.records().at(i).result.value), bits(values[i]));
+            QCOMPARE(bits(restored.history.records().at(i).answerBefore), bits(records[i].answerBefore));
+        }
+    }
+    void invalidSessionsLeaveDestinationUntouched_data()
+    {
+        QTest::addColumn<QString>("field");
+        QTest::addColumn<QJsonValue>("replacement");
+        QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(2);
+        QTest::newRow("old-version") << QStringLiteral("version") << QJsonValue(0);
+        QTest::newRow("missing-version") << QStringLiteral("version") << QJsonValue();
+        QTest::newRow("wrong-format") << QStringLiteral("format") << QJsonValue("Other.Session");
+        QTest::newRow("invalid-uuid") << QStringLiteral("sessionId") << QJsonValue("none");
+        QTest::newRow("numeric-answer") << QStringLiteral("answer") << QJsonValue(42);
+        QTest::newRow("answer-mismatch") << QStringLiteral("answer") << QJsonValue("41");
+        QTest::newRow("nan") << QStringLiteral("answer") << QJsonValue("nan");
+        QTest::newRow("infinity") << QStringLiteral("answer") << QJsonValue("inf");
+        QTest::newRow("missing-records") << QStringLiteral("records") << QJsonValue();
+        QTest::newRow("invalid-navigation") << QStringLiteral("historyPosition") << QJsonValue(1);
+        QTest::newRow("fractional-navigation") << QStringLiteral("historyPosition") << QJsonValue(0.5);
+        QTest::newRow("invalid-input") << QStringLiteral("input") << QJsonValue(QJsonObject{{"text", "x"}, {"position", 2}, {"anchor", 0}});
+        QTest::newRow("invalid-draft") << QStringLiteral("draft") << QJsonValue(QJsonObject{{"text", "x"}, {"position", 0}, {"anchor", 0}});
+        QTest::newRow("missing-recalled") << QStringLiteral("recalledInputs") << QJsonValue();
+        QTest::newRow("wrong-id") << QStringLiteral("record.id") << QJsonValue("2");
+        QTest::newRow("unknown-error") << QStringLiteral("record.error") << QJsonValue(99);
+        QTest::newRow("success-with-error") << QStringLiteral("record.error") << QJsonValue(1);
+        QTest::newRow("negative-length") << QStringLiteral("record.errorLength") << QJsonValue(-1);
+        QTest::newRow("invalid-position") << QStringLiteral("record.errorPosition") << QJsonValue(999);
+        QTest::newRow("missing-ok") << QStringLiteral("record.ok") << QJsonValue();
+        QTest::newRow("before-mismatch") << QStringLiteral("record.answerBefore") << QJsonValue("9");
+        QTest::newRow("missing-value") << QStringLiteral("record.value") << QJsonValue();
+        QTest::newRow("value-overflow") << QStringLiteral("record.value") << QJsonValue("1e500");
+        QTest::newRow("missing-text") << QStringLiteral("record.text") << QJsonValue();
+        QTest::newRow("missing-expression") << QStringLiteral("record.expression") << QJsonValue();
+    }
+    void invalidSessionsLeaveDestinationUntouched()
+    {
+        QFETCH(QString, field);
+        QFETCH(QJsonValue, replacement);
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("42"));
+        auto root = QJsonDocument::fromJson(SessionFormat::encode(original)).object();
+        if (field.startsWith(QStringLiteral("record.")))
+        {
+            auto array = root.value(QStringLiteral("records")).toArray();
+            auto record = array.first().toObject();
+            record.insert(field.mid(7), replacement);
+            array[0] = record;
+            root.insert(QStringLiteral("records"), array);
+        }
+        else root.insert(field, replacement);
+        CalculationSession destination;
+        destination.history.calculate(QStringLiteral("7"));
+        destination.input = {QStringLiteral("草稿"), 1, 0};
+        const QByteArray before = SessionFormat::encode(destination);
+        QVERIFY(!SessionFormat::decode(QJsonDocument(root).toJson(), destination).isEmpty());
+        QCOMPARE(SessionFormat::encode(destination), before);
+    }
+    void truncatedAndOversizedSessionsAreRejected()
+    {
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("5"));
+        const auto before = SessionFormat::encode(session);
+        for (const QByteArray &invalid : {before.left(before.size() / 2), QByteArray("[]"), QByteArray(),
+                                        QByteArray(SessionFormat::maximumBytes + 1, ' ')})
+        {
+            QVERIFY(!SessionFormat::decode(invalid, session).isEmpty());
+            QCOMPARE(SessionFormat::encode(session), before);
+        }
+        auto root = QJsonDocument::fromJson(before).object();
+        QJsonArray records;
+        for (int i = 0; i <= SessionFormat::maximumRecords; ++i) records.append(QJsonObject());
+        root.insert(QStringLiteral("records"), records);
+        QVERIFY(!SessionFormat::decode(QJsonDocument(root).toJson(), session).isEmpty());
+        QCOMPARE(SessionFormat::encode(session), before);
+    }
+    void sessionFilesLockAndResumeWithoutOverwriting()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("本地😀.calctabdd"));
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("42"));
+        {
+            CalculationSessionFile first;
+            QVERIFY(first.create(path, session).isEmpty());
+            CalculationSessionFile other;
+            CalculationSession destination;
+            QVERIFY(!other.load(path, destination).isEmpty());
+            QVERIFY(!other.create(path, destination).isEmpty());
+            const QString alias = directory.path() + QStringLiteral("/./本地😀.calctabdd");
+            QVERIFY(!other.load(alias, destination).isEmpty());
+            session.history.calculate(QStringLiteral("ans+1"));
+            QVERIFY(first.save(session).isEmpty());
+        }
+        CalculationSessionFile reopened;
+        CalculationSession restored;
+        QVERIFY(reopened.load(path, restored).isEmpty());
+        QCOMPARE(SessionFormat::encode(restored), SessionFormat::encode(session));
+        QVERIFY(reopened.save(restored).isEmpty());
+        QVERIFY(QFileInfo::exists(path + QStringLiteral(".lock")));
+    }
+    void sessionFailureKeepsOldBytesAndCanRetryOrSaveElsewhere()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("session.calctabdd"));
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("9"));
+        CalculationSessionFile file;
+        QVERIFY(file.create(path, session).isEmpty());
+        QFile saved(path);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        const auto bytes = saved.readAll();
+        saved.close();
+        // 移走文件并用同名目录阻止提交，不依赖 root 权限或 Windows ACL。
+        QVERIFY(QFile::rename(path, path + QStringLiteral(".bak")));
+        QVERIFY(QDir().mkdir(path));
+        session.history.calculate(QStringLiteral("ans+1"));
+        QVERIFY(!file.save(session).isEmpty());
+        QVERIFY(QDir().rmdir(path));
+        QVERIFY(QFile::rename(path + QStringLiteral(".bak"), path));
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), bytes);
+        saved.close();
+        QVERIFY(file.save(session).isEmpty());
+        QVERIFY(saved.open(QIODevice::WriteOnly));
+        saved.write("externally modified");
+        saved.close();
+        QVERIFY(!file.save(session).isEmpty());
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QByteArray("externally modified"));
+        saved.close();
+        CalculationSessionFile rescue;
+        QVERIFY(rescue.create(directory.filePath(QStringLiteral("rescue.calctabdd")), session).isEmpty());
+        QCOMPARE(session.history.count(), 2);
+    }
+    void existingOrDamagedSessionIsNeverTruncated()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("existing.calctabdd"));
+        QFile original(path);
+        QVERIFY(original.open(QIODevice::WriteOnly));
+        original.write("broken snapshot");
+        original.close();
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("42"));
+        const auto before = SessionFormat::encode(session);
+        CalculationSessionFile file;
+        QVERIFY(!file.create(path, session).isEmpty());
+        QVERIFY(!file.load(path, session).isEmpty());
+        QCOMPARE(SessionFormat::encode(session), before);
+        QVERIFY(original.open(QIODevice::ReadOnly));
+        QCOMPARE(original.readAll(), QByteArray("broken snapshot"));
+        original.close();
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        QVERIFY(!file.create(directory.filePath(QStringLiteral("missing/file.calctabdd")), session).isEmpty());
+        QVERIFY(file.create(directory.filePath(QStringLiteral("new.calctabdd")), session).isEmpty());
+    }
+    void emptyAndClearedSessionsResetAnswerAndNumbering()
+    {
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("-0"));
+        original.history.calculate(QStringLiteral("1+"));
+        CalculationSession restored;
+        QVERIFY(SessionFormat::decode(SessionFormat::encode(original), restored).isEmpty());
+        QCOMPARE(bits(restored.history.answer()), bits(-0.0));
+        original.history.clear();
+        original.input = {QStringLiteral("草稿😀"), 2, 0};
+        QVERIFY(SessionFormat::decode(SessionFormat::encode(original), restored).isEmpty());
+        QCOMPARE(restored.history.count(), 0);
+        QCOMPARE(bits(restored.history.answer()), bits(0.0));
+        QCOMPARE(restored.history.calculate(QStringLiteral("ans+1")).id, quint64(1));
+        QCOMPARE(restored.history.answer(), 1.0);
+    }
     void exportKeepsOrderAndHistoricalResults_data()
     {
         QTest::addColumn<bool>("markdown");
@@ -673,5 +974,25 @@ private slots:
         QLocale::setDefault(QLocale::c());
     }
 };
-QTEST_MAIN(EngineTests)
+int main(int argc, char **argv)
+{
+    // 独立子进程持有真实文件锁；同时验证普通退出和进程崩溃后的快照恢复。
+    if (argc == 3 && QByteArray(argv[1]) == QByteArray("--hold-session"))
+    {
+        QCoreApplication app(argc, argv);
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("42"));
+        session.history.calculate(QStringLiteral("1/0"));
+        session.input = {QStringLiteral("跨进程草稿😀"), 2, 0};
+        CalculationSessionFile file;
+        if (!file.create(QString::fromLocal8Bit(argv[2]), session).isEmpty()) return 2;
+        std::fputs("LOCKED\n", stdout);
+        std::fflush(stdout);
+        char buffer[16];
+        return std::fgets(buffer, sizeof(buffer), stdin) ? 0 : 3;
+    }
+    QApplication app(argc, argv);
+    EngineTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "engine_tests.moc"

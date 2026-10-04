@@ -25,6 +25,8 @@ public:
     CalculationRecord calculate(const QString &expression);
     // 同时清空成功和失败记录，重置 ans 与编号。
     void clear();
+    // 校验整份快照后替换；失败保持原模型，不求值旧公式。
+    bool restoreRecords(const QVector<CalculationRecord> &records);
     const QVector<CalculationRecord> &records() const { return m_records; }
     // 未找到时返回 nullptr；指针只在下次修改模型前有效。跨事件保存 id。
     const CalculationRecord *record(quint64 id) const;

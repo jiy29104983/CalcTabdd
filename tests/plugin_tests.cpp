@@ -1,4 +1,5 @@
 #include "ndd_plugin_api.h"
+#include "calculation_session.h"
 #include <Qsci/qsciscintilla.h>
 #include <plugin.h>
 #include <QApplication>
@@ -111,7 +112,142 @@ class PluginTests : public QObject
         data.rootMenu = host.plugins;
         return m_main(&host, QStringLiteral(CALCTABDD_PLUGIN_PATH), host.getter(), host.callback(), &data);
     }
+    bool selectSession(Host &host, const QString &path, bool restore)
+    {
+        host.page()->findChild<QAction *>(restore ? QStringLiteral("restoreSession") : QStringLiteral("saveSessionAs"))->trigger();
+        auto *dialog = host.page()->findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+        if (!dialog || !dialog->isVisible()) return false;
+        dialog->setDirectory(QFileInfo(path).absolutePath());
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QFileInfo(path).fileName());
+        auto *button = dialog->findChild<QDialogButtonBox *>()->button(restore ? QDialogButtonBox::Open : QDialogButtonBox::Save);
+        if (!button || !button->isEnabled()) return false;
+        button->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        return !host.page()->findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+    }
+    CalculationSession readSession(const QString &path)
+    {
+        QFile file(path);
+        CalculationSession session;
+        if (!file.open(QIODevice::ReadOnly)) qFatal("Saved session cannot be read");
+        const auto error = SessionFormat::decode(file.readAll(), session);
+        if (!error.isEmpty()) qFatal("%s", qPrintable(error));
+        return session;
+    }
 private slots:
+    void savedSessionsSurviveTabAndWindowLifetimeIndependently()
+    {
+        QTemporaryDir directory;
+        const QString firstPath = directory.filePath(QStringLiteral("first.calctabdd"));
+        const QString secondPath = directory.filePath(QStringLiteral("second.calctabdd"));
+        {
+            Host first;
+            Host second;
+            QCOMPARE(initialize(first), 0);
+            QCOMPARE(initialize(second), 0);
+            first.openAction()->trigger();
+            second.openAction()->trigger();
+            first.input()->setPlainText(QStringLiteral("0.1+0.2"));
+            first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+            QVERIFY(selectSession(first, firstPath, false));
+            // 第二窗口不能恢复正在使用的会话，也不能覆盖它。
+            QVERIFY(selectSession(second, firstPath, true));
+            QVERIFY(second.page()->findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("其他窗口或进程")));
+            QVERIFY(second.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            second.input()->setPlainText(QStringLiteral("21"));
+            second.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+            QVERIFY(selectSession(second, secondPath, false));
+            first.input()->setPlainText(QStringLiteral("原草稿😀"));
+            first.input()->selectAll();
+            first.activateWindow();
+            first.input()->setFocus();
+            QTest::keyClick(first.input(), Qt::Key_Up, Qt::AltModifier);
+            first.input()->setPlainText(QStringLiteral("ans+2"));
+            first.closeCurrent();
+            const auto saved = readSession(firstPath);
+            QCOMPARE(saved.history.count(), 1);
+            QCOMPARE(saved.history.answer(), 0.1 + 0.2);
+            QCOMPARE(saved.input.text, QStringLiteral("ans+2"));
+            QCOMPARE(saved.draft.text, QStringLiteral("原草稿😀"));
+            QCOMPARE(readSession(secondPath).history.answer(), 21.0);
+            first.openAction()->trigger();
+            QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            QVERIFY(first.input()->toPlainText().isEmpty());
+            QVERIFY(selectSession(first, firstPath, true));
+            QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+2"));
+            first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+            QCOMPARE(first.input()->toPlainText(), QStringLiteral("原草稿😀"));
+            QCOMPARE(readSession(firstPath).history.answer(), 0.1 + 0.2 + 2);
+            QCOMPARE(readSession(secondPath).history.answer(), 21.0);
+            for (Host *host : {&first, &second})
+            {
+                auto *native = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
+                QVERIFY(native->text().isEmpty());
+                QVERIFY(!native->isModified());
+                QVERIFY(native->isReadOnly());
+                QCOMPARE(host->ordinary->text(), QStringLiteral("普通文档，不得改动"));
+                QCOMPARE(host->hostEditCalls, 0);
+            }
+            second.input()->setPlainText(QStringLiteral("窗口退出前草稿"));
+        }
+        QVERIFY(!QFileInfo::exists(firstPath + QStringLiteral(".lock")));
+        QVERIFY(!QFileInfo::exists(secondPath + QStringLiteral(".lock")));
+        Host reopened;
+        QCOMPARE(initialize(reopened), 0);
+        reopened.openAction()->trigger();
+        QVERIFY(selectSession(reopened, secondPath, true));
+        QCOMPARE(reopened.input()->toPlainText(), QStringLiteral("窗口退出前草稿"));
+        QCOMPARE(reopened.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 21"));
+    }
+    void sessionFileDialogsFollowPageLifetime_data()
+    {
+        QTest::addColumn<bool>("restore");
+        QTest::addColumn<int>("closeMode");
+        for (const bool restore : {false, true})
+        {
+            QTest::newRow(restore ? "restore-switch" : "save-switch") << restore << 0;
+            QTest::newRow(restore ? "restore-close-tab" : "save-close-tab") << restore << 1;
+            QTest::newRow(restore ? "restore-close-window" : "save-close-window") << restore << 2;
+        }
+    }
+    void sessionFileDialogsFollowPageLifetime()
+    {
+        QFETCH(bool, restore);
+        QFETCH(int, closeMode);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("session.calctabdd"));
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("19"));
+        if (restore)
+        {
+            CalculationSessionFile file;
+            QVERIFY(file.create(path, original).isEmpty());
+        }
+        auto *host = new Host;
+        QCOMPARE(initialize(*host), 0);
+        host->openAction()->trigger();
+        QWidget *native = host->tabs->currentWidget();
+        host->page()->findChild<QAction *>(restore ? QStringLiteral("restoreSession") : QStringLiteral("saveSessionAs"))->trigger();
+        QPointer<QFileDialog> dialog = host->page()->findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        dialog->setDirectory(directory.path());
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QFileInfo(path).fileName());
+        if (closeMode == 0) host->tabs->setCurrentWidget(host->ordinary);
+        else if (closeMode == 1) host->closeCurrent();
+        else { delete host; host = nullptr; }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        if (restore) QCOMPARE(SessionFormat::encode(readSession(path)), SessionFormat::encode(original));
+        else QVERIFY(!QFileInfo::exists(path));
+        if (host)
+        {
+            if (closeMode == 0) host->tabs->setCurrentWidget(native);
+            else host->openAction()->trigger();
+            QVERIFY(host->page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            delete host;
+        }
+    }
     void initTestCase()
     {
         m_library.setFileName(QStringLiteral(CALCTABDD_PLUGIN_PATH));

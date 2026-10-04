@@ -2,10 +2,12 @@
 
 #include "calculation_history.h"
 #include "calculation_export.h"
+#include "calculation_session.h"
 #include <QWidget>
-#include <QHash>
 #include <QPointer>
 
+class QAction;
+class QTimer;
 class FormulaCompletion;
 class QLabel;
 class QDialog;
@@ -20,6 +22,7 @@ class CalculatorPage : public QWidget
     Q_OBJECT
 public:
     explicit CalculatorPage(QWidget *parent = nullptr);
+    ~CalculatorPage() override;
     QPlainTextEdit *input() const { return m_input; }
     int recordCount() const { return m_history.count(); }
     const CalculationHistory &history() const { return m_history; }
@@ -37,12 +40,14 @@ protected:
     void hideEvent(QHideEvent *event) override;
 
 private:
-    struct InputState
-    {
-        QString text;
-        int position = 0;
-        int anchor = 0;
-    };
+    using InputState = CalculationInputState;
+    CalculationSession captureSession() const;
+    void restoreSession(const CalculationSession &session);
+    void requestSessionFile(bool restore);
+    void scheduleSave();
+    bool saveSession();
+    void stopSaving();
+    void updateSessionStatus(const QString &error = QString());
     InputState captureInput() const;
     void restoreInput(const InputState &state);
     void recallHistory(bool older);
@@ -61,6 +66,16 @@ private:
     void clearInputError();
     void applyErrorHighlight();
     void applyTheme();
+    QToolButton *m_sessionButton = nullptr;
+    QAction *m_saveNowAction = nullptr;
+    QAction *m_stopSavingAction = nullptr;
+    QLabel *m_sessionStatus = nullptr;
+    QPointer<QDialog> m_sessionDialog;
+    QTimer *m_saveTimer = nullptr;
+    std::unique_ptr<CalculationSessionFile> m_sessionFile;
+    QString m_sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    bool m_sessionDirty = false;
+    bool m_restoringSession = false;
     QPlainTextEdit *m_input = nullptr;
     FormulaCompletion *m_completion = nullptr;
     QPointer<QWidget> m_editTarget;
@@ -79,7 +94,7 @@ private:
     // -1 表示原草稿；仅保存本轮浏览过的记录的临时编辑，不改历史模型。
     int m_historyPosition = -1;
     InputState m_draft;
-    QHash<quint64, InputState> m_recalledInputs;
+    QMap<quint64, InputState> m_recalledInputs;
     int m_errorPosition = -1;
     int m_errorLength = 0;
     bool m_composing = false;

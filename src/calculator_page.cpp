@@ -63,6 +63,30 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     exportMarkdown->setObjectName(QStringLiteral("exportMarkdown"));
     connect(exportMarkdown, &QAction::triggered, this, [this]() { requestExport(CalculationExport::Format::Markdown); });
     header->addWidget(m_exportButton);
+    m_sessionButton = new QToolButton(this);
+    m_sessionButton->setObjectName(QStringLiteral("sessionButton"));
+    m_sessionButton->setText(QStringLiteral("本地会话"));
+    m_sessionButton->setToolTip(QStringLiteral("可选保存与恢复；默认不保存，文件由当前窗口独占"));
+    m_sessionButton->setPopupMode(QToolButton::InstantPopup);
+    auto *sessionMenu = new QMenu(m_sessionButton);
+    m_sessionButton->setMenu(sessionMenu);
+    auto *saveAs = sessionMenu->addAction(QStringLiteral("开启保存／另存新文件…"));
+    saveAs->setObjectName(QStringLiteral("saveSessionAs"));
+    connect(saveAs, &QAction::triggered, this, [this]() { requestSessionFile(false); });
+    auto *restore = sessionMenu->addAction(QStringLiteral("恢复会话…"));
+    restore->setObjectName(QStringLiteral("restoreSession"));
+    connect(restore, &QAction::triggered, this, [this]() { requestSessionFile(true); });
+    m_saveNowAction = sessionMenu->addAction(QStringLiteral("立即保存／重试"));
+    m_saveNowAction->setObjectName(QStringLiteral("saveSessionNow"));
+    m_saveNowAction->setEnabled(false);
+    connect(m_saveNowAction, &QAction::triggered, this, [this]() {
+        if (!m_composing && !m_sessionDialog && !m_exportDialog && !m_clearConfirmation) saveSession();
+    });
+    m_stopSavingAction = sessionMenu->addAction(QStringLiteral("停止保存（保留文件）"));
+    m_stopSavingAction->setObjectName(QStringLiteral("stopSavingSession"));
+    m_stopSavingAction->setEnabled(false);
+    connect(m_stopSavingAction, &QAction::triggered, this, &CalculatorPage::stopSaving);
+    header->addWidget(m_sessionButton);
     m_clearButton = new QPushButton(QStringLiteral("清空会话"), this);
     m_clearButton->setObjectName(QStringLiteral("clearSessionButton"));
     m_clearButton->setToolTip(QStringLiteral("确认后清空记录并重置 ans，保留召回前的草稿"));
@@ -75,6 +99,13 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     connect(help, &QPushButton::clicked, this, [this]() { showCalculatorHelp(window()); });
     header->addWidget(help);
     layout->addLayout(header);
+    m_sessionStatus = new QLabel(this);
+    m_sessionStatus->setObjectName(QStringLiteral("sessionSaveStatus"));
+    m_sessionStatus->setWordWrap(true);
+    m_sessionStatus->setTextFormat(Qt::PlainText);
+    m_sessionStatus->setContentsMargins(24, 0, 24, 8);
+    m_sessionStatus->hide();
+    layout->addWidget(m_sessionStatus);
 
     m_scroll = new QScrollArea(this);
     m_scroll->setObjectName(QStringLiteral("calculationHistory"));
@@ -141,7 +172,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     hint->setWordWrap(true);
     hint->setObjectName(QStringLiteral("inputHint"));
     composeLayout->addWidget(hint);
-    m_status = new QLabel(QStringLiteral("就绪 · 关闭标签后清空记录"), composer);
+    m_status = new QLabel(QStringLiteral("就绪 · Ctrl+Enter 计算"), composer);
     m_status->setObjectName(QStringLiteral("calculationStatus"));
     m_status->setWordWrap(true);
     m_status->setTextFormat(Qt::PlainText);
@@ -151,19 +182,26 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_completion = new FormulaCompletion(m_input);
     connect(m_completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
     connect(m_completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
+    m_saveTimer = new QTimer(this);
+    m_saveTimer->setSingleShot(true);
+    m_saveTimer->setInterval(200);
+    connect(m_saveTimer, &QTimer::timeout, this, [this]() { saveSession(); });
+    connect(m_input, &QPlainTextEdit::textChanged, this, &CalculatorPage::scheduleSave);
+    connect(m_input, &QPlainTextEdit::cursorPositionChanged, this, &CalculatorPage::scheduleSave);
+    connect(m_input, &QPlainTextEdit::selectionChanged, this, &CalculatorPage::scheduleSave);
     setFocusProxy(m_input);
     applyTheme();
 }
 
 void CalculatorPage::focusInput()
 {
-    if (m_clearConfirmation || m_exportDialog) return;
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     m_input->setFocus(Qt::OtherFocusReason);
 }
 
 void CalculatorPage::submit()
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const QString inputText = m_input->toPlainText();
     const QString expression = inputText.trimmed();
     if (expression.isEmpty())
@@ -191,7 +229,7 @@ void CalculatorPage::submit()
         else
         {
             m_input->clear();
-            m_status->setText(QStringLiteral("计算完成 · 关闭标签后清空记录"));
+            m_status->setText(QStringLiteral("计算完成"));
         }
     }
     else
@@ -200,6 +238,7 @@ void CalculatorPage::submit()
         while (offset < inputText.size() && inputText.at(offset).isSpace()) ++offset;
         showInputError(result, offset);
     }
+    if (m_sessionFile) saveSession();
     focusInput();
     QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
 }
@@ -259,7 +298,7 @@ void CalculatorPage::applyErrorHighlight()
 
 void CalculatorPage::requestExport(CalculationExport::Format format)
 {
-    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog) return;
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const bool markdown = format == CalculationExport::Format::Markdown;
     const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
     auto *dialog = new QFileDialog(this);
@@ -365,7 +404,7 @@ void CalculatorPage::writeExport(const QString &path, const QByteArray &contents
 
 void CalculatorPage::requestClearSession()
 {
-    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog) return;
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     // 使用与帮助窗口一致的 Qt 控件对话框，避免 Qt 5.15.2 QMessageBox
     // 在 Windows offscreen 平台的原生系统菜单访问。
     auto *dialog = new QDialog(this);
@@ -386,6 +425,7 @@ void CalculatorPage::requestClearSession()
     auto *details = new QLabel(m_historyPosition >= 0
         ? QStringLiteral("将返回召回前的草稿，并丢弃本轮历史公式的临时编辑。清空不可撤销；其他窗口不受影响。")
         : QStringLiteral("输入区的草稿、光标和选区会保留。清空不可撤销；其他窗口不受影响。"), dialog);
+    if (m_sessionFile) details->setText(details->text() + QStringLiteral("\n本地保存已开启：清空也会更新会话文件。"));
     details->setObjectName(QStringLiteral("clearSessionDetails"));
     details->setTextFormat(Qt::PlainText);
     details->setWordWrap(true);
@@ -438,6 +478,7 @@ void CalculatorPage::clearSession()
     m_followLatest = true;
     m_scroll->verticalScrollBar()->setValue(0);
     m_status->setText(QStringLiteral("会话已清空 · ans = 0 · 草稿已保留"));
+    if (m_sessionFile && !m_restoringSession) saveSession();
 }
 
 void CalculatorPage::appendRecord(const CalculationRecord &entry)
@@ -542,6 +583,7 @@ void CalculatorPage::showHistory(int position)
     // 仅对未修改的错误公式使用历史诊断，已有临时编辑须重新提交才能定位。
     if (!entry.result.ok && m_input->toPlainText() == entry.expression)
         showInputError(entry.result, 0, !m_recalledInputs.contains(entry.id));
+    scheduleSave();
 }
 
 void CalculatorPage::restoreDraft()
@@ -550,10 +592,12 @@ void CalculatorPage::restoreDraft()
     m_recalledInputs.clear();
     restoreInput(m_draft);
     m_draft = {};
+    scheduleSave();
 }
 
 void CalculatorPage::recallHistory(bool older)
 {
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     if (m_history.count() == 0 || (!older && m_historyPosition < 0)) return;
     const int position = m_historyPosition < 0 ? m_history.count() - 1
                                                : m_historyPosition + (older ? -1 : 1);
@@ -568,7 +612,7 @@ void CalculatorPage::recallHistory(bool older)
 
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const auto &records = m_history.records();
     for (int index = 0; index < records.size(); ++index)
     {
@@ -582,7 +626,7 @@ void CalculatorPage::reuseFormula(quint64 id)
 
 void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 {
-    if (m_exportDialog) return;
+    if (m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || (valueOnly && !entry->result.ok)) return;
     QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
@@ -592,7 +636,7 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 
 void CalculatorPage::insertResult(quint64 id)
 {
-    if (m_clearConfirmation || m_exportDialog) return;
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
     if (m_composing)
@@ -612,7 +656,7 @@ void CalculatorPage::insertResult(quint64 id)
 
 void CalculatorPage::routeEdit(const QString &command)
 {
-    if (m_clearConfirmation || m_exportDialog) return;
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     // Host menu proxies remain active while a modeless help window is focused.
     QWidget *focused = QApplication::focusWidget();
     if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
@@ -664,6 +708,7 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
         {
             m_composing = !static_cast<QInputMethodEvent *>(event)->preeditString().isEmpty();
             if (m_composing) clearInputError();
+            m_sessionButton->setEnabled(!m_composing);
             m_clearButton->setEnabled(m_history.count() > 0 && !m_composing);
             m_exportButton->setEnabled(m_history.count() > 0 && !m_composing);
         }
@@ -702,6 +747,8 @@ void CalculatorPage::hideEvent(QHideEvent *event)
 {
     if (m_clearConfirmation) m_clearConfirmation->reject();
     if (m_exportDialog) m_exportDialog->reject();
+    if (m_sessionDialog) m_sessionDialog->reject();
+    if (m_sessionDirty) saveSession();
     QWidget::hideEvent(event);
 }
 
@@ -734,6 +781,7 @@ void CalculatorPage::applyTheme()
         .arg(base, text, border, error, colors.color(QPalette::Highlight).name(), colors.color(QPalette::HighlightedText).name()));
     applyErrorHighlight();
     if (m_exportDialog) m_exportDialog->setPalette(colors);
+    if (m_sessionDialog) m_sessionDialog->setPalette(colors);
     if (m_clearConfirmation)
     {
         m_clearConfirmation->setPalette(colors);
@@ -743,4 +791,147 @@ void CalculatorPage::applyTheme()
             "QPushButton:focus { border: 2px solid %4; }")
             .arg(base, text, border, colors.color(QPalette::Highlight).name()));
     }
+}
+
+CalculatorPage::~CalculatorPage()
+{
+    // QWidget 的子控件此时仍在；即使没有先收到 hideEvent 也提交最后的已上屏草稿。
+    if (m_sessionDirty) saveSession();
+}
+
+CalculationSession CalculatorPage::captureSession() const
+{
+    CalculationSession session;
+    session.id = m_sessionId;
+    session.history = m_history;
+    session.input = captureInput();
+    session.historyPosition = m_historyPosition;
+    if (m_historyPosition >= 0)
+    {
+        session.draft = m_draft;
+        session.recalledInputs = m_recalledInputs;
+        session.recalledInputs.insert(m_history.records().at(m_historyPosition).id, session.input);
+    }
+    return session;
+}
+
+void CalculatorPage::restoreSession(const CalculationSession &session)
+{
+    QScopedValueRollback<bool> restoring(m_restoringSession, true);
+    clearSession();
+    m_history = session.history;
+    m_sessionId = session.id;
+    for (const auto &entry : m_history.records()) appendRecord(entry);
+    m_historyPosition = session.historyPosition;
+    m_draft = session.draft;
+    m_recalledInputs = session.recalledInputs;
+    restoreInput(session.input);
+    const CalculationRecord *entry = m_historyPosition >= 0
+        ? &m_history.records().at(m_historyPosition)
+        : (m_history.count() > 0 ? &m_history.records().last() : nullptr);
+    if (entry && !entry->result.ok && session.input.text.trimmed() == entry->expression)
+    {
+        int offset = 0;
+        while (offset < session.input.text.size() && session.input.text.at(offset).isSpace()) ++offset;
+        showInputError(entry->result, offset, false);
+    }
+    else m_status->setText(QStringLiteral("已恢复历史结果与草稿，未重新计算旧公式"));
+}
+
+void CalculatorPage::scheduleSave()
+{
+    if (!m_sessionFile || m_restoringSession) return;
+    m_sessionDirty = true;
+    m_saveTimer->start();
+}
+
+void CalculatorPage::updateSessionStatus(const QString &error)
+{
+    m_saveNowAction->setEnabled(bool(m_sessionFile));
+    m_stopSavingAction->setEnabled(bool(m_sessionFile));
+    if (!error.isEmpty())
+    {
+        m_sessionStatus->setText(QStringLiteral("%1\n当前记录与草稿仍保留。请通过“本地会话”重试或另存新文件，成功保存前不要关闭标签。")
+            .arg(error));
+    }
+    else if (m_sessionFile)
+        m_sessionStatus->setText(QStringLiteral("本地保存已开启 · %1\n关闭后可在空白计算器中选择“恢复会话”。").arg(m_sessionFile->path()));
+    else m_sessionStatus->setText(QStringLiteral("本地保存已停止，已保存文件保留；后续更改仅在当前标签有效。"));
+    m_sessionStatus->show();
+}
+
+bool CalculatorPage::saveSession()
+{
+    m_saveTimer->stop();
+    if (!m_sessionFile) return true;
+    const QString error = m_sessionFile->save(captureSession());
+    m_sessionDirty = !error.isEmpty();
+    updateSessionStatus(error.isEmpty() ? QString() : QStringLiteral("保存失败：%1").arg(error));
+    return error.isEmpty();
+}
+
+void CalculatorPage::stopSaving()
+{
+    if (m_composing || m_sessionDialog || m_exportDialog || m_clearConfirmation || !m_sessionFile) return;
+    // 失败时继续持有文件与可见会话，用户可以重试或另存。
+    if (!saveSession()) return;
+    m_sessionFile.reset();
+    updateSessionStatus();
+}
+
+void CalculatorPage::requestSessionFile(bool restore)
+{
+    if (m_composing || m_sessionDialog || m_clearConfirmation || m_exportDialog) return;
+    if (restore && (m_history.count() > 0 || !m_input->toPlainText().isEmpty() || m_sessionFile))
+    {
+        updateSessionStatus(QStringLiteral("请在没有记录、没有草稿且未开启保存的空白计算器中恢复会话。"));
+        return;
+    }
+    auto *dialog = new QFileDialog(this);
+    m_sessionDialog = dialog;
+    dialog->setObjectName(QStringLiteral("sessionFileDialog"));
+    dialog->setOption(QFileDialog::DontUseNativeDialog);
+    dialog->setOption(QFileDialog::DontConfirmOverwrite);
+    dialog->setAttribute(Qt::WA_WindowPropagation, true);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    dialog->setWindowTitle(restore ? QStringLiteral("恢复本地会话") : QStringLiteral("选择新文件并开启自动保存"));
+    dialog->setAcceptMode(restore ? QFileDialog::AcceptOpen : QFileDialog::AcceptSave);
+    dialog->setFileMode(restore ? QFileDialog::ExistingFile : QFileDialog::AnyFile);
+    dialog->setNameFilter(QStringLiteral("CalcTabdd 会话 (*.calctabdd)"));
+    dialog->setDefaultSuffix(QStringLiteral("calctabdd"));
+    dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
+    dialog->setLabelText(QFileDialog::FileName, QStringLiteral("文件名："));
+    dialog->setLabelText(QFileDialog::FileType, QStringLiteral("文件类型："));
+    dialog->setLabelText(QFileDialog::Accept, restore ? QStringLiteral("恢复") : QStringLiteral("开启保存"));
+    dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
+    dialog->setDirectory(m_sessionFile ? QFileInfo(m_sessionFile->path()).absolutePath()
+        : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    if (!restore) dialog->selectFile(QStringLiteral("CalcTabdd-%1.calctabdd").arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8)));
+    connect(dialog, &QDialog::finished, this, [this, dialog, restore](int result) {
+        m_sessionDialog.clear();
+        if (result == QDialog::Accepted && !dialog->selectedFiles().isEmpty())
+        {
+            auto file = std::unique_ptr<CalculationSessionFile>(new CalculationSessionFile);
+            CalculationSession session;
+            const QString path = dialog->selectedFiles().first();
+            const QString error = restore ? file->load(path, session) : file->create(path, captureSession());
+            if (error.isEmpty())
+            {
+                m_saveTimer->stop();
+                if (restore) restoreSession(session);
+                m_sessionFile = std::move(file);
+                m_sessionDirty = false;
+                updateSessionStatus();
+            }
+            else updateSessionStatus(error);
+        }
+        if (isVisible())
+        {
+            window()->activateWindow();
+            focusInput();
+        }
+    });
+    dialog->open();
+    dialog->setPalette(palette());
 }

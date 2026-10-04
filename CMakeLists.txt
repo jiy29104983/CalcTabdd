@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CalcTabdd VERSION 0.2.6 LANGUAGES CXX)
+project(CalcTabdd VERSION 0.2.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,7 @@ add_library(calctabdd_core STATIC
     src/expression_engine.cpp src/expression_engine.h
     src/calculation_history.cpp src/calculation_history.h
     src/calculation_export.cpp src/calculation_export.h
+    src/calculation_session.cpp src/calculation_session.h
     src/calculation_catalog.cpp src/calculation_catalog.h
     src/calculator_help.cpp src/calculator_help.h
     src/formula_completion.cpp src/formula_completion.h

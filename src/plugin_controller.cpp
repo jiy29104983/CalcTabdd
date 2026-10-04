@@ -103,7 +103,7 @@ void PluginController::openCalculator()
     editor->setProperty("calctabddNativeTab", true);
     const int index = m_tabs->indexOf(editor);
     m_tabs->setTabText(index, QStringLiteral("计算器"));
-    m_tabs->setTabToolTip(index, QStringLiteral("CalcTabdd · 关闭标签后清空计算记录"));
+    m_tabs->setTabToolTip(index, QStringLiteral("CalcTabdd · 可在“本地会话”中开启保存或恢复历史"));
     connect(editor, &QObject::destroyed, this, [this, editor]() {
         if (m_editor && m_editor.data() != editor) return;
         m_page.clear();

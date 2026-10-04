@@ -55,7 +55,361 @@ class PageTests : public QObject
         page.input()->setPlainText(text);
         page.input()->moveCursor(QTextCursor::End);
     }
+    bool acceptSessionFile(CalculatorPage &page, const QString &path, bool restore)
+    {
+        auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+        if (!dialog || !dialog->isVisible()) return false;
+        dialog->setDirectory(QFileInfo(path).absolutePath());
+        auto *name = dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"));
+        if (!name) return false;
+        name->setText(QFileInfo(path).fileName());
+        auto *button = dialog->findChild<QDialogButtonBox *>()->button(restore ? QDialogButtonBox::Open : QDialogButtonBox::Save);
+        if (!button || !button->isEnabled()) return false;
+        button->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        return !page.findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+    }
+    bool selectSession(CalculatorPage &page, const QString &path, bool restore)
+    {
+        page.findChild<QAction *>(restore ? QStringLiteral("restoreSession") : QStringLiteral("saveSessionAs"))->trigger();
+        return acceptSessionFile(page, path, restore);
+    }
+    CalculationSession readSession(const QString &path)
+    {
+        QFile file(path);
+        CalculationSession session;
+        if (!file.open(QIODevice::ReadOnly)) qFatal("Saved session cannot be read");
+        const auto error = SessionFormat::decode(file.readAll(), session);
+        if (!error.isEmpty()) qFatal("%s", qPrintable(error));
+        return session;
+    }
 private slots:
+    void sessionPaletteAndPendingSaveStatus()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("配色.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        QVERIFY(selectSession(page, path, false));
+        page.resize(600, 500);
+        const QString screenshots = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        for (const bool dark : {false, true})
+        {
+            QPalette colors = page.palette();
+            colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+            colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+            colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+            colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
+            page.setPalette(colors);
+            page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->trigger();
+            auto *status = page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"));
+            QTest::qWait(30);
+            QVERIFY(status->isVisible());
+            QVERIFY(!page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("关闭标签后清空")));
+            QVERIFY(page.rect().contains(QRect(status->mapTo(&page, QPoint()), status->size())));
+            QVERIFY(status->height() >= status->heightForWidth(status->width()));
+            if (!screenshots.isEmpty())
+                QVERIFY(page.grab().save(screenshots + (dark ? QStringLiteral("/session-dark.png") : QStringLiteral("/session-light.png"))));
+            page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
+            auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+            QVERIFY(dialog && dialog->isVisible());
+            QCOMPARE(dialog->palette().color(QPalette::Window), page.palette().color(QPalette::Window));
+            dialog->setDirectory(directory.path());
+            QTest::qWait(30);
+            if (!screenshots.isEmpty())
+                QVERIFY(dialog->grab().save(screenshots + (dark ? QStringLiteral("/session-dialog-dark.png") : QStringLiteral("/session-dialog-light.png"))));
+            dialog->reject();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("external edit");
+        file.close();
+        page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->trigger();
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("外部修改")));
+        // 普通计算状态和补全提示不覆盖持久保存错误。
+        page.input()->setPlainText(QStringLiteral("@"));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("外部修改")));
+        QTest::keyClick(page.input(), Qt::Key_Escape);
+        QTest::qWait(30);
+        if (!screenshots.isEmpty()) QVERIFY(page.grab().save(screenshots + QStringLiteral("/session-failure-dark.png")));
+        const QString rescue = directory.filePath(QStringLiteral("rescue.calctabdd"));
+        QVERIFY(selectSession(page, rescue, false));
+        QCOMPARE(readSession(rescue).input.text, QStringLiteral("@"));
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        QCOMPARE(readSession(rescue).history.count(), 1);
+    }
+    void sessionMenuSavesAndRestoresFullBrowsingState()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("会话😀.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("0.1+0.2"));
+            page.submit();
+            page.input()->setPlainText(QStringLiteral("ans+1"));
+            page.submit();
+            page.input()->setPlainText(QStringLiteral("ln(0)"));
+            page.submit();
+            page.input()->setPlainText(QStringLiteral("  草稿😀\n99+ "));
+            QTextCursor cursor = page.input()->textCursor();
+            cursor.setPosition(2);
+            cursor.setPosition(5, QTextCursor::KeepAnchor);
+            page.input()->setTextCursor(cursor);
+            QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+            page.input()->setPlainText(QStringLiteral("ln(9)"));
+            QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+            page.input()->setPlainText(QStringLiteral("ans+7"));
+            page.input()->moveCursor(QTextCursor::End);
+            QTest::keyClick(page.input(), Qt::Key_Left, Qt::ShiftModifier);
+            auto *button = page.findChild<QToolButton *>(QStringLiteral("sessionButton"));
+            QVERIFY(chooseRecordAction(button, page.findChild<QAction *>(QStringLiteral("saveSessionAs"))));
+            QVERIFY(acceptSessionFile(page, path, false));
+            QVERIFY(page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->isEnabled());
+            const auto saved = readSession(path);
+            QCOMPARE(saved.history.count(), 3);
+            QCOMPARE(saved.historyPosition, 1);
+            QCOMPARE(saved.input.text, QStringLiteral("ans+7"));
+            QCOMPARE(saved.input.position, 4);
+            QCOMPARE(saved.input.anchor, 5);
+            QCOMPARE(saved.draft.text, QStringLiteral("  草稿😀\n99+ "));
+            QCOMPARE(saved.draft.position, 5);
+            QCOMPARE(saved.draft.anchor, 2);
+            QCOMPARE(saved.recalledInputs.value(3).text, QStringLiteral("ln(9)"));
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QCOMPARE(restored.recordCount(), 3);
+        QCOMPARE(restored.history().answer(), 0.1 + 0.2 + 1);
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ans+7"));
+        QCOMPARE(restored.input()->textCursor().anchor(), 5);
+        QCOMPARE(restored.input()->textCursor().position(), 4);
+        QCOMPARE(restored.findChildren<QLabel *>(QStringLiteral("recordResult")).first()->text(), QStringLiteral("= 0.3"));
+        QTest::keyClick(restored.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ln(9)"));
+        QTest::keyClick(restored.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("  草稿😀\n99+ "));
+        QCOMPARE(restored.input()->textCursor().position(), 5);
+        QCOMPARE(restored.input()->textCursor().anchor(), 2);
+        restored.input()->setPlainText(QStringLiteral("ans+1"));
+        restored.submit();
+        QCOMPARE(restored.history().records().last().id, quint64(4));
+        QCOMPARE(readSession(path).history.answer(), 0.1 + 0.2 + 2);
+    }
+    void sessionAutosaveFlushesDraftBeforeClose()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("draft.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("42"));
+            page.submit();
+            QVERIFY(selectSession(page, path, false));
+            page.input()->setPlainText(QStringLiteral("自动保存😀"));
+            QTRY_COMPARE(readSession(path).input.text, QStringLiteral("自动保存😀"));
+            page.input()->setPlainText(QStringLiteral("关闭前的最后草稿"));
+            page.input()->selectAll();
+            // 不等待 200 ms：析构必须保存最后文本与选区。
+        }
+        const auto saved = readSession(path);
+        QCOMPARE(saved.input.text, QStringLiteral("关闭前的最后草稿"));
+        QCOMPARE(saved.input.anchor, 0);
+        QCOMPARE(saved.input.position, saved.input.text.size());
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+    }
+    void sessionSaveFailureKeepsVisibleStateAndRetries()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("retry.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("7"));
+        page.submit();
+        QVERIFY(selectSession(page, path, false));
+        QVERIFY(QFile::rename(path, path + QStringLiteral(".bak")));
+        QVERIFY(QDir().mkdir(path));
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        QCOMPARE(page.recordCount(), 2);
+        QCOMPARE(page.history().answer(), 8.0);
+        auto *status = page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"));
+        QVERIFY(status->text().startsWith(QStringLiteral("保存失败")));
+        page.input()->setPlainText(QStringLiteral("草稿"));
+        page.input()->selectAll();
+        page.findChild<QAction *>(QStringLiteral("stopSavingSession"))->trigger();
+        QVERIFY(page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->isEnabled());
+        QCOMPARE(page.input()->textCursor().selectedText(), QStringLiteral("草稿"));
+        QVERIFY(QDir().rmdir(path));
+        QVERIFY(QFile::rename(path + QStringLiteral(".bak"), path));
+        page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->trigger();
+        QVERIFY(status->text().startsWith(QStringLiteral("本地保存已开启")));
+        QCOMPARE(readSession(path).history.count(), 2);
+        QCOMPARE(readSession(path).input.text, QStringLiteral("草稿"));
+    }
+    void stopSavingKeepsSnapshotAndSaveAsChangesDestination()
+    {
+        QTemporaryDir directory;
+        const QString first = directory.filePath(QStringLiteral("first.calctabdd"));
+        const QString second = directory.filePath(QStringLiteral("second.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("3"));
+        page.submit();
+        QVERIFY(selectSession(page, first, false));
+        page.input()->setPlainText(QStringLiteral("最后草稿"));
+        page.findChild<QAction *>(QStringLiteral("stopSavingSession"))->trigger();
+        QVERIFY(!page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->isEnabled());
+        QCOMPARE(readSession(first).input.text, QStringLiteral("最后草稿"));
+        QVERIFY(!QFileInfo::exists(first + QStringLiteral(".lock")));
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        QCOMPARE(readSession(first).history.count(), 1);
+        QVERIFY(selectSession(page, first, false));
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("文件已存在")));
+        QCOMPARE(readSession(first).history.count(), 1);
+        QVERIFY(selectSession(page, second, false));
+        QCOMPARE(readSession(second).history.count(), 2);
+        // 保存期间另存失败不能释放现有会话锁。
+        QVERIFY(selectSession(page, first, false));
+        QVERIFY(QFileInfo::exists(second + QStringLiteral(".lock")));
+        page.input()->setPlainText(QStringLiteral("9"));
+        page.submit();
+        QCOMPARE(readSession(second).history.answer(), 9.0);
+    }
+    void restoringDamagedOrBusyFileKeepsBlankPageAndFile()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("session.calctabdd"));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("broken");
+        file.close();
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        QCOMPARE(page.recordCount(), 0);
+        QVERIFY(page.input()->toPlainText().isEmpty());
+        QVERIFY(!page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->isEnabled());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray("broken"));
+        file.close();
+        QVERIFY(QFile::remove(path));
+        CalculatorPage other;
+        prepare(other, QStringLiteral("42"));
+        other.submit();
+        QVERIFY(selectSession(other, path, false));
+        QVERIFY(selectSession(page, path, true));
+        QCOMPARE(page.recordCount(), 0);
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("其他窗口或进程")));
+        QCOMPARE(other.recordCount(), 1);
+    }
+    void restoreRequiresBlankPageAndCompositionBlocksDialogs()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("草稿"));
+        page.findChild<QAction *>(QStringLiteral("restoreSession"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("草稿"));
+        page.input()->setPlainText(QStringLiteral("1"));
+        page.submit();
+        page.findChild<QAction *>(QStringLiteral("restoreSession"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QCOMPARE(page.recordCount(), 1);
+        QInputMethodEvent preedit(QStringLiteral("拼音"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(!page.findChild<QToolButton *>(QStringLiteral("sessionButton"))->isEnabled());
+        page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QInputMethodEvent end;
+        QApplication::sendEvent(page.input(), &end);
+        QVERIFY(page.findChild<QToolButton *>(QStringLiteral("sessionButton"))->isEnabled());
+    }
+    void clearSavedSessionKeepsDraftAndUpdatesFile()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("clear.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        QVERIFY(selectSession(page, path, false));
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.input()->selectAll();
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        page.input()->setPlainText(QStringLiteral("temporary"));
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        QVERIFY(confirmation);
+        QVERIFY(confirmation->findChild<QLabel *>(QStringLiteral("clearSessionDetails"))->text().contains(QStringLiteral("更新会话文件")));
+        confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        const auto saved = readSession(path);
+        QCOMPARE(saved.history.count(), 0);
+        QCOMPARE(saved.history.answer(), 0.0);
+        QCOMPARE(saved.input.text, QStringLiteral("ans+1"));
+        QCOMPARE(saved.input.anchor, 0);
+        QCOMPARE(saved.input.position, 5);
+        QCOMPARE(saved.historyPosition, -1);
+        QVERIFY(saved.recalledInputs.isEmpty());
+        page.submit();
+        QCOMPARE(readSession(path).history.records().first().id, quint64(1));
+        QCOMPARE(readSession(path).history.answer(), 1.0);
+    }
+    void sessionDialogCancelAndCommandIsolation_data()
+    {
+        QTest::addColumn<int>("cancel");
+        QTest::newRow("button") << 0;
+        QTest::newRow("escape") << 1;
+        QTest::newRow("close") << 2;
+    }
+    void sessionDialogCancelAndCommandIsolation()
+    {
+        QFETCH(int, cancel);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1/0"));
+        page.submit();
+        const QString diagnostic = page.input()->toolTip();
+        page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
+        QPointer<QFileDialog> dialog = page.findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        page.submit();
+        page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        page.routeEdit(QStringLiteral("actioncut"));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
+        QVERIFY(!page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog")));
+        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation")));
+        if (cancel == 0) dialog->reject();
+        else if (cancel == 1) QTest::keyClick(dialog, Qt::Key_Escape);
+        else dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        QCOMPARE(page.input()->toolTip(), diagnostic);
+        QVERIFY(!page.input()->extraSelections().isEmpty());
+        QTRY_VERIFY(page.input()->hasFocus());
+    }
+    void restoredErrorsKeepSnapshotDiagnosisAndSelection()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("error.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("  ln(0)"));
+            page.submit();
+            page.input()->selectAll();
+            QVERIFY(selectSession(page, path, false));
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("  ln(0)"));
+        QCOMPARE(restored.input()->textCursor().selectedText(), QStringLiteral("  ln(0)"));
+        QVERIFY(!restored.input()->extraSelections().isEmpty());
+        QVERIFY(restored.input()->toolTip().contains(QStringLiteral("必须大于 0")));
+        QCOMPARE(restored.history().answer(), 0.0);
+        QCOMPARE(restored.recordCount(), 1);
+    }
     void exportDialogWritesSelectedFormatWithoutChangingSession_data()
     {
         QTest::addColumn<bool>("markdown");

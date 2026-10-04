@@ -51,3 +51,31 @@ const CalculationRecord *CalculationHistory::record(quint64 id) const
         [](const CalculationRecord &record, quint64 target) { return record.id < target; });
     return found != m_records.cend() && found->id == id ? &*found : nullptr;
 }
+
+bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &records)
+{
+    double answer = 0;
+    quint64 nextId = 1;
+    for (const auto &entry : records)
+    {
+        const auto &result = entry.result;
+        if (entry.id != nextId++ || entry.expression.isEmpty() || result.text.isEmpty()
+            || !std::isfinite(entry.answerBefore) || !std::isfinite(result.value)
+            || entry.answerBefore != answer || std::signbit(entry.answerBefore) != std::signbit(answer))
+            return false;
+        if (result.ok)
+        {
+            if (result.error != CalculationError::None || result.errorPosition != -1 || result.errorLength != 0)
+                return false;
+            answer = result.value;
+        }
+        else if (result.error <= CalculationError::None || result.error > CalculationError::Limit
+                 || result.errorPosition < 0 || result.errorPosition > entry.expression.size()
+                 || result.errorLength < 0 || result.errorLength > entry.expression.size() - result.errorPosition)
+            return false;
+    }
+    m_records = records;
+    m_nextId = nextId;
+    m_answer = answer;
+    return true;
+}
