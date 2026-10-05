@@ -100,7 +100,14 @@ void runProbe(QWidget *host, const NddHostCallback &callback)
         file.close();
     }
     else passed = false;
-    QCoreApplication::exit(passed ? 0 : 7);
+    // The host may dispatch timers while still pumping startup events, before
+    // its outer QApplication::exec(). A single exit() then has no effect.
+    // Keep requesting exit until the outer event loop has actually started.
+    auto *exitTimer = new QTimer(qApp);
+    QObject::connect(exitTimer, &QTimer::timeout, qApp, [passed]() {
+        QCoreApplication::exit(passed ? 0 : 7);
+    });
+    exitTimer->start(250);
 }
 }
 extern "C" {
