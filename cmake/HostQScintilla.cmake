@@ -27,7 +27,9 @@ else()
         target_compile_options(host_qscintilla PRIVATE /utf-8 /W0)
         target_compile_definitions(host_qscintilla PRIVATE NOMINMAX)
     else()
-        target_compile_options(host_qscintilla PRIVATE -w)
+        # The pinned XML highlighter uses intptr_t without including cstdint.
+        # Supply the header for the test dependency without editing host sources.
+        target_compile_options(host_qscintilla PRIVATE -w -include cstdint)
     endif()
     target_link_libraries(host_qscintilla PUBLIC Qt5::PrintSupport)
     set(scope PUBLIC)

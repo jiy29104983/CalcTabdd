@@ -1,14 +1,21 @@
 #include "plugin_controller.h"
 #include "calculator_page.h"
 #include "calculator_help.h"
+#include "document_selection.h"
 
 #include <QAbstractScrollArea>
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QVBoxLayout>
 #include <QKeyEvent>
 #include <QMainWindow>
 #include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScreen>
 #include <QSet>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -22,6 +29,7 @@ PluginController::PluginController(QWidget *host, NddHostCallback callback)
     m_tabs = host->findChild<QTabWidget *>(QStringLiteral("editTabWidget"));
     if (m_tabs)
         connect(m_tabs, &QTabWidget::currentChanged, this, [this]() {
+            if (m_selectionDialog) m_selectionDialog->reject();
             syncActivePage();
             QTimer::singleShot(0, this, &PluginController::syncActivePage);
         });
@@ -45,6 +53,9 @@ bool PluginController::installMenu(QMenu *menu)
         m_openAction = new QAction(QStringLiteral("打开计算器"), this);
         m_openAction->setObjectName(QStringLiteral("calctabddOpen"));
         connect(m_openAction, &QAction::triggered, this, &PluginController::openCalculator);
+        m_selectionAction = new QAction(QStringLiteral("查看文档选区（只读）"), this);
+        m_selectionAction->setObjectName(QStringLiteral("calctabddInspectSelection"));
+        connect(m_selectionAction, &QAction::triggered, this, &PluginController::inspectDocumentSelection);
         m_helpAction = new QAction(QStringLiteral("运算与精度帮助"), this);
         m_helpAction->setObjectName(QStringLiteral("calctabddHelp"));
         connect(m_helpAction, &QAction::triggered, this, [this]() { showCalculatorHelp(m_host); });
@@ -52,7 +63,7 @@ bool PluginController::installMenu(QMenu *menu)
         m_aboutAction->setObjectName(QStringLiteral("calctabddAbout"));
         connect(m_aboutAction, &QAction::triggered, this, [this]() { showCalculatorAbout(m_host); });
     }
-    for (QAction *action : {m_openAction.data(), m_helpAction.data(), m_aboutAction.data()})
+    for (QAction *action : {m_openAction.data(), m_selectionAction.data(), m_helpAction.data(), m_aboutAction.data()})
         if (!menu->actions().contains(action)) menu->addAction(action);
     return true;
 }
@@ -62,6 +73,62 @@ void PluginController::showStatus(const QString &message)
     if (!m_host) return;
     if (auto *status = m_host->findChild<QStatusBar *>()) status->showMessage(message, 12000);
     else m_host->setProperty("calctabddStatus", message);
+}
+
+void PluginController::inspectDocumentSelection()
+{
+    if (!m_host || !m_tabs) return;
+    if (m_selectionDialog) m_selectionDialog->reject();
+    const DocumentSelection selection = readDocumentSelection(m_tabs);
+    if (selection.status == DocumentSelection::Status::Unsupported)
+    {
+        showStatus(QStringLiteral("请切换到普通文本文档后查看选区；计算器、二进制及分页大文件标签不支持。"));
+        return;
+    }
+    if (selection.status == DocumentSelection::Status::Empty)
+    {
+        showStatus(QStringLiteral("当前文档没有选中文字。"));
+        return;
+    }
+
+    auto *dialog = new QDialog(m_host);
+    m_selectionDialog = dialog;
+    dialog->setAttribute(Qt::WA_WindowPropagation);
+    dialog->setPalette(m_host->palette());
+    dialog->setObjectName(QStringLiteral("calctabddSelectionDialog"));
+    dialog->setWindowTitle(QStringLiteral("查看文档选区（只读）"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    const QSize available = m_host->screen() ? m_host->screen()->availableGeometry().size() : QSize(1024, 768);
+    dialog->resize(qMin(620, available.width() - 40), qMin(380, available.height() - 60));
+    auto *layout = new QVBoxLayout(dialog);
+    auto *source = new QLabel(QStringLiteral("来源：%1").arg(selection.sourceName), dialog);
+    source->setObjectName(QStringLiteral("selectionSource"));
+    source->setTextFormat(Qt::PlainText);
+    source->setWordWrap(true);
+    layout->addWidget(source);
+    const int crlf = selection.text.count(QStringLiteral("\r\n"));
+    auto *details = new QLabel(QStringLiteral("UTF-16 长度：%1；换行 CRLF：%2，LF：%3，CR：%4")
+        .arg(selection.text.size()).arg(crlf)
+        .arg(selection.text.count(QLatin1Char('\n')) - crlf)
+        .arg(selection.text.count(QLatin1Char('\r')) - crlf), dialog);
+    details->setObjectName(QStringLiteral("selectionDetails"));
+    details->setWordWrap(true);
+    layout->addWidget(details);
+    auto *preview = new QPlainTextEdit(dialog);
+    preview->setObjectName(QStringLiteral("selectionPreview"));
+    preview->setReadOnly(true);
+    preview->setPlainText(selection.text);
+    layout->addWidget(preview);
+    auto *note = new QLabel(QStringLiteral("这是打开时的选区快照，仅供核对，未计算或自动复制。\n列选区／多选区按宿主规则合并，NUL 显示为空格；源文档保持不变。"), dialog);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    connect(selection.editor, &QObject::destroyed, dialog, &QDialog::reject);
+    dialog->show();
 }
 
 void PluginController::openCalculator()

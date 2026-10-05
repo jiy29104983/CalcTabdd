@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CalcTabdd VERSION 0.2.7 LANGUAGES CXX)
+project(CalcTabdd VERSION 0.2.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ add_library(calctabdd_core STATIC
     src/calculator_help.cpp src/calculator_help.h
     src/formula_completion.cpp src/formula_completion.h
     src/calculator_page.cpp src/calculator_page.h
+    src/document_selection.cpp src/document_selection.h
     src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h)
 target_include_directories(calctabdd_core PUBLIC src)
 target_link_libraries(calctabdd_core PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets)
