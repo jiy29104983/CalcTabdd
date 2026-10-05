@@ -29,6 +29,10 @@ foreach ($release in $releases) {
     $process = Start-Process -FilePath "$directory/Notepad--.exe" -WorkingDirectory $directory -PassThru `
         -RedirectStandardOutput "$root/stdout-$version.log" -RedirectStandardError "$root/stderr-$version.log"
     if (-not $process.WaitForExit(45000)) {
+        Write-Host "Timed out host window: $($process.MainWindowTitle)"
+        foreach ($log in @($output, "$output.progress.log", "$root/stdout-$version.log", "$root/stderr-$version.log")) {
+            if (Test-Path $log) { Write-Host "Diagnostics: $log"; Get-Content $log }
+        }
         Stop-Process -Id $process.Id -Force
         throw "Host $version probe timed out; see diagnostics"
     }
