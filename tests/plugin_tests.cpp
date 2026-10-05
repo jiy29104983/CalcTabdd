@@ -30,6 +30,7 @@
 #include <QTabWidget>
 #include <QtTest>
 #include <cstddef>
+#include <cstdint>
 #include <type_traits>
 
 static_assert(sizeof(NddProcData) == sizeof(NDD_PROC_DATA), "Host plugin ABI size mismatch");
@@ -187,7 +188,7 @@ private slots:
         editor->SendScintilla(QsciScintillaBase::SCI_EMPTYUNDOBUFFER);
         const QByteArray bytes = (prefix + selected + suffix).toUtf8();
         editor->SendScintilla(QsciScintillaBase::SCI_ADDTEXT,
-            static_cast<unsigned long>(bytes.size()), bytes.constData());
+            static_cast<std::uintptr_t>(bytes.size()), bytes.constData());
         const int start = prefix.toUtf8().size();
         const int end = start + selected.toUtf8().size();
         editor->SendScintilla(QsciScintillaBase::SCI_SETSEL, reverse ? end : start, reverse ? start : end);
