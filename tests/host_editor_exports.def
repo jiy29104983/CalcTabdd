@@ -1,0 +1,3 @@
+EXPORTS
+    ?staticMetaObject@QsciScintillaBase@@2UQMetaObject@@B DATA
+    ?SendScintillaPtrResult@QsciScintillaBase@@QEBAPEAXI@Z

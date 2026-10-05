@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CalcTabdd VERSION 0.2.8 LANGUAGES CXX)
+project(CalcTabdd VERSION 0.2.9 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,9 +17,10 @@ add_library(calctabdd_core STATIC
     src/calculator_help.cpp src/calculator_help.h
     src/formula_completion.cpp src/formula_completion.h
     src/calculator_page.cpp src/calculator_page.h
-    src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h)
+    src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h
+    src/document_selection.cpp src/document_selection.h)
 target_include_directories(calctabdd_core PUBLIC src)
-target_link_libraries(calctabdd_core PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets)
+target_link_libraries(calctabdd_core PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets ${CMAKE_DL_LIBS})
 target_compile_definitions(calctabdd_core PUBLIC CALCTABDD_VERSION="${PROJECT_VERSION}")
 add_library(calctabdd SHARED src/plugin_exports.cpp)
 target_link_libraries(calctabdd PRIVATE calctabdd_core)
@@ -62,12 +63,23 @@ if(BUILD_TESTING)
         include(cmake/HostQScintilla.cmake)
         calc_test(plugin_tests)
         target_link_libraries(plugin_tests PRIVATE host_qscintilla)
+        # Export the same public entry points used by the released editor DLL.
+        # The production DLL resolves them in the editor's owning module.
+        set_target_properties(plugin_tests PROPERTIES ENABLE_EXPORTS ON)
+        if(MSVC)
+            target_sources(plugin_tests PRIVATE tests/host_editor_exports.def)
+            add_library(released_host_probe SHARED tests/released_host_probe.cpp)
+            target_link_libraries(released_host_probe PRIVATE calctabdd_core)
+            target_compile_options(released_host_probe PRIVATE /utf-8 /W4)
+            set_target_properties(released_host_probe PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/host-probe")
+        endif()
         target_include_directories(plugin_tests PRIVATE
             "${CALCTABDD_HOST_SOURCE_DIR}/src/include"
             "${CALCTABDD_HOST_SOURCE_DIR}/src")
         target_compile_definitions(plugin_tests PRIVATE CALCTABDD_PLUGIN_PATH="$<TARGET_FILE:calctabdd>")
         add_executable(selection_probe tests/selection_probe.cpp)
-        target_link_libraries(selection_probe PRIVATE host_qscintilla Qt5::Widgets)
+        target_link_libraries(selection_probe PRIVATE host_qscintilla calctabdd_core Qt5::Widgets)
         if(MSVC)
             target_compile_options(selection_probe PRIVATE /utf-8 /W4)
         endif()

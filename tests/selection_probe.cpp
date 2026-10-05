@@ -1,6 +1,8 @@
 // Isolate candidate host APIs: the pinned input-method query truncates a buffer
 // pointer on Windows x64. Never invoke it in the production plugin process.
 #include <Qsci/qsciscintilla.h>
+#include "document_selection.h"
+#include <QTabWidget>
 #include <QAccessible>
 #include <QApplication>
 #include <QClipboard>
@@ -16,7 +18,10 @@ int main(int argc, char **argv)
     if (args.size() < 3) return 2;
     const QString route = args.at(1);
     const QString scenario = args.at(2);
+    QTabWidget tabs;
     QsciScintilla editor;
+    editor.setProperty("type", 1);
+    tabs.addTab(&editor, QStringLiteral("probe"));
     editor.setUtf8(true);
     editor.show();
     application.processEvents();
@@ -56,6 +61,17 @@ int main(int argc, char **argv)
     output.flush();
     QString actual;
     int selectionCount = -1;
+    if (route == QStringLiteral("exported-unavailable"))
+    {
+        // This executable deliberately does not export the editor entry points.
+        // Even a real QScintilla object must be rejected if ownership/API cannot
+        // be verified. No input-method fallback is allowed.
+        const auto selection = readDocumentSelection(&tabs);
+        output << (selection.status == DocumentSelection::Status::Unsupported &&
+                   !selection.error.isEmpty() ? "unsupported\n" : "unexpected\n");
+        output.flush();
+        return selection.status == DocumentSelection::Status::Unsupported ? 0 : 6;
+    }
     if (route == QStringLiteral("input-method"))
     {
         QWidget *widget = &editor;

@@ -6,6 +6,7 @@
 #include <QVector>
 
 class CalculatorPage;
+class QDialog;
 class QAbstractScrollArea;
 class QTabWidget;
 
@@ -19,6 +20,7 @@ public:
 
 public slots:
     void openCalculator();
+    void inspectDocumentSelection();
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -42,6 +44,8 @@ private:
     QPointer<QAction> m_openAction;
     QPointer<QAction> m_helpAction;
     QPointer<QAction> m_aboutAction;
+    QPointer<QAction> m_selectionAction;
+    QPointer<QDialog> m_selectionDialog;
     NddHostCallback m_callback;
     QVector<ActionRoute> m_routes;
     bool m_routing = false;
