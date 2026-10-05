@@ -17,7 +17,6 @@ add_library(calctabdd_core STATIC
     src/calculator_help.cpp src/calculator_help.h
     src/formula_completion.cpp src/formula_completion.h
     src/calculator_page.cpp src/calculator_page.h
-    src/document_selection.cpp src/document_selection.h
     src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h)
 target_include_directories(calctabdd_core PUBLIC src)
 target_link_libraries(calctabdd_core PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets)
@@ -67,7 +66,13 @@ if(BUILD_TESTING)
             "${CALCTABDD_HOST_SOURCE_DIR}/src/include"
             "${CALCTABDD_HOST_SOURCE_DIR}/src")
         target_compile_definitions(plugin_tests PRIVATE CALCTABDD_PLUGIN_PATH="$<TARGET_FILE:calctabdd>")
-        add_dependencies(plugin_tests calctabdd)
+        add_executable(selection_probe tests/selection_probe.cpp)
+        target_link_libraries(selection_probe PRIVATE host_qscintilla Qt5::Widgets)
+        if(MSVC)
+            target_compile_options(selection_probe PRIVATE /utf-8 /W4)
+        endif()
+        target_compile_definitions(plugin_tests PRIVATE CALCTABDD_SELECTION_PROBE_PATH="$<TARGET_FILE:selection_probe>")
+        add_dependencies(plugin_tests calctabdd selection_probe)
     else()
         message(STATUS "Native QScintilla integration tests NOT ENABLED; set CALCTABDD_HOST_SOURCE_DIR")
     endif()

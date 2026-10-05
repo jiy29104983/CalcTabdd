@@ -1,13 +1,11 @@
 #include "ndd_plugin_api.h"
 #include "calculation_session.h"
-#include "document_selection.h"
 #include <Qsci/qsciscintilla.h>
 #include <plugin.h>
 #include <QApplication>
 #include <QAbstractItemView>
 #include <QCompleter>
 #include <QDialog>
-#include <QDir>
 #include <QFileDialog>
 #include <QFile>
 #include <QTemporaryDir>
@@ -16,9 +14,10 @@
 #include <QToolButton>
 #include <QTextBrowser>
 #include <QClipboard>
-#include <QMimeData>
-#include <QScrollBar>
 #include <QLabel>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
 #include <QLibrary>
 #include <QMainWindow>
 #include <QDialogButtonBox>
@@ -30,7 +29,6 @@
 #include <QTabWidget>
 #include <QtTest>
 #include <cstddef>
-#include <cstdint>
 #include <type_traits>
 
 static_assert(sizeof(NddProcData) == sizeof(NDD_PROC_DATA), "Host plugin ABI size mismatch");
@@ -52,7 +50,6 @@ struct Host : QMainWindow
     QsciScintilla *ordinary;
     int hostEditCalls = 0;
     int creations = 0;
-    int getterCalls = 0;
     bool failCreate = false;
     Host()
     {
@@ -70,7 +67,6 @@ struct Host : QMainWindow
         findChild<QAction *>(QStringLiteral("actionSave"))->setShortcut(QKeySequence::Save);
         findChild<QAction *>(QStringLiteral("actioncopy"))->setShortcut(QKeySequence::Copy);
         ordinary = new QsciScintilla(tabs);
-        ordinary->setProperty("type", 1);
         ordinary->setText(QStringLiteral("普通文档，不得改动"));
         ordinary->setModified(false);
         tabs->addTab(ordinary, QStringLiteral("普通文档"));
@@ -80,20 +76,13 @@ struct Host : QMainWindow
     }
     NddGetCurrentEditor getter()
     {
-        return [this](QWidget *window) {
-            ++getterCalls;
-            if (window != this) return static_cast<QsciScintilla *>(nullptr);
-            auto *editor = qobject_cast<QsciScintilla *>(tabs->currentWidget());
-            // Match CCNotePad::getCurEditView: read-only documents are rejected.
-            return editor && !editor->isReadOnly() ? editor : nullptr;
-        };
+        return [this](QWidget *) { return qobject_cast<QsciScintilla *>(tabs->currentWidget()); };
     }
     NddHostCallback callback()
     {
         return [this](QWidget *window, int command, void *) {
             if (window != this || command != 1 || failCreate) return false;
             auto *editor = new QsciScintilla(tabs);
-            editor->setProperty("type", 1);
             editor->setModified(false);
             tabs->setCurrentIndex(tabs->addTab(editor, QStringLiteral("New %1").arg(++creations)));
             return true;
@@ -149,345 +138,52 @@ class PluginTests : public QObject
         return session;
     }
 private slots:
-    void documentSelectionSnapshot_data()
+    void selectionInterfacesAreProbedOutsideTheHost_data()
     {
-        QTest::addColumn<QString>("prefix");
-        QTest::addColumn<QString>("selected");
-        QTest::addColumn<QString>("suffix");
-        QTest::addColumn<bool>("reverse");
-        QTest::addColumn<bool>("readOnly");
-        QTest::newRow("ascii") << QStringLiteral("before ") << QStringLiteral("1+2*3") << QStringLiteral(" after") << false << false;
-        QTest::newRow("chinese-prefix") << QStringLiteral("说明：单价 ") << QStringLiteral("1299*0.85") << QStringLiteral(" 元") << false << false;
-        QTest::newRow("unicode-and-reverse") << QStringLiteral("前😀缀 ") << QStringLiteral("中文😀 × ÷ −") << QStringLiteral("尾部") << true << false;
-        QTest::newRow("lf") << QStringLiteral("前缀\n") << QStringLiteral("1+2\n3+4\n") << QStringLiteral("末尾") << false << false;
-        QTest::newRow("crlf-reverse") << QStringLiteral("说明\r\n") << QStringLiteral("1+2\r\n3+4\r\n") << QStringLiteral("末尾") << true << false;
-        QTest::newRow("cr") << QStringLiteral("说明\r") << QStringLiteral("1+2\r3+4") << QString() << false << false;
-        QTest::newRow("mixed-eol") << QStringLiteral("前缀") << QStringLiteral("a\r\nb\nc\rd") << QStringLiteral("后缀") << false << false;
-        QTest::newRow("whitespace") << QStringLiteral("前缀") << QStringLiteral(" \t\n ") << QStringLiteral("后缀") << false << false;
-        QTest::newRow("no-selection") << QStringLiteral("整段中文😀 1+2") << QString() << QStringLiteral("后缀") << false << false;
-        QTest::newRow("empty-document") << QString() << QString() << QString() << false << false;
-        QTest::newRow("read-only") << QStringLiteral("只读前缀😀") << QStringLiteral("2^3\r\n中文") << QStringLiteral("后缀") << true << true;
-        QTest::newRow("read-only-empty") << QStringLiteral("只读文档") << QString() << QStringLiteral("后缀") << false << true;
-        QTest::newRow("beyond-stack-buffer") << QStringLiteral("中文前缀") << QString(5000, QChar(0x4e2d)) << QStringLiteral("尾部") << false << false;
-        QTest::newRow("embedded-nul") << QStringLiteral("前缀") << (QStringLiteral("1+") + QChar::Null + QStringLiteral("2")) << QStringLiteral("后缀") << false << false;
-        QTest::newRow("trailing-nul") << QStringLiteral("前缀") << (QStringLiteral("12") + QChar::Null) << QStringLiteral("后缀") << false << true;
-        QTest::newRow("only-nul") << QStringLiteral("前缀") << QString(QChar::Null) << QStringLiteral("后缀") << false << false;
+        QTest::addColumn<QString>("route");
+        QTest::addColumn<QString>("scenario");
+        for (const QString &route : {QStringLiteral("input-method"), QStringLiteral("accessible-early"), QStringLiteral("accessible-late")})
+            for (const QString &scenario : {QStringLiteral("ascii"), QStringLiteral("unicode"), QStringLiteral("empty"), QStringLiteral("readonly")})
+                QTest::newRow(qPrintable(route + QLatin1Char('-') + scenario)) << route << scenario;
     }
-    void documentSelectionSnapshot()
+    void selectionInterfacesAreProbedOutsideTheHost()
     {
-        QFETCH(QString, prefix);
-        QFETCH(QString, selected);
-        QFETCH(QString, suffix);
-        QFETCH(bool, reverse);
-        QFETCH(bool, readOnly);
-        Host host;
-        QCOMPARE(initialize(host), 0);
-        auto *editor = host.ordinary;
-        editor->setUtf8(true);
-        editor->clear();
-        editor->SendScintilla(QsciScintillaBase::SCI_EMPTYUNDOBUFFER);
-        const QByteArray bytes = (prefix + selected + suffix).toUtf8();
-        editor->SendScintilla(QsciScintillaBase::SCI_ADDTEXT,
-            static_cast<std::uintptr_t>(bytes.size()), bytes.constData());
-        const int start = prefix.toUtf8().size();
-        const int end = start + selected.toUtf8().size();
-        editor->SendScintilla(QsciScintillaBase::SCI_SETSEL, reverse ? end : start, reverse ? start : end);
-        if (readOnly) editor->setModified(false);
-        editor->setReadOnly(readOnly);
-        const QString original = editor->text();
-        const bool modified = editor->isModified();
-        const bool undo = editor->isUndoAvailable();
-        const bool redo = editor->isRedoAvailable();
-        const long anchor = editor->SendScintilla(QsciScintillaBase::SCI_GETANCHOR);
-        const long caret = editor->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
-        const int scroll = editor->verticalScrollBar()->value();
-        QWidget *const active = host.tabs->currentWidget();
-        if (readOnly) QVERIFY(!host.getter()(&host));
-        host.getterCalls = 0;
-        // Preserve every MIME format, not only clipboard text.
-        auto *mime = new QMimeData;
-        mime->setText(QStringLiteral("原剪贴板😀"));
-        mime->setHtml(QStringLiteral("<b>原剪贴板</b>"));
-        mime->setData(QStringLiteral("application/x-calctabdd-test"), QByteArray("a\0b", 3));
-        QApplication::clipboard()->setMimeData(mime);
-        QSignalSpy clipboardChanges(QApplication::clipboard(), &QClipboard::dataChanged);
-        QSignalSpy textChanges(editor, &QsciScintilla::textChanged);
-        QSignalSpy selectionChanges(editor, &QsciScintilla::selectionChanged);
-        const auto snapshot = readDocumentSelection(host.tabs);
-        QCOMPARE(snapshot.status, selected.isEmpty() ? DocumentSelection::Status::Empty : DocumentSelection::Status::Selected);
-        QString expected = selected;
-        // The pinned Scintilla SelectionText::Copy converts NULs to spaces.
-        expected.replace(QChar::Null, QLatin1Char(' '));
-        QCOMPARE(snapshot.text, expected);
-        QCOMPARE(snapshot.editor.data(), static_cast<QWidget *>(editor));
-        QCOMPARE(snapshot.sourceName, QStringLiteral("普通文档"));
-        // Exercise the same path from the actual loaded plugin's menu.
-        host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        auto *dialog = host.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        if (selected.isEmpty())
+        QFETCH(QString, route);
+        QFETCH(QString, scenario);
+        QProcess process;
+        process.start(QStringLiteral(CALCTABDD_SELECTION_PROBE_PATH),
+            {route, scenario, QStringLiteral("-platform"), QStringLiteral("offscreen")});
+        QVERIFY2(process.waitForStarted(), qPrintable(process.errorString()));
+        QVERIFY(process.waitForFinished(15000));
+        const QByteArray output = process.readAllStandardOutput();
+        QVERIFY2(output.startsWith("probe-ready\n") || output.startsWith("probe-ready\r\n"), output.constData());
+#ifdef Q_OS_WIN
+        if (route == QStringLiteral("input-method"))
         {
-            QVERIFY(!dialog);
-            QVERIFY(host.statusBar()->currentMessage().contains(QStringLiteral("没有选中文字")));
+            // Pinned InputMethod.cpp casts buffer.data() to sptr_t, then selects
+            // SendScintilla(..., long): on LLP64 that truncates the pointer.
+            QCOMPARE(process.exitStatus(), QProcess::CrashExit);
+            QCOMPARE(static_cast<quint32>(process.exitCode()), quint32(0xc0000005));
+            return;
+        }
+#endif
+        QCOMPARE(process.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(process.exitCode(), 0);
+        const int newline = output.indexOf('\n');
+        const auto json = QJsonDocument::fromJson(output.mid(newline + 1)).object();
+        QVERIFY(!json.isEmpty());
+        QVERIFY(json.value(QStringLiteral("unchanged")).toBool());
+        qInfo().noquote() << route << scenario << QJsonDocument(json).toJson(QJsonDocument::Compact);
+        QCOMPARE(json.value(QStringLiteral("native_selected_text")), json.value(QStringLiteral("expected")));
+        if (route.startsWith(QStringLiteral("accessible")) &&
+            json.value(QStringLiteral("selection_count")).toInt() == 0)
+        {
+            // Characterization only: a valid interface can miss selection
+            // state. A zero count is not proof that the document has none.
+            QVERIFY(json.value(QStringLiteral("text")).toString().isEmpty());
         }
         else
-        {
-            QVERIFY(dialog && dialog->isVisible());
-            auto *preview = dialog->findChild<QPlainTextEdit *>(QStringLiteral("selectionPreview"));
-            QVERIFY(preview && preview->isReadOnly());
-            QString displayed = expected;
-            displayed.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
-            displayed.replace(QLatin1Char('\r'), QLatin1Char('\n'));
-            QCOMPARE(preview->toPlainText(), displayed);
-            const int crlf = selected.count(QStringLiteral("\r\n"));
-            QCOMPARE(dialog->findChild<QLabel *>(QStringLiteral("selectionDetails"))->text(),
-                QStringLiteral("UTF-16 长度：%1；换行 CRLF：%2，LF：%3，CR：%4")
-                    .arg(selected.size()).arg(crlf).arg(selected.count(QLatin1Char('\n')) - crlf)
-                    .arg(selected.count(QLatin1Char('\r')) - crlf));
-            dialog->reject();
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        }
-        QCOMPARE(host.tabs->currentWidget(), active);
-        QCOMPARE(host.creations, 0);
-        QCOMPARE(host.hostEditCalls, 0);
-        QCOMPARE(host.getterCalls, 0);
-        QCOMPARE(editor->text(), original);
-        QCOMPARE(editor->isReadOnly(), readOnly);
-        QCOMPARE(editor->isModified(), modified);
-        QCOMPARE(editor->isUndoAvailable(), undo);
-        QCOMPARE(editor->isRedoAvailable(), redo);
-        QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETANCHOR), anchor);
-        QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS), caret);
-        QCOMPARE(editor->verticalScrollBar()->value(), scroll);
-        QCOMPARE(textChanges.count(), 0);
-        QCOMPARE(selectionChanges.count(), 0);
-        QCOMPARE(clipboardChanges.count(), 0);
-        const QMimeData *after = QApplication::clipboard()->mimeData();
-        QCOMPARE(after->text(), QStringLiteral("原剪贴板😀"));
-        QCOMPARE(after->html(), QStringLiteral("<b>原剪贴板</b>"));
-        QCOMPARE(after->data(QStringLiteral("application/x-calctabdd-test")), QByteArray("a\0b", 3));
-        editor->setReadOnly(false);
-        if (undo)
-        {
-            editor->undo();
-            QVERIFY(editor->text().isEmpty());
-            editor->redo();
-            QCOMPARE(editor->text(), original);
-        }
-    }
-    void documentSelectionHostJoiningRules_data()
-    {
-        QTest::addColumn<bool>("rectangle");
-        QTest::newRow("rectangle") << true;
-        QTest::newRow("multiple") << false;
-    }
-    void documentSelectionHostJoiningRules()
-    {
-        QFETCH(bool, rectangle);
-        Host host;
-        QCOMPARE(initialize(host), 0);
-        auto *editor = host.ordinary;
-        editor->setUtf8(true);
-        editor->setText(QStringLiteral("x12z\nx34z\n"));
-        editor->setEolMode(QsciScintilla::EolUnix);
-        if (rectangle)
-        {
-            editor->SendScintilla(QsciScintillaBase::SCI_SETSELECTIONMODE, QsciScintillaBase::SC_SEL_RECTANGLE);
-            editor->SendScintilla(QsciScintillaBase::SCI_SETRECTANGULARSELECTIONANCHOR, 1);
-            editor->SendScintilla(QsciScintillaBase::SCI_SETRECTANGULARSELECTIONCARET, 8);
-        }
-        else
-        {
-            editor->SendScintilla(QsciScintillaBase::SCI_SETMULTIPLESELECTION, 1);
-            editor->SendScintilla(QsciScintillaBase::SCI_SETSELECTION, 3, 1);
-            editor->SendScintilla(QsciScintillaBase::SCI_ADDSELECTION, 8, 6);
-        }
-        const auto mode = editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONMODE);
-        const int count = static_cast<int>(editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONS));
-        QCOMPARE(count, 2);
-        QVector<long> positions;
-        for (int i = 0; i < count; ++i)
-        {
-            positions << editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONNANCHOR, i);
-            positions << editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONNCARET, i);
-        }
-        QApplication::clipboard()->setText(QStringLiteral("clipboard"));
-        QSignalSpy changed(QApplication::clipboard(), &QClipboard::dataChanged);
-        const auto snapshot = readDocumentSelection(host.tabs);
-        QCOMPARE(snapshot.text, rectangle ? QStringLiteral("12\n34\n") : QStringLiteral("1234"));
-        QCOMPARE(editor->text(), QStringLiteral("x12z\nx34z\n"));
-        QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONMODE), mode);
-        QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONS), static_cast<long>(count));
-        for (int i = 0; i < count; ++i)
-        {
-            QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONNANCHOR, i), positions.at(i * 2));
-            QCOMPARE(editor->SendScintilla(QsciScintillaBase::SCI_GETSELECTIONNCARET, i), positions.at(i * 2 + 1));
-        }
-        QCOMPARE(changed.count(), 0);
-    }
-    void documentSelectionPreviewThemes_data()
-    {
-        QTest::addColumn<bool>("dark");
-        QTest::newRow("light") << false;
-        QTest::newRow("dark") << true;
-    }
-    void documentSelectionPreviewThemes()
-    {
-        QFETCH(bool, dark);
-        Host host;
-        QPalette palette = host.palette();
-        palette.setColor(QPalette::Window, dark ? QColor("#252932") : QColor("#f3f4f6"));
-        palette.setColor(QPalette::Base, dark ? QColor("#171b24") : QColor("#ffffff"));
-        palette.setColor(QPalette::Text, dark ? QColor("#eef2f6") : QColor("#20252b"));
-        palette.setColor(QPalette::WindowText, palette.color(QPalette::Text));
-        palette.setColor(QPalette::Button, palette.color(QPalette::Window));
-        palette.setColor(QPalette::ButtonText, palette.color(QPalette::Text));
-        host.setPalette(palette);
-        QCOMPARE(initialize(host), 0);
-        host.ordinary->setUtf8(true);
-        host.ordinary->setText(QStringLiteral("报价说明：\r\n(1299+899)*0.85\r\n数量 × 单价\r\n"));
-        host.ordinary->setSelection(1, 0, 3, 0);
-        host.ordinary->setReadOnly(true);
-        host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        auto *dialog = host.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
-        auto *preview = dialog->findChild<QPlainTextEdit *>();
-        QCOMPARE(preview->palette().color(QPalette::Text), palette.color(QPalette::Text));
-        QCOMPARE(preview->palette().color(QPalette::Base), palette.color(QPalette::Base));
-        QVERIFY(preview->height() > 100);
-        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
-        if (!directory.isEmpty())
-        {
-            QVERIFY(QDir().mkpath(directory));
-            QVERIFY(dialog->grab().save(directory + (dark ? QStringLiteral("/selection-dark.png") : QStringLiteral("/selection-light.png"))));
-        }
-    }
-    void documentSelectionRejectsUnsupportedTabs()
-    {
-        QCOMPARE(readDocumentSelection(nullptr).status, DocumentSelection::Status::Unsupported);
-        QTabWidget empty;
-        QCOMPARE(readDocumentSelection(&empty).status, DocumentSelection::Status::Unsupported);
-        Host host;
-        QCOMPARE(initialize(host), 0);
-        host.ordinary->selectAll();
-        for (const QVariant type : {QVariant(), QVariant(2), QVariant(3), QVariant(4), QVariant(5), QVariant(6)})
-        {
-            host.ordinary->setProperty("type", type);
-            QCOMPARE(readDocumentSelection(host.tabs).status, DocumentSelection::Status::Unsupported);
-            host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-            QVERIFY(!host.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog")));
-        }
-        host.ordinary->setProperty("type", 1);
-        host.openAction()->trigger();
-        host.input()->setPlainText(QStringLiteral("123+456"));
-        host.input()->selectAll();
-        QCOMPARE(readDocumentSelection(host.tabs).status, DocumentSelection::Status::Unsupported);
-        host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        QVERIFY(!host.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog")));
-        QCOMPARE(host.input()->toPlainText(), QStringLiteral("123+456"));
-        QCOMPARE(host.input()->textCursor().selectedText(), QStringLiteral("123+456"));
-        auto *other = new QPlainTextEdit(host.tabs);
-        other->setProperty("type", 1);
-        other->setPlainText(QStringLiteral("other tab"));
-        other->selectAll();
-        host.tabs->setCurrentIndex(host.tabs->addTab(other, QStringLiteral("其他")));
-        QCOMPARE(readDocumentSelection(host.tabs).status, DocumentSelection::Status::Unsupported);
-    }
-    void documentSelectionUsesOwningWindowAndCurrentTab()
-    {
-        Host first;
-        Host second;
-        QCOMPARE(initialize(first), 0);
-        QCOMPARE(initialize(second), 0);
-        first.ordinary->setText(QStringLiteral("first 1+2"));
-        second.ordinary->setText(QStringLiteral("second 3+4"));
-        first.ordinary->selectAll();
-        second.ordinary->selectAll();
-        second.activateWindow();
-        auto *action = first.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"));
-        action->trigger();
-        QPointer<QDialog> firstDialog = first.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(firstDialog);
-        QCOMPARE(firstDialog->findChild<QPlainTextEdit *>()->toPlainText(), QStringLiteral("first 1+2"));
-        second.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        QPointer<QDialog> secondDialog = second.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(secondDialog);
-        QCOMPARE(secondDialog->findChild<QPlainTextEdit *>()->toPlainText(), QStringLiteral("second 3+4"));
-        auto *next = new QsciScintilla(first.tabs);
-        next->setProperty("type", 1);
-        next->setText(QStringLiteral("new tab 5+6"));
-        next->selectAll();
-        first.tabs->setCurrentIndex(first.tabs->addTab(next, QStringLiteral("<b>新标签</b>")));
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(firstDialog.isNull());
-        QVERIFY(secondDialog && secondDialog->isVisible());
-        action->trigger();
-        auto *current = first.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(current);
-        QCOMPARE(current->findChild<QPlainTextEdit *>()->toPlainText(), QStringLiteral("new tab 5+6"));
-        QCOMPARE(current->findChild<QLabel *>(QStringLiteral("selectionSource"))->textFormat(), Qt::PlainText);
-        QCOMPARE(current->findChild<QLabel *>(QStringLiteral("selectionSource"))->text(), QStringLiteral("来源：<b>新标签</b>"));
-        current->reject();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        next->setText(QStringLiteral("changed 7+8"));
-        next->selectAll();
-        action->trigger();
-        current = first.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QCOMPARE(current->findChild<QPlainTextEdit *>()->toPlainText(), QStringLiteral("changed 7+8"));
-        QCOMPARE(first.creations, 0);
-        QCOMPARE(second.creations, 0);
-    }
-    void documentSelectionPreservesExistingCalculation()
-    {
-        Host host;
-        QCOMPARE(initialize(host), 0);
-        host.openAction()->trigger();
-        QWidget *calculator = host.tabs->currentWidget();
-        host.input()->setPlainText(QStringLiteral("42"));
-        host.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        host.input()->setPlainText(QStringLiteral("未提交的草稿"));
-        host.input()->selectAll();
-        host.tabs->setCurrentWidget(host.ordinary);
-        host.ordinary->selectAll();
-        host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        QPointer<QDialog> dialog = host.findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
-        host.tabs->setCurrentWidget(calculator);
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(dialog.isNull());
-        QCOMPARE(host.creations, 1);
-        QCOMPARE(host.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 1);
-        QCOMPARE(host.input()->toPlainText(), QStringLiteral("未提交的草稿"));
-        QCOMPARE(host.input()->textCursor().selectedText(), QStringLiteral("未提交的草稿"));
-        host.input()->setPlainText(QStringLiteral("ans+1"));
-        host.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        const auto results = host.page()->findChildren<QLabel *>(QStringLiteral("recordResult"));
-        QCOMPARE(results.size(), 2);
-        QCOMPARE(results.last()->text(), QStringLiteral("= 43"));
-        QCOMPARE(host.hostEditCalls, 0);
-    }
-    void documentSelectionDialogLifetime_data()
-    {
-        QTest::addColumn<bool>("closeWindow");
-        QTest::newRow("close-tab") << false;
-        QTest::newRow("close-window") << true;
-    }
-    void documentSelectionDialogLifetime()
-    {
-        QFETCH(bool, closeWindow);
-        auto *host = new Host;
-        QCOMPARE(initialize(*host), 0);
-        host->ordinary->selectAll();
-        const auto snapshot = readDocumentSelection(host->tabs);
-        host->findChild<QAction *>(QStringLiteral("calctabddInspectSelection"))->trigger();
-        QPointer<QDialog> dialog = host->findChild<QDialog *>(QStringLiteral("calctabddSelectionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
-        if (closeWindow) { delete host; host = nullptr; }
-        else host->closeCurrent();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(dialog.isNull());
-        QVERIFY(snapshot.editor.isNull());
-        QCOMPARE(snapshot.text, QStringLiteral("普通文档，不得改动"));
-        delete host;
+            QCOMPARE(json.value(QStringLiteral("text")), json.value(QStringLiteral("expected")));
     }
     void savedSessionsSurviveTabAndWindowLifetimeIndependently()
     {
@@ -632,8 +328,8 @@ private slots:
         QCOMPARE(initialize(host), 0);
         QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddHelp")).size(), 1);
         QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddAbout")).size(), 1);
-        QCOMPARE(host.plugins->actions().size(), 4);
-        QCOMPARE(host.findChildren<QAction *>(QStringLiteral("calctabddInspectSelection")).size(), 1);
+        QCOMPARE(host.plugins->actions().size(), 3);
+        QVERIFY(!host.findChild<QAction *>(QStringLiteral("calctabddInspectSelection")));
         host.findChild<QAction *>(QStringLiteral("calctabddHelp"))->trigger();
         QPointer<QDialog> help = host.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
         QVERIFY(help && help->isVisible());
