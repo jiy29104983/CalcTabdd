@@ -18,14 +18,24 @@
 
 namespace
 {
+void checkpoint(const QString &stage)
+{
+    const QString output = qEnvironmentVariable("CALCTABDD_HOST_PROBE_OUTPUT");
+    if (output.isEmpty()) return;
+    QFile file(output + QStringLiteral(".progress.log"));
+    if (file.open(QIODevice::WriteOnly | QIODevice::Append))
+        file.write((stage + QLatin1Char('\n')).toUtf8());
+}
 void runProbe(QWidget *host, const NddHostCallback &callback)
 {
+    checkpoint(QStringLiteral("runProbe entered"));
     QJsonArray checks;
     bool passed = true;
     auto check = [&](const QString &name, bool ok, const QString &detail = QString()) {
         checks.append(QJsonObject{{QStringLiteral("name"), name}, {QStringLiteral("passed"), ok},
                                  {QStringLiteral("detail"), detail}});
         passed = passed && ok;
+        checkpoint(name + (ok ? QStringLiteral(" passed") : QStringLiteral(" FAILED: ") + detail));
     };
     auto *tabs = host->findChild<QTabWidget *>(QStringLiteral("editTabWidget"));
     QVariant name;
@@ -96,6 +106,7 @@ void runProbe(QWidget *host, const NddHostCallback &callback)
 extern "C" {
 CALCTABDD_EXPORT bool NDD_PROC_IDENTIFY(NddProcData *data)
 {
+    checkpoint(QStringLiteral("NDD_PROC_IDENTIFY entered"));
     if (!data) return false;
     data->pluginName = QStringLiteral("CalcTabdd release verification");
     data->menuType = 1;
@@ -104,6 +115,7 @@ CALCTABDD_EXPORT bool NDD_PROC_IDENTIFY(NddProcData *data)
 CALCTABDD_EXPORT int NDD_PROC_MAIN(QWidget *host, const QString &, NddGetCurrentEditor,
                                   NddHostCallback callback, NddProcData *)
 {
+    checkpoint(QStringLiteral("NDD_PROC_MAIN entered"));
     if (!host || !callback || qEnvironmentVariableIsEmpty("CALCTABDD_HOST_PROBE_OUTPUT")) return -1;
     QTimer::singleShot(1000, host, [host, callback]() { runProbe(host, callback); });
     return 0;

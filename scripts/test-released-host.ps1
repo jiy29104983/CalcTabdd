@@ -21,17 +21,25 @@ foreach ($release in $releases) {
     # Only the two test subject plugins belong in this generated fixture.
     Get-ChildItem "$directory/plugin" -Filter '*.dll' | Remove-Item -Force
     Copy-Item 'build/windows/plugin/calctabdd.dll' "$directory/plugin/calctabdd.dll"
-    Copy-Item 'build/windows/host-probe/released_host_probe.dll' "$directory/plugin/zz_calctabdd_probe.dll"
+    Copy-Item 'build/windows/host-probe/released_host_probe.dll' "$directory/plugin/aa_calctabdd_probe.dll"
     $output = Join-Path $root "result-$version.json"
     $env:CALCTABDD_HOST_PROBE_OUTPUT = $output
-    $env:QT_QPA_PLATFORM = 'offscreen'
+    # The complete host uses native Windows APIs; only isolated Qt tests use offscreen.
+    $env:QT_QPA_PLATFORM = 'windows'
     $process = Start-Process -FilePath "$directory/Notepad--.exe" -WorkingDirectory $directory -PassThru `
         -RedirectStandardOutput "$root/stdout-$version.log" -RedirectStandardError "$root/stderr-$version.log"
     if (-not $process.WaitForExit(45000)) {
         Stop-Process -Id $process.Id -Force
         throw "Host $version probe timed out; see diagnostics"
     }
-    if (-not (Test-Path $output)) { throw "Host $version did not produce a probe result; exit=$($process.ExitCode)" }
+    if (-not (Test-Path $output)) {
+        foreach ($log in @("$output.progress.log", "$root/stdout-$version.log", "$root/stderr-$version.log")) {
+            if (Test-Path $log) { Write-Host "Diagnostics: $log"; Get-Content $log }
+        }
+        Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000; StartTime=(Get-Date).AddMinutes(-3)} -ErrorAction SilentlyContinue |
+            Select-Object -First 3 -ExpandProperty Message | Write-Host
+        throw "Host $version did not produce a probe result; exit=$($process.ExitCode)"
+    }
     $result = Get-Content -Raw $output | ConvertFrom-Json
     $result | ConvertTo-Json -Depth 6
     if ($process.ExitCode -ne 0 -or -not $result.passed) { throw "Host $version probe failed" }
