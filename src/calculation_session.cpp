@@ -43,20 +43,16 @@ QJsonObject inputJson(const CalculationInputState &input)
             {QStringLiteral("anchor"), input.anchor}, {QStringLiteral("customDefinition"), input.customDefinition}};
 }
 
-bool readInput(const QJsonValue &value, CalculationInputState &input, bool customFormat)
+bool readInput(const QJsonValue &value, CalculationInputState &input)
 {
     if (!value.isObject()) return false;
     const auto object = value.toObject();
     if (!object.value(QStringLiteral("text")).isString()) return false;
     input.text = object.value(QStringLiteral("text")).toString();
-    if (customFormat)
-    {
-        if (!object.value(QStringLiteral("customDefinition")).isString()) return false;
-        input.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
-        CustomFormula formula;
-        if (!input.customDefinition.isEmpty() && !CustomFormula::parse(input.customDefinition, formula).isEmpty()) return false;
-    }
-    else if (object.contains(QStringLiteral("customDefinition"))) return false;
+    if (!object.value(QStringLiteral("customDefinition")).isString()) return false;
+    input.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
+    CustomFormula formula;
+    if (!input.customDefinition.isEmpty() && !CustomFormula::parse(input.customDefinition, formula).isEmpty()) return false;
     return readInteger(object.value(QStringLiteral("position")), input.position, 0, input.text.size())
         && readInteger(object.value(QStringLiteral("anchor")), input.anchor, 0, input.text.size());
 }
@@ -116,10 +112,8 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) return invalid;
     const auto root = document.object();
     if (root.value(QStringLiteral("format")) != QStringLiteral("CalcTabdd.Session")) return invalid;
-    const bool customFormat = root.value(QStringLiteral("version")) == QJsonValue(2);
-    if (!customFormat && root.value(QStringLiteral("version")) != QJsonValue(1))
-        return QStringLiteral("不支持此会话格式版本，请使用匹配的插件版本；原文件未修改。");
-    if (!customFormat && (root.contains(QStringLiteral("normalInput")) || root.contains(QStringLiteral("customInput")))) return invalid;
+    if (root.value(QStringLiteral("version")) != QJsonValue(2))
+        return QStringLiteral("不支持此会话格式版本，原文件未修改。");
     CalculationSession restored;
     restored.id = root.value(QStringLiteral("sessionId")).toString();
     if (QUuid(restored.id).isNull() || !root.value(QStringLiteral("records")).isArray()) return invalid;
@@ -137,13 +131,10 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
             || !object.value(QStringLiteral("expression")).isString()
             || !object.value(QStringLiteral("text")).isString()
             || !object.value(QStringLiteral("ok")).isBool()) return invalid;
-        if (customFormat)
-        {
-            if (!object.value(QStringLiteral("customDefinition")).isString() || !object.value(QStringLiteral("parameterInput")).isString()) return invalid;
-            entry.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
-            entry.parameterInput = object.value(QStringLiteral("parameterInput")).toString();
-        }
-        else if (object.contains(QStringLiteral("customDefinition")) || object.contains(QStringLiteral("parameterInput"))) return invalid;
+        if (!object.value(QStringLiteral("customDefinition")).isString()
+            || !object.value(QStringLiteral("parameterInput")).isString()) return invalid;
+        entry.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
+        entry.parameterInput = object.value(QStringLiteral("parameterInput")).toString();
         entry.expression = object.value(QStringLiteral("expression")).toString();
         entry.result.text = object.value(QStringLiteral("text")).toString();
         entry.result.ok = object.value(QStringLiteral("ok")).toBool();
@@ -161,25 +152,21 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     double answer = 0;
     if (!readNumber(root.value(QStringLiteral("answer")), answer)
         || number(answer) != number(restored.history.answer())
-        || !readInput(root.value(QStringLiteral("input")), restored.input, customFormat)
-        || !readInput(root.value(QStringLiteral("draft")), restored.draft, customFormat)
+        || !readInput(root.value(QStringLiteral("input")), restored.input)
+        || !readInput(root.value(QStringLiteral("draft")), restored.draft)
         || !readInteger(root.value(QStringLiteral("historyPosition")), restored.historyPosition, -1, records.size() - 1)
         || !root.value(QStringLiteral("recalledInputs")).isObject()) return invalid;
-    if (customFormat)
-    {
-        if (!readInput(root.value(QStringLiteral("normalInput")), restored.normalInput, true)
-            || !restored.normalInput.customDefinition.isEmpty()
-            || !readInput(root.value(QStringLiteral("customInput")), restored.customInput, true)
-            || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())) return invalid;
-    }
-    else restored.normalInput = restored.historyPosition < 0 ? restored.input : restored.draft;
+    if (!readInput(root.value(QStringLiteral("normalInput")), restored.normalInput)
+        || !restored.normalInput.customDefinition.isEmpty()
+        || !readInput(root.value(QStringLiteral("customInput")), restored.customInput)
+        || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())) return invalid;
     const auto recalled = root.value(QStringLiteral("recalledInputs")).toObject();
     for (auto it = recalled.begin(); it != recalled.end(); ++it)
     {
         bool ok = false;
         const quint64 id = it.key().toULongLong(&ok);
         CalculationInputState input;
-        if (!ok || QString::number(id) != it.key() || !restored.history.record(id) || !readInput(it.value(), input, customFormat))
+        if (!ok || QString::number(id) != it.key() || !restored.history.record(id) || !readInput(it.value(), input))
             return invalid;
         restored.recalledInputs.insert(id, input);
     }

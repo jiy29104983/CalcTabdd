@@ -45,10 +45,12 @@ private slots:
         QTest::addColumn<QString>("input");
         QTest::addColumn<QString>("substituted");
         QTest::addColumn<double>("expected");
-        QTest::newRow("add-inline") << QStringLiteral("x+y") << QStringLiteral("x=1 y=2") << QStringLiteral("1+2") << 3.0;
+        QTest::newRow("add-lines") << QStringLiteral("x+y") << QStringLiteral("x=1\ny=2") << QStringLiteral("1+2") << 3.0;
+        QTest::newRow("crlf-with-padding") << QStringLiteral("x+y") << QStringLiteral("  x = 1 \r\n\r\n\ty = 2\r\n") << QStringLiteral("1+2") << 3.0;
+        QTest::newRow("blank-lines") << QStringLiteral("x+y") << QStringLiteral("\n x=1\n  \n y=2\n") << QStringLiteral("1+2") << 3.0;
         QTest::newRow("signed-power") << QStringLiteral("x^2+y") << QStringLiteral("x=-2\ny=3") << QStringLiteral("(-2)^2+3") << 7.0;
         QTest::newRow("unary-power") << QStringLiteral("-x^2") << QStringLiteral("x=-2") << QStringLiteral("-(-2)^2") << -4.0;
-        QTest::newRow("scientific") << QStringLiteral("x+x1+_x+X+e2") << QStringLiteral("x=1e2 x1=.5 _x=2. X=+3 e2=4") << QStringLiteral("1e2+.5+2.+(+3)+4") << 109.5;
+        QTest::newRow("scientific") << QStringLiteral("x+x1+_x+X+e2") << QStringLiteral("x=1e2\nx1=.5\n_x=2.\nX=+3\ne2=4") << QStringLiteral("1e2+.5+2.+(+3)+4") << 109.5;
         QTest::newRow("sqrt") << QStringLiteral("sqrt(x)") << QStringLiteral("x=9") << QStringLiteral("sqrt(9)") << 3.0;
         QTest::newRow("abs") << QStringLiteral("abs(x)") << QStringLiteral("x=-2") << QStringLiteral("abs((-2))") << 2.0;
         QTest::newRow("sin") << QStringLiteral("sin(x)") << QStringLiteral("x=0") << QStringLiteral("sin(0)") << 0.0;
@@ -60,13 +62,13 @@ private slots:
         QTest::newRow("floor") << QStringLiteral("floor(x)") << QStringLiteral("x=1.8") << QStringLiteral("floor(1.8)") << 1.0;
         QTest::newRow("ceil") << QStringLiteral("ceil(x)") << QStringLiteral("x=1.2") << QStringLiteral("ceil(1.2)") << 2.0;
         QTest::newRow("round") << QStringLiteral("round(x)") << QStringLiteral("x=1.5") << QStringLiteral("round(1.5)") << 2.0;
-        QTest::newRow("min") << QStringLiteral("min(x,y)") << QStringLiteral("x=4 y=2") << QStringLiteral("min(4,2)") << 2.0;
-        QTest::newRow("max") << QStringLiteral("max(x,y)") << QStringLiteral("x=4 y=2") << QStringLiteral("max(4,2)") << 4.0;
-        QTest::newRow("pow") << QStringLiteral("pow(x,y)") << QStringLiteral("x=-2 y=3") << QStringLiteral("pow((-2),3)") << -8.0;
+        QTest::newRow("min") << QStringLiteral("min(x,y)") << QStringLiteral("x=4\ny=2") << QStringLiteral("min(4,2)") << 2.0;
+        QTest::newRow("max") << QStringLiteral("max(x,y)") << QStringLiteral("x=4\ny=2") << QStringLiteral("max(4,2)") << 4.0;
+        QTest::newRow("pow") << QStringLiteral("pow(x,y)") << QStringLiteral("x=-2\ny=3") << QStringLiteral("pow((-2),3)") << -8.0;
         QTest::newRow("nested") << QStringLiteral("sqrt(x^2+y^2)+max(z,0)") << QStringLiteral("x=3\ny=4\nz=2") << QStringLiteral("sqrt(3^2+4^2)+max(2,0)") << 7.0;
-        QTest::newRow("unicode-operators") << QStringLiteral("x×y−x÷y+x%y") << QStringLiteral("x=6 y=3") << QStringLiteral("6×3−6÷3+6%3") << 16.0;
+        QTest::newRow("unicode-operators") << QStringLiteral("x×y−x÷y+x%y") << QStringLiteral("x=6\ny=3") << QStringLiteral("6×3−6÷3+6%3") << 16.0;
         QTest::newRow("constants-no-parameters") << QStringLiteral("PI+e+ans") << QStringLiteral("") << QStringLiteral("PI+e+ans") << std::acos(-1.0)+std::exp(1.0)+10;
-        QTest::newRow("token-boundaries") << QStringLiteral("exp(x)+max(x1,x)+1e3") << QStringLiteral("x=0 x1=2") << QStringLiteral("exp(0)+max(2,0)+1e3") << 1003.0;
+        QTest::newRow("token-boundaries") << QStringLiteral("exp(x)+max(x1,x)+1e3") << QStringLiteral("x=0\nx1=2") << QStringLiteral("exp(0)+max(2,0)+1e3") << 1003.0;
     }
     void customFunctions()
     {
@@ -112,11 +114,15 @@ private slots:
     void customInvalidParameters_data()
     {
         QTest::addColumn<QString>("input");
-        for (const auto *text : {"", "x=1", "x= y=2", "x=1 y=", "x=1 x=2 y=3", "x=1 z=2", "X=1 y=2",
-                                "x=1+2 y=3", "x=nan y=2", "x=inf y=2", "x=1e400 y=2", "x=1e-400 y=2",
-                                "x=1y=2", "x=1, y=2", "x=(1) y=2", "oops x=1 y=2", "x=1 y=2 extra", "x=ans y=2"})
-            QTest::newRow(text[0] ? text : "empty") << QString::fromLatin1(text);
-        QTest::newRow("fullwidth") << QStringLiteral("x=１ y=2");
+        for (const auto *text : {"", "x=1", "x=\ny=2", "x=1\ny=", "x=1\nx=2\ny=3", "x=1\nz=2", "X=1\ny=2",
+                                "x=1+2\ny=3", "x=nan\ny=2", "x=inf\ny=2", "x=1e400\ny=2", "x=1e-400\ny=2",
+                                "x=1y=2", "x=1,\ny=2", "x=(1)\ny=2", "oops\nx=1\ny=2", "x=1\ny=2 extra", "x=ans\ny=2"})
+            QTest::newRow(text[0] ? qPrintable(QString::fromLatin1(text).replace(QLatin1Char('\n'), QStringLiteral(" / "))) : "empty") << QString::fromLatin1(text);
+        QTest::newRow("same-line-space") << QStringLiteral("x=1 y=2");
+        QTest::newRow("same-line-tab") << QStringLiteral("x=1\ty=2");
+        QTest::newRow("value-on-next-line") << QStringLiteral("x=\n1\ny=2");
+        QTest::newRow("extra-equals") << QStringLiteral("x==1\ny=2");
+        QTest::newRow("fullwidth") << QStringLiteral("x=１\ny=2");
     }
     void customInvalidParameters()
     {
@@ -164,10 +170,10 @@ private slots:
     {
         CalculationHistory history;
         QString error;
-        const auto first = history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1 y=2"), error);
-        const auto again = history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1 y=2"), error);
+        const auto first = history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1\ny=2"), error);
+        const auto again = history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1\ny=2"), error);
         QCOMPARE(again.id, quint64(2));
-        const auto failed = history.calculateCustom(QStringLiteral("LongName=x/y"), QStringLiteral("x=1 y=0"), error);
+        const auto failed = history.calculateCustom(QStringLiteral("LongName=x/y"), QStringLiteral("x=1\ny=0"), error);
         QVERIFY(error.isEmpty());
         QVERIFY(!failed.result.ok);
         QCOMPARE(failed.result.error, CalculationError::DivisionByZero);
@@ -181,16 +187,16 @@ private slots:
         QVERIFY(CalculationExport::serialize(history.records(), CalculationExport::Format::Text).contains("A=1+2\n= 3"));
         QVERIFY(CalculationExport::serialize(history.records(), CalculationExport::Format::Markdown).contains("A=1+2"));
     }
-    void customSessionSnapshotsAndLegacyFormat()
+    void customSessionSnapshots()
     {
         CalculationSession original;
         QString error;
-        original.history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1 y=2"), error);
+        original.history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1\ny=2"), error);
         auto records = original.history.records();
         records[0].result.value = 17; // 已保存的结果快照必须保留，不能用当前求值替换成 3。
         records[0].result.text = QStringLiteral("历史结果 17");
         QVERIFY(original.history.restoreRecords(records));
-        original.input = {QStringLiteral("x=5 y=6"), 3, 3, QStringLiteral("A=x+y")};
+        original.input = {QStringLiteral("x=5\ny=6"), 3, 3, QStringLiteral("A=x+y")};
         original.customInput = original.input;
         original.normalInput = {QStringLiteral("123+"), 4, 2};
         CalculationSession restored;
@@ -200,17 +206,11 @@ private slots:
         QCOMPARE(restored.history.answer(), 17.0);
         QCOMPARE(restored.history.records().first().result.text, QStringLiteral("历史结果 17"));
         QCOMPARE(restored.normalInput.text, QStringLiteral("123+"));
-        const QByteArray legacy = R"({"format":"CalcTabdd.Session","version":1,"sessionId":"01234567-89ab-cdef-0123-456789abcdef","records":[],"answer":"0","input":{"text":"old draft","position":3,"anchor":1},"draft":{"text":"","position":0,"anchor":0},"historyPosition":-1,"recalledInputs":{}})";
-        QVERIFY(SessionFormat::decode(legacy, restored).isEmpty());
-        QCOMPARE(restored.input.text, QStringLiteral("old draft"));
-        QCOMPARE(restored.normalInput.text, restored.input.text);
-        QVERIFY(restored.customInput.customDefinition.isEmpty());
-        QCOMPARE(QJsonDocument::fromJson(SessionFormat::encode(restored)).object().value("version").toInt(), 2);
     }
     void corruptCustomSessionsAreAtomic_data()
     {
         QTest::addColumn<QString>("field");
-        for (const auto *field : {"definition", "values", "display", "normal-mode", "missing-buffer", "active-definition", "downgrade"})
+        for (const auto *field : {"definition", "values", "display", "normal-mode", "missing-buffer", "active-definition"})
             QTest::newRow(field) << QString::fromLatin1(field);
     }
     void corruptCustomSessionsAreAtomic()
@@ -235,21 +235,27 @@ private slots:
             root.insert(key, input);
         }
         if (field == "missing-buffer") root.remove("customInput");
-        if (field == "downgrade") root.insert("version", 1);
         CalculationSession destination;
         destination.history.calculate(QStringLiteral("42"));
         const auto before = SessionFormat::encode(destination);
         QVERIFY(!SessionFormat::decode(QJsonDocument(root).toJson(), destination).isEmpty());
         QCOMPARE(SessionFormat::encode(destination), before);
     }
+    void unsupportedVersionFileStaysUnchanged_data()
+    {
+        QTest::addColumn<int>("version");
+        QTest::newRow("unsupported-1") << 1;
+        QTest::newRow("unsupported-3") << 3;
+    }
     void unsupportedVersionFileStaysUnchanged()
     {
+        QFETCH(int, version);
         QTemporaryDir directory;
         const QString path = directory.filePath(QStringLiteral("future.calctabdd"));
         CalculationSession original;
         original.history.calculate(QStringLiteral("42"));
         auto root = QJsonDocument::fromJson(SessionFormat::encode(original)).object();
-        root.insert(QStringLiteral("version"), 3);
+        root.insert(QStringLiteral("version"), version);
         root.insert(QStringLiteral("futureState"), QStringLiteral("preserve unknown data"));
         const QByteArray bytes = QJsonDocument(root).toJson();
         QFile file(path);
@@ -305,7 +311,7 @@ private slots:
         original.historyPosition = 1;
         original.recalledInputs.insert(2, original.input);
         original.recalledInputs.insert(3, {QStringLiteral("ln(9)"), 4, 4});
-        // 模拟旧版本计算出的结果：恢复绝不能以当前引擎重新求值。
+        // 独立构造历史快照，确保恢复不会再次调用求值。
         auto records = original.history.records();
         records[0].expression = QStringLiteral("old_function(中文😀)");
         records[0].result.text = QStringLiteral("历史显示文本");
@@ -372,7 +378,8 @@ private slots:
         QTest::addColumn<QString>("field");
         QTest::addColumn<QJsonValue>("replacement");
         QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(3);
-        QTest::newRow("old-version") << QStringLiteral("version") << QJsonValue(0);
+        QTest::newRow("other-version") << QStringLiteral("version") << QJsonValue(1);
+        QTest::newRow("zero-version") << QStringLiteral("version") << QJsonValue(0);
         QTest::newRow("missing-version") << QStringLiteral("version") << QJsonValue();
         QTest::newRow("wrong-format") << QStringLiteral("format") << QJsonValue("Other.Session");
         QTest::newRow("invalid-uuid") << QStringLiteral("sessionId") << QJsonValue("none");
@@ -396,6 +403,9 @@ private slots:
         QTest::newRow("missing-value") << QStringLiteral("record.value") << QJsonValue();
         QTest::newRow("value-overflow") << QStringLiteral("record.value") << QJsonValue("1e500");
         QTest::newRow("missing-text") << QStringLiteral("record.text") << QJsonValue();
+        QTest::newRow("missing-record-definition") << QStringLiteral("record.customDefinition") << QJsonValue();
+        QTest::newRow("missing-record-parameters") << QStringLiteral("record.parameterInput") << QJsonValue();
+        QTest::newRow("missing-mode-draft") << QStringLiteral("normalInput") << QJsonValue();
         QTest::newRow("missing-expression") << QStringLiteral("record.expression") << QJsonValue();
     }
     void invalidSessionsLeaveDestinationUntouched()

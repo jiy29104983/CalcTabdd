@@ -29,7 +29,7 @@ struct CalculationSession
     QMap<quint64, CalculationInputState> recalledInputs;
 };
 
-// v2 UTF-8 JSON（兼容读取 v1）；数值／编号用十进制字符串，避免 JSON 数值精度或负零丢失。
+// 当前会话使用 UTF-8 JSON；数值／编号用十进制字符串，避免 JSON 数值精度或负零丢失。
 namespace SessionFormat {
 constexpr int maximumBytes = 16 * 1024 * 1024;
 constexpr int maximumRecords = 10000;

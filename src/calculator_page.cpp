@@ -1023,7 +1023,7 @@ void CalculatorPage::updateModeUi()
         ? qBound(3, formula.parameters().size(), 6) : 0;
     m_input->setFixedHeight(custom ? rows * QFontMetrics(m_input->font()).lineSpacing() + 24 : 72);
     findChild<QLabel *>(QStringLiteral("inputHint"))->setText(custom
-        ? QStringLiteral("Enter 换行 · Ctrl+Enter 确认计算 · Alt+↑↓ 召回历史／返回草稿 · 名称区分大小写")
+        ? QStringLiteral("每行一个参数 · Enter 换行 · Ctrl+Enter 确认计算 · Alt+↑↓ 召回历史／返回草稿")
         : QStringLiteral("输入 @ 补全 · Alt+↑↓ 召回历史／返回草稿 · Ctrl+Enter 计算 · ans 引用上次结果"));
 }
 

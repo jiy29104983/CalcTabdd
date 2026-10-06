@@ -11,24 +11,21 @@ struct Assignment
 };
 QVector<Assignment> assignments(const QString &input, QString &error)
 {
-    static const QRegularExpression marker(QStringLiteral("(?:\\A|\\s+)([A-Za-z_][A-Za-z0-9_]*)\\s*="));
-    auto matches = marker.globalMatch(input);
+    static const QRegularExpression assignment(QStringLiteral("\\A([A-Za-z_][A-Za-z0-9_]*)[ \\t]*=[ \\t]*([^=]*)\\z"));
     QVector<Assignment> values;
-    int end = 0;
-    while (matches.hasNext())
+    const QStringList lines = input.split(QLatin1Char('\n'));
+    for (int index = 0; index < lines.size(); ++index)
     {
-        const auto match = matches.next();
-        const QString value = input.mid(end, match.capturedStart() - end).trimmed();
-        if (values.isEmpty() && !value.isEmpty())
+        const QString line = lines.at(index).trimmed();
+        if (line.isEmpty()) continue;
+        const auto match = assignment.match(line);
+        if (!match.hasMatch())
         {
-            error = QStringLiteral("参数须按 名称=数字 填写，使用换行或空格分隔");
+            if (error.isEmpty()) error = QStringLiteral("第 %1 行：每行只能填写一个参数，格式为 名称=数字").arg(index + 1);
+            continue;
         }
-        if (!values.isEmpty()) values.last().value = value;
-        values.append({match.captured(1), QString()});
-        end = match.capturedEnd();
+        values.append({match.captured(1), match.captured(2).trimmed()});
     }
-    if (!values.isEmpty()) values.last().value = input.mid(end).trimmed();
-    else if (!input.trimmed().isEmpty()) error = QStringLiteral("参数须按 名称=数字 填写");
     return values;
 }
 }

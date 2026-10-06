@@ -157,6 +157,10 @@ private slots:
         second.openAction()->trigger();
         first.input()->setPlainText(QStringLiteral("99+"));
         QVERIFY(defineFormula(first, QStringLiteral("A=x^2+y")));
+        first.input()->setPlainText(QStringLiteral("x=-2 y=3"));
+        first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(first.page()->findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("每行只能填写一个参数")));
         first.input()->setPlainText(QStringLiteral("x=-2\ny=3"));
         first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordFormula"))->text(), QStringLiteral("A=(-2)^2+3"));
