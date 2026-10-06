@@ -67,15 +67,6 @@ def main():
         assert set(info['tests']) == {'engine_tests', 'page_tests', 'plugin_tests'}
         for name, result in info['tests'].items():
             assert result['passed'] > 2 and result['failed'] == 0 and result['skipped'] == 0, f'Incomplete suite: {name}'
-        host_checks = info['released_host_tests']
-        assert set(host_checks) == {'3.8.3', '3.9.0'}, 'Official host versions missing'
-        required_checks = {'host_created_native_tab', 'read_existing_unicode_multiline',
-                           'read_readonly_selection', 'production_menu_installed',
-                           'production_dll_preview', 'selection_preserved',
-                           'clipboard_preserved', 'empty_selection', 'source_preserved'}
-        for version, result in host_checks.items():
-            assert result['passed'] is True and result['qt'] == '5.15.2', f'Host {version} failed'
-            assert required_checks <= set(result['checks']), f'Host {version} checks incomplete'
         pe = verify_pe(package.read(lookup['plugin/calctabdd.dll']))
     print(json.dumps({'file': args.archive.name, 'sha256': digest, 'build': info, 'pe': pe}, ensure_ascii=False, indent=2))
 

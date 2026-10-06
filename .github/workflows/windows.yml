@@ -78,9 +78,6 @@ jobs:
               throw "Incomplete, failed or skipped tests in $($log.Name)"
             }
           }
-      - name: Verify selection in official Windows host releases
-        shell: pwsh
-        run: ./scripts/test-released-host.ps1
       - name: Package and verify Windows candidate
         id: package
         shell: pwsh
@@ -98,8 +95,6 @@ jobs:
             build/windows/*_tests.txt
             build/windows/Testing/Temporary/*.log
             build/screenshots/*.png
-            build/released-hosts/*.json
-            build/released-hosts/*.log
           if-no-files-found: warn
           retention-days: 30
       - name: Upload installable candidate

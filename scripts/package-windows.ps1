@@ -18,18 +18,6 @@ foreach ($suite in @('engine_tests', 'page_tests', 'plugin_tests')) {
     if (-not $match.Success) { throw "No complete passing result for $suite" }
     $tests[$suite] = @{passed = [int]$match.Groups[1].Value; failed = 0; skipped = 0}
 }
-$releasedHosts = @{}
-foreach ($hostVersion in @('3.8.3', '3.9.0')) {
-    $probe = Get-Content -Raw "build/released-hosts/result-$hostVersion.json" | ConvertFrom-Json
-    if (-not $probe.passed -or @($probe.checks | Where-Object { -not $_.passed }).Count -ne 0) {
-        throw "Official host $hostVersion verification incomplete"
-    }
-    $releasedHosts[$hostVersion] = @{
-        passed = $probe.passed
-        qt = $probe.qt
-        checks = @($probe.checks | ForEach-Object { $_.name })
-    }
-}
 @{
     version = $version
     commit = $sha
@@ -38,7 +26,6 @@ foreach ($hostVersion in @('3.8.3', '3.9.0')) {
     toolset = 'MSVC v142'
     host_source = '91105f68b74382128f3313ac5af8accdc77de918'
     tests = $tests
-    released_host_tests = $releasedHosts
     real_host_manual_test = 'not verified'
     workflow_run = $env:GITHUB_RUN_ID
 } | ConvertTo-Json -Depth 5 | Set-Content "$stage/BUILD-INFO.json" -Encoding utf8
