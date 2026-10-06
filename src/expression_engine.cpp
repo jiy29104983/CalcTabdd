@@ -28,7 +28,8 @@ struct Argument
 class Parser
 {
 public:
-    Parser(QString text, double answer) : m_text(std::move(text)), m_answer(answer)
+    Parser(QString text, double answer, QVector<ExpressionParameter> *parameters = nullptr)
+        : m_text(std::move(text)), m_answer(answer), m_parameters(parameters)
     {
         // 逐代码单元替换，错误范围始终对应原始公式。
         m_text.replace(QChar(0x00d7), QLatin1Char('*'));
@@ -50,7 +51,19 @@ public:
         return value;
     }
 
+    static bool reserved(const QString &name)
+    {
+        const QString lower = name.toLower();
+        return argumentCount(lower) != 0 || lower == QStringLiteral("pi")
+            || lower == QStringLiteral("e") || lower == QStringLiteral("ans");
+    }
+
 private:
+    static bool identifierStart(QChar ch)
+    {
+        return (ch >= QLatin1Char('a') && ch <= QLatin1Char('z'))
+            || (ch >= QLatin1Char('A') && ch <= QLatin1Char('Z')) || ch == QLatin1Char('_');
+    }
     [[noreturn]] void fail(const QString &text, CalculationError kind, SourceRange range) const
     {
         // 不截断 Unicode 代理对；全部公开范围均在原公式内。
@@ -72,6 +85,7 @@ private:
     }
     double finite(double value, SourceRange range) const
     {
+        if (m_parameters) return 1;
         if (std::isnan(value))
             fail(QStringLiteral("运算超出实数定义域"), CalculationError::Domain, range);
         if (!std::isfinite(value))
@@ -102,12 +116,12 @@ private:
             if (take(QLatin1Char('+')))
             {
                 const double right = term();
-                value = finite(value + right, operation);
+                value = m_parameters ? 1 : finite(value + right, operation);
             }
             else if (take(QLatin1Char('-')))
             {
                 const double right = term();
-                value = finite(value - right, operation);
+                value = m_parameters ? 1 : finite(value - right, operation);
             }
             else return value;
         }
@@ -122,25 +136,25 @@ private:
             if (take(QLatin1Char('*')))
             {
                 const double right = unary();
-                value = finite(value * right, operation);
+                value = m_parameters ? 1 : finite(value * right, operation);
             }
             else if (take(QLatin1Char('/')))
             {
                 skipSpace();
                 const int start = m_position;
                 const double divisor = unary();
-                if (divisor == 0)
+                if (!m_parameters && divisor == 0)
                     fail(QStringLiteral("除数不能为 0"), CalculationError::DivisionByZero, rangeFrom(start));
-                value = finite(value / divisor, operation);
+                value = m_parameters ? 1 : finite(value / divisor, operation);
             }
             else if (take(QLatin1Char('%')))
             {
                 skipSpace();
                 const int start = m_position;
                 const double divisor = unary();
-                if (divisor == 0)
+                if (!m_parameters && divisor == 0)
                     fail(QStringLiteral("取余的除数不能为 0"), CalculationError::DivisionByZero, rangeFrom(start));
-                value = finite(std::fmod(value, divisor), operation);
+                value = m_parameters ? 1 : finite(std::fmod(value, divisor), operation);
             }
             else return value;
         }
@@ -168,6 +182,7 @@ private:
     }
     double powerValue(double base, double exponent, SourceRange exponentRange, SourceRange operation) const
     {
+        if (m_parameters) return 1;
         if (base == 0 && exponent < 0)
             fail(QStringLiteral("乘方的底数为 0 时，指数不能为负数"), CalculationError::Domain, exponentRange);
         if (base < 0 && std::trunc(exponent) != exponent)
@@ -184,15 +199,25 @@ private:
         }
         skipSpace();
         const int start = m_position;
-        if (m_position < m_text.size() && m_text.at(m_position).isLetter())
+        if (m_position < m_text.size() && (m_parameters ? identifierStart(m_text.at(m_position)) : m_text.at(m_position).isLetter()))
         {
-            while (m_position < m_text.size() && m_text.at(m_position).isLetter()) ++m_position;
+            while (m_position < m_text.size() && (m_parameters
+                ? identifierStart(m_text.at(m_position)) || isDigit(m_text.at(m_position))
+                : m_text.at(m_position).isLetter())) ++m_position;
             const SourceRange nameRange{start, m_position - start};
             const QString name = m_text.mid(start, nameRange.length).toLower();
-            if (name == QStringLiteral("pi")) return std::acos(-1.0);
-            if (name == QStringLiteral("e")) return std::exp(1.0);
+            if (name == QStringLiteral("pi")) return m_parameters ? 1 : std::acos(-1.0);
+            if (name == QStringLiteral("e")) return m_parameters ? 1 : std::exp(1.0);
             if (name == QStringLiteral("ans")) return finite(m_answer, nameRange);
             const int count = argumentCount(name);
+            if (count == 0 && m_parameters)
+            {
+                skipSpace();
+                if (m_position < m_text.size() && m_text.at(m_position) == QLatin1Char('('))
+                    fail(QStringLiteral("未知函数：%1").arg(name), CalculationError::UnknownName, nameRange);
+                m_parameters->append({m_text.mid(start, nameRange.length), start, nameRange.length});
+                return 1;
+            }
             if (count == 0)
                 fail(QStringLiteral("未知函数或常量：%1").arg(name), CalculationError::UnknownName, nameRange);
             if (!take(QLatin1Char('('))) failHere(QStringLiteral("%1 函数缺少左括号 (").arg(name));
@@ -235,6 +260,7 @@ private:
             if (exponent == m_position)
                 fail(QStringLiteral("科学计数法缺少指数"), CalculationError::Syntax, {exponentStart, m_position - exponentStart});
         }
+        if (m_parameters) return 1;
         bool ok = false;
         const SourceRange number{start, m_position - start};
         const double value = QLocale::c().toDouble(m_text.mid(start, number.length), &ok);
@@ -257,6 +283,7 @@ private:
     }
     double function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
     {
+        if (m_parameters) return 1;
         if (name == QStringLiteral("min")) return qMin(args[0].value, args[1].value);
         if (name == QStringLiteral("max")) return qMax(args[0].value, args[1].value);
         if (name == QStringLiteral("pow")) return powerValue(args[0].value, args[1].value, args[1].range, nameRange);
@@ -285,6 +312,7 @@ private:
 
     QString m_text;
     double m_answer;
+    QVector<ExpressionParameter> *m_parameters;
     int m_position = 0;
     int m_depth = 0;
 };
@@ -308,4 +336,30 @@ CalculationResult ExpressionEngine::evaluate(const QString &expression, double a
         result.errorLength = error.range.length;
     }
     return result;
+}
+
+CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<ExpressionParameter> &parameters)
+{
+    CalculationResult result;
+    QVector<ExpressionParameter> found;
+    try
+    {
+        Parser parser(expression, 0, &found);
+        parser.parse();
+        parameters = found;
+        result.ok = true;
+    }
+    catch (const ParseError &error)
+    {
+        result.text = error.text;
+        result.error = error.kind;
+        result.errorPosition = error.range.start;
+        result.errorLength = error.range.length;
+    }
+    return result;
+}
+
+bool ExpressionEngine::isReservedName(const QString &name)
+{
+    return Parser::reserved(name);
 }

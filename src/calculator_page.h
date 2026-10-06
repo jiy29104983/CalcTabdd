@@ -41,6 +41,20 @@ protected:
 
 private:
     using InputState = CalculationInputState;
+    bool customMode() const { return !m_definition.isEmpty(); }
+    void requestDefinition();
+    void switchMode(bool custom);
+    void storeModeDraft();
+    void updateModeUi();
+    QString m_definition;
+    InputState m_normalInput;
+    InputState m_customInput;
+    QLabel *m_definitionLabel = nullptr;
+    QLabel *m_inputLabel = nullptr;
+    QToolButton *m_modeButton = nullptr;
+    QAction *m_normalModeAction = nullptr;
+    QAction *m_customModeAction = nullptr;
+    QPointer<QDialog> m_definitionDialog;
     CalculationSession captureSession() const;
     void restoreSession(const CalculationSession &session);
     void requestSessionFile(bool restore);

@@ -70,11 +70,17 @@ void FormulaCompletion::hide()
     m_completer->popup()->hide();
 }
 
+void FormulaCompletion::setEnabled(bool enabled)
+{
+    m_enabled = enabled;
+    if (!enabled) hide();
+}
+
 void FormulaCompletion::refresh()
 {
     if (m_inserting) return;
     const Token token = tokenAtCursor();
-    if (m_composing || !m_input->hasFocus() || !m_input->isVisible() || token.start < 0 ||
+    if (!m_enabled || m_composing || !m_input->hasFocus() || !m_input->isVisible() || token.start < 0 ||
         (m_dismissedPosition == m_input->textCursor().position() && m_dismissedText == m_input->toPlainText()))
     {
         hide();
@@ -113,7 +119,7 @@ void FormulaCompletion::insertCurrent(int entryIndex)
 {
     const Token token = tokenAtCursor();
     const auto &entries = CalculationCatalog::entries();
-    if (m_composing || token.start < 0 || entryIndex < 0 || entryIndex >= entries.size()) return;
+    if (!m_enabled || m_composing || token.start < 0 || entryIndex < 0 || entryIndex >= entries.size()) return;
     const auto &entry = entries.at(entryIndex);
     if (!entry.isCompletion() || !entry.matches(token.query, true)) return;
     const QString text = m_input->toPlainText();

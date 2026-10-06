@@ -13,6 +13,8 @@ struct CalculationInputState
     QString text;
     int position = 0;
     int anchor = 0;
+    // 空定义表示普通模式；历史浏览也携带当时的模式和定义。
+    QString customDefinition;
 };
 
 struct CalculationSession
@@ -21,16 +23,18 @@ struct CalculationSession
     CalculationHistory history;
     CalculationInputState input;
     CalculationInputState draft;
+    CalculationInputState normalInput;
+    CalculationInputState customInput;
     int historyPosition = -1;
     QMap<quint64, CalculationInputState> recalledInputs;
 };
 
-// v1 UTF-8 JSON；数值／编号用十进制字符串，避免 JSON 数值精度或负零丢失。
+// v2 UTF-8 JSON（兼容读取 v1）；数值／编号用十进制字符串，避免 JSON 数值精度或负零丢失。
 namespace SessionFormat {
 constexpr int maximumBytes = 16 * 1024 * 1024;
 constexpr int maximumRecords = 10000;
 QByteArray encode(const CalculationSession &session);
-// 成功才替换输出；未知版本／损坏文件不做部分恢复，不调用计算引擎。
+// 成功才替换输出；未知版本／损坏文件不做部分恢复，不重新计算历史结果。
 QString decode(const QByteArray &bytes, CalculationSession &session);
 }
 

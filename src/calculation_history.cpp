@@ -1,4 +1,5 @@
 #include "calculation_history.h"
+#include "custom_formula.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,26 @@ CalculationRecord CalculationHistory::calculate(const QString &expression)
     return record;
 }
 
+CalculationRecord CalculationHistory::calculateCustom(const QString &definition, const QString &input, QString &error)
+{
+    CustomFormula formula;
+    error = CustomFormula::parse(definition, formula);
+    QString expression;
+    if (error.isEmpty()) error = formula.substitute(input, expression);
+    if (!error.isEmpty()) return {};
+    CalculationRecord entry;
+    entry.id = m_nextId++;
+    entry.customDefinition = formula.definition();
+    entry.parameterInput = input;
+    entry.expression = formula.name() + QLatin1Char('=') + expression;
+    entry.answerBefore = m_answer;
+    entry.result = ExpressionEngine::evaluate(expression, m_answer);
+    if (entry.result.ok) m_answer = entry.result.value;
+    else entry.result.errorPosition += formula.name().size() + 1;
+    m_records.append(entry);
+    return entry;
+}
+
 void CalculationHistory::clear()
 {
     m_records.clear();
@@ -58,6 +79,15 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
     quint64 nextId = 1;
     for (const auto &entry : records)
     {
+        if (!entry.customDefinition.isEmpty())
+        {
+            CustomFormula formula;
+            QString substituted;
+            if (!CustomFormula::parse(entry.customDefinition, formula).isEmpty()
+                || !formula.substitute(entry.parameterInput, substituted).isEmpty()
+                || entry.expression != formula.name() + QLatin1Char('=') + substituted) return false;
+        }
+        else if (!entry.parameterInput.isEmpty()) return false;
         const auto &result = entry.result;
         if (entry.id != nextId++ || entry.expression.isEmpty() || result.text.isEmpty()
             || !std::isfinite(entry.answerBefore) || !std::isfinite(result.value)

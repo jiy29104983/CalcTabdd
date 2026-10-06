@@ -10,6 +10,8 @@ struct CalculationRecord
     QString expression;
     CalculationResult result;
     double answerBefore = 0;
+    QString customDefinition;
+    QString parameterInput;
 
     // 数值复用读取内部值；失败记录没有可复制或插入的数值。
     QString valueText() const;
@@ -23,6 +25,8 @@ class CalculationHistory
 public:
     // 返回值副本，供调用方安全使用，不受后续追加引起的存储移动影响。
     CalculationRecord calculate(const QString &expression);
+    // 参数校验失败不追加记录，返回 id=0 并提供提示。
+    CalculationRecord calculateCustom(const QString &definition, const QString &input, QString &error);
     // 同时清空成功和失败记录，重置 ans 与编号。
     void clear();
     // 校验整份快照后替换；失败保持原模型，不求值旧公式。

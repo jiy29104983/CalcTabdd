@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QVector>
 
 enum class CalculationError
 {
@@ -25,8 +26,18 @@ struct CalculationResult
     CalculationError error = CalculationError::None;
 };
 
+struct ExpressionParameter
+{
+    QString name;
+    int position;
+    int length;
+};
+
 class ExpressionEngine
 {
 public:
+    // 只校验语法／函数元数并提取参数，不执行数学运算或读取 ans。
+    static CalculationResult inspect(const QString &expression, QVector<ExpressionParameter> &parameters);
+    static bool isReservedName(const QString &name);
     static CalculationResult evaluate(const QString &expression, double answer = 0);
 };

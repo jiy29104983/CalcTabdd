@@ -134,7 +134,113 @@ class PluginTests : public QObject
         if (!error.isEmpty()) qFatal("%s", qPrintable(error));
         return session;
     }
+    bool defineFormula(Host &host, const QString &definition)
+    {
+        host.page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+        auto *dialog = host.page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+        if (!dialog || !dialog->isVisible()) return false;
+        dialog->findChild<QLineEdit *>(QStringLiteral("customDefinitionInput"))->setText(definition);
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        return !host.page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+    }
 private slots:
+    void customFormulaModesAndFilesStayWithinTheirHostWindow()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("custom.calctabdd"));
+        Host first;
+        Host second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.input()->setPlainText(QStringLiteral("99+"));
+        QVERIFY(defineFormula(first, QStringLiteral("A=x^2+y")));
+        first.input()->setPlainText(QStringLiteral("x=-2\ny=3"));
+        first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordFormula"))->text(), QStringLiteral("A=(-2)^2+3"));
+        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 7"));
+        QVERIFY(defineFormula(second, QStringLiteral("B=t*3")));
+        second.input()->setPlainText(QStringLiteral("t=10"));
+        second.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QVERIFY(selectSession(first, path, false));
+        first.input()->setPlainText(QStringLiteral("x=4\ny=5"));
+        first.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("99+"));
+        first.closeCurrent();
+        QCOMPARE(readSession(path).input.customDefinition, QString());
+        QCOMPARE(readSession(path).customInput.text, QStringLiteral("x=4\ny=5"));
+        first.openAction()->trigger();
+        QVERIFY(first.input()->toPlainText().isEmpty());
+        QVERIFY(!first.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(selectSession(first, path, true));
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("99+"));
+        first.page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("x=4\ny=5"));
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        first.tabs->setCurrentWidget(first.ordinary);
+        first.tabs->setCurrentWidget(native);
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("x=4\ny=5"));
+        first.activateWindow();
+        first.input()->setFocus();
+        first.input()->moveCursor(QTextCursor::End);
+        QTest::keyClick(first.input(), Qt::Key_Return);
+        QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(readSession(path).history.answer(), 21.0);
+        QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=t*3"));
+        QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 30"));
+        for (Host *host : {&first, &second})
+        {
+            const auto *editor = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
+            QVERIFY(editor->text().isEmpty());
+            QVERIFY(!editor->isModified());
+            QVERIFY(editor->isReadOnly());
+            QCOMPARE(host->ordinary->text(), QStringLiteral("普通文档，不得改动"));
+            QCOMPARE(host->hostEditCalls, 0);
+        }
+        second.closeCurrent();
+        second.openAction()->trigger();
+        QVERIFY(!second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(second.input()->toPlainText().isEmpty());
+        QVERIFY(second.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+    }
+    void customDefinitionDialogLifetime_data()
+    {
+        QTest::addColumn<int>("closeMode");
+        QTest::newRow("switch") << 0;
+        QTest::newRow("close-tab") << 1;
+        QTest::newRow("close-window") << 2;
+    }
+    void customDefinitionDialogLifetime()
+    {
+        QFETCH(int, closeMode);
+        auto *host = new Host;
+        QCOMPARE(initialize(*host), 0);
+        host->openAction()->trigger();
+        host->input()->setPlainText(QStringLiteral("old draft"));
+        auto *native = host->tabs->currentWidget();
+        host->page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+        QPointer<QDialog> dialog = host->page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        dialog->findChild<QLineEdit *>()->setText(QStringLiteral("A=x+y"));
+        if (closeMode == 0) host->tabs->setCurrentWidget(host->ordinary);
+        else if (closeMode == 1) host->closeCurrent();
+        else { delete host; host = nullptr; }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(dialog.isNull());
+        if (host)
+        {
+            if (closeMode == 0)
+            {
+                host->tabs->setCurrentWidget(native);
+                QCOMPARE(host->input()->toPlainText(), QStringLiteral("old draft"));
+            }
+            else host->openAction()->trigger();
+            QVERIFY(!host->page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+            delete host;
+        }
+    }
     void savedSessionsSurviveTabAndWindowLifetimeIndependently()
     {
         QTemporaryDir directory;

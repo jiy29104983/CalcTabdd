@@ -13,6 +13,7 @@ class FormulaCompletion : public QObject
 public:
     explicit FormulaCompletion(QPlainTextEdit *input);
     bool hasVisiblePopup() const;
+    void setEnabled(bool enabled);
 
 signals:
     void calculationRequested();
@@ -35,6 +36,7 @@ private:
     QPlainTextEdit *m_input;
     QCompleter *m_completer;
     QStandardItemModel *m_model;
+    bool m_enabled = true;
     bool m_composing = false;
     bool m_inserting = false;
     QString m_dismissedText;
