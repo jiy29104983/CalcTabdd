@@ -1,4 +1,5 @@
 #include "calculator_help.h"
+#include "calculator_style.h"
 #include "calculation_catalog.h"
 
 #include <QDialog>
@@ -35,15 +36,7 @@ private:
     {
         if (m_applying) return;
         QScopedValueRollback<bool> applying(m_applying, true);
-        const QPalette colors = palette();
-        setStyleSheet(QStringLiteral(
-            "QDialog { background: %1; color: %2; } QLabel { color: %2; }"
-            "QTextBrowser, QLineEdit { background: %3; color: %2; border: 1px solid %4; padding: 4px; }"
-            "QTabBar::tab { background: %1; color: %2; border: 1px solid %4; padding: 6px 12px; }"
-            "QTabBar::tab:selected { background: %3; }"
-            "QPushButton { background: %3; color: %2; border: 1px solid %4; padding: 5px 16px; }")
-            .arg(colors.color(QPalette::Window).name(), colors.color(QPalette::Text).name(),
-                 colors.color(QPalette::Base).name(), colors.color(QPalette::Mid).name()));
+        CalculatorStyle::applyDialog(this, palette());
     }
     bool m_applying = false;
 };
@@ -80,6 +73,8 @@ void showCalculatorHelp(QWidget *owner)
     const QSize available = owner->screen() ? owner->screen()->availableGeometry().size() : QSize(1024, 768);
     dialog->resize(qMin(820, available.width() - 40), qMin(640, available.height() - 60));
     auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(24, 20, 24, 20);
+    layout->setSpacing(12);
     auto *search = new QLineEdit(dialog);
     search->setObjectName(QStringLiteral("helpSearch"));
     search->setAccessibleName(QStringLiteral("搜索运算与精度"));
@@ -102,6 +97,7 @@ void showCalculatorHelp(QWidget *owner)
     buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     layout->addWidget(buttons);
+    CalculatorStyle::prepareButton(buttons->button(QDialogButtonBox::Close));
     const auto filter = [operations, precision, tabs, count](const QString &query) {
         QString html[2];
         QString category[2];
@@ -119,8 +115,10 @@ void showCalculatorHelp(QWidget *owner)
             ++matches[page];
         }
         const QString empty = QStringLiteral("<p>没有匹配项。可尝试英文函数名、中文关键词，或清空搜索查看全部内容。</p>");
-        operations->setHtml(matches[0] ? html[0] : empty);
-        precision->setHtml(matches[1] ? html[1] : empty);
+        const QString style = QStringLiteral("<style>h2 { margin-top: 16px; margin-bottom: 12px; }"
+            "h3 { margin-top: 20px; margin-bottom: 6px; } p { margin-top: 6px; margin-bottom: 10px; }</style>");
+        operations->setHtml(style + (matches[0] ? html[0] : empty));
+        precision->setHtml(style + (matches[1] ? html[1] : empty));
         count->setText(QStringLiteral("运算 %1 项 · 精度 %2 项").arg(matches[0]).arg(matches[1]));
         if (!matches[tabs->currentIndex()] && matches[1 - tabs->currentIndex()])
             tabs->setCurrentIndex(1 - tabs->currentIndex());
@@ -147,6 +145,8 @@ void showCalculatorAbout(QWidget *owner)
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->resize(580, 380);
     auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(24, 20, 24, 20);
+    layout->setSpacing(12);
     auto *text = new QTextBrowser(dialog);
     text->setObjectName(QStringLiteral("aboutDetails"));
     text->setHtml(QStringLiteral(
@@ -167,5 +167,6 @@ void showCalculatorAbout(QWidget *owner)
     buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     layout->addWidget(buttons);
+    CalculatorStyle::prepareButton(buttons->button(QDialogButtonBox::Close));
     present(dialog);
 }

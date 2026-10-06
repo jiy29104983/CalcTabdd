@@ -357,12 +357,14 @@ private slots:
         QCOMPARE(page.recordCount(), 0);
         QInputMethodEvent preedit(QStringLiteral("拼"), {});
         QApplication::sendEvent(page.input(), &preedit);
+        QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->isEnabled());
         page.submit();
         page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
         QVERIFY(!page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog")));
         QCOMPARE(page.recordCount(), 0);
         QInputMethodEvent end;
         QApplication::sendEvent(page.input(), &end);
+        QVERIFY(page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->isEnabled());
         QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
         QCOMPARE(page.history().answer(), 3.0);
         page.input()->setPlainText(QStringLiteral("@"));
@@ -2257,6 +2259,120 @@ private slots:
         QVERIFY(text.contains(QStringLiteral("v3.8.3 / v3.9.0")));
         QVERIFY(text.contains(QStringLiteral("源码接口参考")));
         QVERIFY(text.contains(QStringLiteral("手动确认")));
+    }
+    void responsiveActionsAndKeyboardSubmission_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<int>("pointSize");
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("wide-light") << 960 << 12 << false;
+        QTest::newRow("narrow-light") << 480 << 12 << false;
+        QTest::newRow("narrow-dark") << 480 << 12 << true;
+        QTest::newRow("large-font-dark") << 480 << 18 << true;
+    }
+    void responsiveActionsAndKeyboardSubmission()
+    {
+        QFETCH(int, width);
+        QFETCH(int, pointSize);
+        QFETCH(bool, dark);
+        QWidget owner;
+        QFont large = owner.font();
+        large.setPointSize(pointSize);
+        owner.setFont(large);
+        CalculatorPage page(&owner);
+        owner.resize(width, 760);
+        page.setGeometry(owner.rect());
+        owner.show();
+        QPalette colors = page.palette();
+        colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+        colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+        colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+        page.setPalette(colors);
+        page.resize(width, 760);
+        page.show();
+        owner.activateWindow();
+        page.focusInput();
+        page.input()->setPlainText(QStringLiteral("6*7"));
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+        QTRY_VERIFY(page.input()->hasFocus());
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        QTRY_VERIFY(calculate->hasFocus());
+        QTest::keyClick(calculate, Qt::Key_Space);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().answer(), 42.0);
+        QCoreApplication::processEvents();
+        QCOMPARE(page.width(), width);
+        QList<QWidget *> controls;
+        for (const QString &name : {QStringLiteral("exportHistoryButton"), QStringLiteral("sessionButton"),
+                                   QStringLiteral("clearSessionButton"), QStringLiteral("helpButton")})
+            controls.append(page.findChild<QWidget *>(name));
+        int buttonHeight = controls.first()->height();
+        QVector<QRect> rectangles;
+        for (auto *button : controls)
+        {
+            QVERIFY(button && button->isVisible());
+            QCOMPARE(button->height(), buttonHeight);
+            const QRect bounds(button->mapTo(&page, QPoint()), button->size());
+            QVERIFY(page.rect().contains(bounds));
+            QVERIFY(bounds.bottom() < page.input()->mapTo(&page, QPoint()).y());
+            for (const QRect &other : rectangles) QVERIFY(!bounds.intersects(other));
+            rectangles.append(bounds);
+            // 真实控件命中，而非仅有一个看起来正确但不可点的按钮。
+            QCOMPARE(page.childAt(bounds.center()), button);
+        }
+        QCOMPARE(controls.first()->font().pointSize(), pointSize);
+        if (pointSize == 18) QVERIFY(rectangles.last().top() > rectangles.first().top());
+        QVERIFY(page.rect().contains(QRect(calculate->mapTo(&page, QPoint()), calculate->size())));
+        QVERIFY(page.input()->width() >= width - 60);
+        auto *reuse = page.findChild<QPushButton *>(QStringLiteral("reuseFormula"));
+        auto *more = page.findChild<QToolButton *>(QStringLiteral("recordActions"));
+        QCOMPARE(reuse->height(), more->height());
+        QCOMPARE(reuse->width(), more->width());
+        QVERIFY(chooseRecordAction(more, more->menu()->findChild<QAction *>(QStringLiteral("copyValue"))));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("42"));
+        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QVERIFY(page.grab().save(directory + QStringLiteral("/layout-%1.png").arg(QString::fromLatin1(QTest::currentDataTag()))));
+        }
+    }
+    void themedDefinitionAndMenusFollowPaletteChanges()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("2+3"));
+        auto *mode = page.findChild<QToolButton *>(QStringLiteral("calculationModeButton"));
+        // 点整个模式按钮进入菜单，并用实际菜单项打开定义窗口。
+        QVERIFY(chooseRecordAction(mode, mode->menu()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))));
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        auto *edit = dialog->findChild<QLineEdit *>(QStringLiteral("customDefinitionInput"));
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        for (bool dark : {true, false})
+        {
+            QPalette colors = page.palette();
+            colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+            colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+            colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+            page.setPalette(colors);
+            QCoreApplication::processEvents();
+            QCOMPARE(edit->palette().color(QPalette::Base), colors.color(QPalette::Base));
+            QCOMPARE(edit->palette().color(QPalette::Text), colors.color(QPalette::Text));
+            const QColor cancelText = buttons->button(QDialogButtonBox::Cancel)->palette().color(QPalette::ButtonText);
+            QCOMPARE(cancelText, colors.color(QPalette::Text));
+            const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+            if (!directory.isEmpty())
+            {
+                QVERIFY(QDir().mkpath(directory));
+                edit->setText(QStringLiteral("A=sqrt(x^2+y^2)"));
+                QVERIFY(dialog->grab().save(directory + (dark ? QStringLiteral("/definition-dark.png") : QStringLiteral("/definition-light.png"))));
+            }
+        }
+        QTest::keyClick(edit, Qt::Key_Escape);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("2+3"));
+        QCOMPARE(page.recordCount(), 0);
     }
     void paletteAndScreenshot()
     {

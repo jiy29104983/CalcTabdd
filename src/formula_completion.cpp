@@ -1,4 +1,5 @@
 #include "formula_completion.h"
+#include "calculator_style.h"
 #include "calculation_catalog.h"
 
 #include <QAbstractItemView>
@@ -105,7 +106,8 @@ void FormulaCompletion::refresh()
         return;
     }
     m_completer->popup()->setAttribute(Qt::WA_WindowPropagation, true);
-    m_completer->popup()->setPalette(m_input->window()->palette());
+    m_completer->popup()->setPalette(CalculatorStyle::palette(m_input->palette()));
+    m_completer->popup()->setStyleSheet(CalculatorStyle::sheet(m_input->palette(), m_input->font()));
     m_completer->popup()->setFont(m_input->font());
     m_completer->setCompletionPrefix(QString());
     m_completer->setCurrentRow(0);
