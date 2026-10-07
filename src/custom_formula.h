@@ -14,8 +14,12 @@ public:
     QString parameterTemplate(const QString &previousInput = QString()) const;
     // 仅校验参数及生成代入式；数学运算留给明确提交后的 ExpressionEngine。
     QString substitute(const QString &input, QString &expression) const;
+    // 十进制校验及原始字面量代入；与现行用户入口分开，避免文本契约未定时丢失来源。
+    QString substituteNumeric(const QString &input, QString &expression) const;
+    NumericCalculationResult evaluateNumeric(const QString &input, const NumericValue &answer, QString &parameterError) const;
 
 private:
+    QString substituteImpl(const QString &input, QString &expression, bool numericValues) const;
     QString m_name;
     QString m_expression;
     QStringList m_parameters;

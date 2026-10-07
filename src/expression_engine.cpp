@@ -19,9 +19,17 @@ struct ParseError
     SourceRange range;
 };
 
+struct Value
+{
+    double legacy = 0;
+    NumericValue numeric;
+    Value(double value = 0) : legacy(value) {}
+    explicit Value(const NumericValue &value) : numeric(value) {}
+};
+
 struct Argument
 {
-    double value;
+    Value value;
     SourceRange range;
 };
 
@@ -37,14 +45,21 @@ public:
         m_text.replace(QChar(0x2212), QLatin1Char('-'));
     }
 
-    double parse()
+    Parser(QString text, const NumericValue &answer)
+        : Parser(std::move(text), 0)
+    {
+        m_answer = Value(answer);
+        m_numeric = true;
+    }
+
+    Value parse()
     {
         if (m_text.size() > 4096)
             fail(QStringLiteral("公式过长（最多 4096 个 UTF-16 代码单元）"), CalculationError::Limit, {4096, m_text.size() - 4096});
         skipSpace();
         if (m_position == m_text.size())
             failHere(QStringLiteral("请输入公式"));
-        const double value = expression();
+        const Value value = expression();
         skipSpace();
         if (m_position != m_text.size())
             failHere(QStringLiteral("此处需要运算符，或存在多余字符"));
@@ -106,94 +121,131 @@ private:
         }
         return false;
     }
-    double expression()
+    Value binary(char operation, const Value &left, const Value &right,
+                 SourceRange leftRange, SourceRange rightRange, SourceRange operationRange) const
     {
-        double value = term();
-        for (;;)
+        if (m_parameters) return 1;
+        if (m_numeric)
         {
-            skipSpace();
-            const SourceRange operation{m_position, 1};
-            if (take(QLatin1Char('+')))
-            {
-                const double right = term();
-                value = m_parameters ? 1 : finite(value + right, operation);
-            }
-            else if (take(QLatin1Char('-')))
-            {
-                const double right = term();
-                value = m_parameters ? 1 : finite(value - right, operation);
-            }
-            else return value;
+            NumericValue result;
+            const auto status = NumericValue::operate(operation, left.numeric, right.numeric, result);
+            numericCheck(status, status.argument == 0 ? leftRange : status.argument == 1 ? rightRange : operationRange);
+            return Value(result);
+        }
+        const double a = left.legacy, b = right.legacy;
+        if ((operation == '/' || operation == '%') && b == 0)
+            fail(operation == '/' ? QStringLiteral("除数不能为 0") : QStringLiteral("取余的除数不能为 0"),
+                 CalculationError::DivisionByZero, rightRange);
+        if (operation == '^')
+        {
+            if (a == 0 && b < 0)
+                fail(QStringLiteral("乘方的底数为 0 时，指数不能为负数"), CalculationError::Domain, rightRange);
+            if (a < 0 && std::trunc(b) != b)
+                fail(QStringLiteral("实数乘方中，负底数的指数必须为整数"), CalculationError::Domain, rightRange);
+            return finite(std::pow(a, b), operationRange);
+        }
+        switch (operation)
+        {
+        case '+': return finite(a + b, operationRange);
+        case '-': return finite(a - b, operationRange);
+        case '*': return finite(a * b, operationRange);
+        case '/': return finite(a / b, operationRange);
+        default: return finite(std::fmod(a, b), operationRange);
         }
     }
-    double term()
+    void numericCheck(NumericStatus status, SourceRange range) const
     {
-        double value = unary();
-        for (;;)
+        switch (status.error)
         {
-            skipSpace();
-            const SourceRange operation{m_position, 1};
-            if (take(QLatin1Char('*')))
-            {
-                const double right = unary();
-                value = m_parameters ? 1 : finite(value * right, operation);
-            }
-            else if (take(QLatin1Char('/')))
-            {
-                skipSpace();
-                const int start = m_position;
-                const double divisor = unary();
-                if (!m_parameters && divisor == 0)
-                    fail(QStringLiteral("除数不能为 0"), CalculationError::DivisionByZero, rangeFrom(start));
-                value = m_parameters ? 1 : finite(value / divisor, operation);
-            }
-            else if (take(QLatin1Char('%')))
-            {
-                skipSpace();
-                const int start = m_position;
-                const double divisor = unary();
-                if (!m_parameters && divisor == 0)
-                    fail(QStringLiteral("取余的除数不能为 0"), CalculationError::DivisionByZero, rangeFrom(start));
-                value = m_parameters ? 1 : finite(std::fmod(value, divisor), operation);
-            }
-            else return value;
+        case NumericError::None: return;
+        case NumericError::Syntax: fail(QStringLiteral("无效的十进制数值"), CalculationError::Syntax, range);
+        case NumericError::PrecisionLimit: fail(QStringLiteral("十进制精度超限（最多 50 位规范化有效数字）"), CalculationError::Limit, range);
+        case NumericError::ResourceLimit: fail(QStringLiteral("数值资源超限（整数幂指数绝对值最多 10000）"), CalculationError::Limit, range);
+        case NumericError::Domain: fail(QStringLiteral("运算超出实数定义域"), CalculationError::Domain, range);
+        case NumericError::DivisionByZero: fail(QStringLiteral("除数不能为 0"), CalculationError::DivisionByZero, range);
+        case NumericError::Overflow: fail(QStringLiteral("运算数值上溢"), CalculationError::Overflow, range);
+        case NumericError::Underflow: fail(QStringLiteral("运算数值下溢，非零结果不能变为 0"), CalculationError::Underflow, range);
+        case NumericError::ConversionOverflow: fail(QStringLiteral("转换为 double 时数值上溢"), CalculationError::Overflow, range);
+        case NumericError::ConversionUnderflow: fail(QStringLiteral("转换为 double 时非零数值下溢为 0"), CalculationError::Underflow, range);
+        case NumericError::UnknownName: fail(QStringLiteral("未知函数或常量"), CalculationError::UnknownName, range);
+        case NumericError::ArgumentCount: fail(QStringLiteral("函数参数数量不正确"), CalculationError::ArgumentCount, range);
         }
     }
-    double unary()
+    Value expression()
+    {
+        skipSpace();
+        const int start = m_position;
+        Value value = term();
+        for (;;)
+        {
+            const SourceRange leftRange = rangeFrom(start);
+            skipSpace();
+            const SourceRange operation{m_position, 1};
+            char symbol;
+            if (take(QLatin1Char('+'))) symbol = '+';
+            else if (take(QLatin1Char('-'))) symbol = '-';
+            else return value;
+            skipSpace();
+            const int rightStart = m_position;
+            const Value right = term();
+            value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
+        }
+    }
+    Value term()
+    {
+        skipSpace();
+        const int start = m_position;
+        Value value = unary();
+        for (;;)
+        {
+            const SourceRange leftRange = rangeFrom(start);
+            skipSpace();
+            const SourceRange operation{m_position, 1};
+            char symbol;
+            if (take(QLatin1Char('*'))) symbol = '*';
+            else if (take(QLatin1Char('/'))) symbol = '/';
+            else if (take(QLatin1Char('%'))) symbol = '%';
+            else return value;
+            skipSpace();
+            const int rightStart = m_position;
+            const Value right = unary();
+            value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
+        }
+    }
+    Value unary()
     {
         skipSpace();
         if (++m_depth > 128) failHere(QStringLiteral("公式嵌套过深"), CalculationError::Limit);
-        double value;
+        Value value;
         if (take(QLatin1Char('+'))) value = unary();
-        else if (take(QLatin1Char('-'))) value = -unary();
+        else if (take(QLatin1Char('-')))
+        {
+            value = unary();
+            if (m_numeric) value.numeric = value.numeric.negated();
+            else value.legacy = -value.legacy;
+        }
         else value = power();
         --m_depth;
         return value;
     }
-    double power()
+    Value power()
     {
-        const double value = primary();
+        skipSpace();
+        const int baseStart = m_position;
+        const Value value = primary();
+        const SourceRange baseRange = rangeFrom(baseStart);
         if (!take(QLatin1Char('^'))) return value;
         const SourceRange operation{m_position - 1, 1};
         skipSpace();
         const int start = m_position;
-        const double exponent = unary();
-        return powerValue(value, exponent, rangeFrom(start), operation);
+        const Value exponent = unary();
+        return binary('^', value, exponent, baseRange, rangeFrom(start), operation);
     }
-    double powerValue(double base, double exponent, SourceRange exponentRange, SourceRange operation) const
-    {
-        if (m_parameters) return 1;
-        if (base == 0 && exponent < 0)
-            fail(QStringLiteral("乘方的底数为 0 时，指数不能为负数"), CalculationError::Domain, exponentRange);
-        if (base < 0 && std::trunc(exponent) != exponent)
-            fail(QStringLiteral("实数乘方中，负底数的指数必须为整数"), CalculationError::Domain, exponentRange);
-        return finite(std::pow(base, exponent), operation);
-    }
-    double primary()
+    Value primary()
     {
         if (take(QLatin1Char('(')))
         {
-            const double value = expression();
+            const Value value = expression();
             if (!take(QLatin1Char(')'))) failHere(QStringLiteral("缺少右括号 )"));
             return value;
         }
@@ -206,9 +258,15 @@ private:
                 : m_text.at(m_position).isLetter())) ++m_position;
             const SourceRange nameRange{start, m_position - start};
             const QString name = m_text.mid(start, nameRange.length).toLower();
-            if (name == QStringLiteral("pi")) return m_parameters ? 1 : std::acos(-1.0);
-            if (name == QStringLiteral("e")) return m_parameters ? 1 : std::exp(1.0);
-            if (name == QStringLiteral("ans")) return finite(m_answer, nameRange);
+            if (name == QStringLiteral("pi") || name == QStringLiteral("e"))
+            {
+                if (m_parameters) return 1;
+                if (!m_numeric) return name == QStringLiteral("pi") ? std::acos(-1.0) : std::exp(1.0);
+                NumericValue result;
+                numericCheck(NumericValue::constant(name, result), nameRange);
+                return Value(result);
+            }
+            if (name == QStringLiteral("ans")) return m_numeric ? m_answer : Value(finite(m_answer.legacy, nameRange));
             const int count = argumentCount(name);
             if (count == 0 && m_parameters)
             {
@@ -232,7 +290,7 @@ private:
                     if (m_position == m_text.size() || m_text.at(m_position) == QLatin1Char(',') || m_text.at(m_position) == QLatin1Char(')'))
                         failHere(QStringLiteral("%1 缺少第 %2 个参数").arg(name).arg(arguments.size() + 1), CalculationError::ArgumentCount);
                     const int argumentStart = m_position;
-                    const double value = expression();
+                    const Value value = expression();
                     arguments.append({value, rangeFrom(argumentStart)});
                 } while (take(QLatin1Char(',')));
                 if (!take(QLatin1Char(')'))) failHere(QStringLiteral("%1 函数缺少右括号 )").arg(name));
@@ -263,6 +321,12 @@ private:
         if (m_parameters) return 1;
         bool ok = false;
         const SourceRange number{start, m_position - start};
+        if (m_numeric)
+        {
+            NumericValue result;
+            numericCheck(NumericValue::parse(m_text.mid(start, number.length), result), number);
+            return Value(result);
+        }
         const double value = QLocale::c().toDouble(m_text.mid(start, number.length), &ok);
         if (!ok)
         {
@@ -274,20 +338,23 @@ private:
         return finite(value, number);
     }
     static bool isDigit(QChar ch) { return ch >= QLatin1Char('0') && ch <= QLatin1Char('9'); }
-    static int argumentCount(const QString &name)
-    {
-        if (name == QStringLiteral("min") || name == QStringLiteral("max") || name == QStringLiteral("pow")) return 2;
-        for (const auto *function : {"sqrt", "abs", "sin", "cos", "tan", "ln", "log", "exp", "floor", "ceil", "round"})
-            if (name == QLatin1String(function)) return 1;
-        return 0;
-    }
-    double function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
+    static int argumentCount(const QString &name) { return NumericValue::argumentCount(name); }
+    Value function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
     {
         if (m_parameters) return 1;
-        if (name == QStringLiteral("min")) return qMin(args[0].value, args[1].value);
-        if (name == QStringLiteral("max")) return qMax(args[0].value, args[1].value);
-        if (name == QStringLiteral("pow")) return powerValue(args[0].value, args[1].value, args[1].range, nameRange);
-        const double value = args.first().value;
+        if (m_numeric)
+        {
+            QVector<NumericValue> values;
+            for (const auto &argument : args) values.append(argument.value.numeric);
+            NumericValue result;
+            const auto status = NumericValue::function(name, values, result);
+            numericCheck(status, status.argument >= 0 ? args.at(status.argument).range : nameRange);
+            return Value(result);
+        }
+        if (name == QStringLiteral("min")) return qMin(args[0].value.legacy, args[1].value.legacy);
+        if (name == QStringLiteral("max")) return qMax(args[0].value.legacy, args[1].value.legacy);
+        if (name == QStringLiteral("pow")) return binary('^', args[0].value, args[1].value, args[0].range, args[1].range, nameRange);
+        const double value = args.first().value.legacy;
         const SourceRange range = args.first().range;
         if (name == QStringLiteral("sqrt"))
         {
@@ -311,7 +378,8 @@ private:
     }
 
     QString m_text;
-    double m_answer;
+    Value m_answer;
+    bool m_numeric = false;
     QVector<ExpressionParameter> *m_parameters;
     int m_position = 0;
     int m_depth = 0;
@@ -324,7 +392,7 @@ CalculationResult ExpressionEngine::evaluate(const QString &expression, double a
     try
     {
         Parser parser(expression, answer);
-        result.value = parser.parse();
+        result.value = parser.parse().legacy;
         result.ok = true;
         result.text = QString::number(result.value == 0 ? 0 : result.value, 'g', 15);
     }
@@ -362,4 +430,23 @@ CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<E
 bool ExpressionEngine::isReservedName(const QString &name)
 {
     return Parser::reserved(name);
+}
+
+NumericCalculationResult ExpressionEngine::evaluateNumeric(const QString &expression, const NumericValue &answer)
+{
+    NumericCalculationResult result;
+    try
+    {
+        Parser parser(expression, answer);
+        result.value = parser.parse().numeric;
+        result.ok = true;
+    }
+    catch (const ParseError &error)
+    {
+        result.text = error.text;
+        result.error = error.kind;
+        result.errorPosition = error.range.start;
+        result.errorLength = error.range.length;
+    }
+    return result;
 }

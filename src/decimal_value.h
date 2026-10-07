@@ -12,7 +12,8 @@ enum class DecimalError
     Overflow,
     Underflow,
     ResourceLimit,
-    DivisionByZero
+    DivisionByZero,
+    Domain
 };
 
 class DecimalValue
@@ -35,6 +36,19 @@ public:
     // 成功同时更新 output 和 inexact；失败两者均保持。支持 output 与任一输入别名。
     static DecimalError divide(const DecimalValue &left, const DecimalValue &right,
                                DecimalValue &output, bool &inexact);
+
+    enum class IntegralRounding { Floor, Ceiling, HalfAwayFromZero };
+    static constexpr int maximumIntegerPower = 10000;
+    // 比较不经过浮点；正负零相等。各输出仅成功时更新，并支持输入／输出别名。
+    static int compare(const DecimalValue &left, const DecimalValue &right);
+    static DecimalError remainder(const DecimalValue &left, const DecimalValue &right, DecimalValue &output);
+    static DecimalError integral(const DecimalValue &value, IntegralRounding rounding, DecimalValue &output);
+    static DecimalError integerPower(const DecimalValue &base, const DecimalValue &power,
+                                     DecimalValue &output, bool &inexact);
+    // 非完全平方成功返回 exact=false，保持 output；定义域失败时保持两项输出。
+    static DecimalError squareRootExact(const DecimalValue &value, DecimalValue &output, bool &exact);
+    bool isInteger() const { return isZero() || m_exponent >= 0; }
+    DecimalValue absolute() const;
 
     // value = sign * coefficient * 10^exponent。
     // 非零系数无前导／尾随零；零的系数为 "0"，指数为 0。

@@ -1,4 +1,5 @@
 #pragma once
+#include "numeric_value.h"
 #include <QString>
 #include <QVector>
 
@@ -26,6 +27,17 @@ struct CalculationResult
     CalculationError error = CalculationError::None;
 };
 
+// 成功结果不生成用户显示文本；供完整数值链路接入的内部接口。
+struct NumericCalculationResult
+{
+    bool ok = false;
+    NumericValue value;
+    QString text;
+    int errorPosition = -1;
+    int errorLength = 0;
+    CalculationError error = CalculationError::None;
+};
+
 struct ExpressionParameter
 {
     QString name;
@@ -39,5 +51,6 @@ public:
     // 只校验语法／函数元数并提取参数，不执行数学运算或读取 ans。
     static CalculationResult inspect(const QString &expression, QVector<ExpressionParameter> &parameters);
     static bool isReservedName(const QString &name);
+    static NumericCalculationResult evaluateNumeric(const QString &expression, const NumericValue &answer = NumericValue());
     static CalculationResult evaluate(const QString &expression, double answer = 0);
 };

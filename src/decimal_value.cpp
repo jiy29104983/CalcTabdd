@@ -7,6 +7,7 @@ constexpr int DecimalValue::maximumDigits;
 constexpr int DecimalValue::minimumAdjustedExponent;
 constexpr int DecimalValue::maximumAdjustedExponent;
 constexpr int DecimalValue::maximumLiteralLength;
+constexpr int DecimalValue::maximumIntegerPower;
 
 namespace {
 bool digit(QChar value)
@@ -40,6 +41,21 @@ QByteArray addMagnitude(const QByteArray &left, const QByteArray &right)
         carry = sum / 10;
     }
     result[0] = char('0' + carry);
+    return stripLeadingZeros(std::move(result));
+}
+
+// 有界小整数乘法，供开方的逐位试商使用。
+QByteArray multiplySmall(const QByteArray &value, int factor)
+{
+    QByteArray result(value.size(), '0');
+    int carry = 0;
+    for (int i = value.size() - 1; i >= 0; --i)
+    {
+        const int product = (value.at(i) - '0') * factor + carry;
+        result[i] = char('0' + product % 10);
+        carry = product / 10;
+    }
+    if (carry) result.prepend(QByteArray::number(carry));
     return stripLeadingZeros(std::move(result));
 }
 
@@ -238,4 +254,137 @@ DecimalError DecimalValue::divide(const DecimalValue &left, const DecimalValue &
     output = std::move(value);
     inexact = changed;
     return DecimalError::None;
+}
+
+DecimalValue DecimalValue::absolute() const
+{
+    DecimalValue value = *this;
+    value.m_negative = false;
+    return value;
+}
+
+int DecimalValue::compare(const DecimalValue &left, const DecimalValue &right)
+{
+    if (left.isZero() && right.isZero()) return 0;
+    if (left.m_negative != right.m_negative) return left.m_negative ? -1 : 1;
+    const int sign = left.m_negative ? -1 : 1;
+    if (left.isZero()) return -sign;
+    if (right.isZero()) return sign;
+    const int a = left.m_exponent + left.m_coefficient.size();
+    const int b = right.m_exponent + right.m_coefficient.size();
+    if (a != b) return (a < b ? -1 : 1) * sign;
+    const int digits = qMax(left.m_coefficient.size(), right.m_coefficient.size());
+    for (int i = 0; i < digits; ++i)
+    {
+        const char x = i < left.m_coefficient.size() ? left.m_coefficient.at(i) : '0';
+        const char y = i < right.m_coefficient.size() ? right.m_coefficient.at(i) : '0';
+        if (x != y) return (x < y ? -1 : 1) * sign;
+    }
+    return 0;
+}
+
+DecimalError DecimalValue::remainder(const DecimalValue &left, const DecimalValue &right, DecimalValue &output)
+{
+    if (right.isZero()) return DecimalError::DivisionByZero;
+    if (left.isZero() || compare(left.absolute(), right.absolute()) < 0)
+    {
+        output = left;
+        return DecimalError::None;
+    }
+    const int exponent = qMin(left.m_exponent, right.m_exponent);
+    // 指数范围固定，对齐最多 2048 位；不存储商，不使用有舍入的除法。
+    const QByteArray dividend = left.m_coefficient + QByteArray(left.m_exponent - exponent, '0');
+    const QByteArray divisor = right.m_coefficient + QByteArray(right.m_exponent - exponent, '0');
+    QByteArray remainder("0");
+    for (const char digit : dividend)
+    {
+        remainder = stripLeadingZeros(remainder + digit);
+        // 上一步余数 < divisor，因此本位至多减 9 次。
+        while (compareMagnitude(remainder, divisor) >= 0)
+            remainder = subtractMagnitude(remainder, divisor);
+    }
+    return finish(std::move(remainder), exponent, left.m_negative, output);
+}
+
+DecimalError DecimalValue::integral(const DecimalValue &value, IntegralRounding rounding, DecimalValue &output)
+{
+    if (value.isInteger()) { output = value; return DecimalError::None; }
+    const int integerDigits = value.m_coefficient.size() + value.m_exponent;
+    QByteArray integer = integerDigits > 0 ? value.m_coefficient.left(integerDigits) : QByteArray("0");
+    // 规范化系数不以零结尾，因此截断的部分必含非零位。
+    const bool increase = (rounding == IntegralRounding::Floor && value.m_negative)
+        || (rounding == IntegralRounding::Ceiling && !value.m_negative)
+        || (rounding == IntegralRounding::HalfAwayFromZero && integerDigits >= 0
+            && value.m_coefficient.at(integerDigits) >= '5');
+    if (increase) integer = addMagnitude(integer, "1");
+    return finish(std::move(integer), 0, value.m_negative, output);
+}
+
+DecimalError DecimalValue::integerPower(const DecimalValue &base, const DecimalValue &power,
+                                      DecimalValue &output, bool &inexact)
+{
+    if (!power.isInteger()) return DecimalError::Domain;
+    if (base.isZero() && power.m_negative && !power.isZero()) return DecimalError::Domain;
+    DecimalValue maximum;
+    parse(QString::number(maximumIntegerPower), maximum);
+    if (compare(power.absolute(), maximum) > 0) return DecimalError::ResourceLimit;
+    int count = power.m_coefficient.toInt();
+    for (int i = 0; i < power.m_exponent; ++i) count *= 10;
+    DecimalValue one;
+    parse(QStringLiteral("1"), one);
+    DecimalValue result = one;
+    DecimalValue factor = base;
+    while (count > 0)
+    {
+        if (count % 2)
+        {
+            const auto error = multiply(result, factor, result);
+            if (error != DecimalError::None) return error;
+        }
+        count /= 2;
+        if (count)
+        {
+            const auto error = multiply(factor, factor, factor);
+            if (error != DecimalError::None) return error;
+        }
+    }
+    bool changed = false;
+    if (power.m_negative && !power.isZero())
+    {
+        const auto error = divide(one, result, result, changed);
+        if (error != DecimalError::None) return error;
+    }
+    output = result;
+    inexact = changed;
+    return DecimalError::None;
+}
+
+DecimalError DecimalValue::squareRootExact(const DecimalValue &value, DecimalValue &output, bool &exact)
+{
+    if (value.m_negative && !value.isZero()) return DecimalError::Domain;
+    if (value.isZero()) { output = value; exact = true; return DecimalError::None; }
+    QByteArray digits = value.m_coefficient;
+    int exponent = value.m_exponent;
+    if (exponent % 2 != 0) { digits.append('0'); --exponent; }
+    if (digits.size() % 2 != 0) digits.prepend('0');
+    QByteArray root("0"), remainder("0");
+    // 每次处理两位：(20*root+d)*d <= remainder，至多 26 次、每次至多 10 个候选。
+    for (int i = 0; i < digits.size(); i += 2)
+    {
+        remainder = stripLeadingZeros(remainder + digits.mid(i, 2));
+        const QByteArray twentyRoot = multiplySmall(root, 20);
+        int next = 9;
+        QByteArray candidate;
+        for (;; --next)
+        {
+            candidate = multiplySmall(addMagnitude(twentyRoot, QByteArray::number(next)), next);
+            if (compareMagnitude(candidate, remainder) <= 0) break;
+        }
+        remainder = subtractMagnitude(remainder, candidate);
+        root = stripLeadingZeros(root + char('0' + next));
+    }
+    if (remainder != "0") { exact = false; return DecimalError::None; }
+    const auto error = finish(std::move(root), exponent / 2, false, output);
+    if (error == DecimalError::None) exact = true;
+    return error;
 }
