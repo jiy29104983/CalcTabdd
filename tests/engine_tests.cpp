@@ -188,6 +188,174 @@ private slots:
         QCOMPARE(b.exponent(), expectedB.exponent());
         QCOMPARE(b.isNegative(), expectedB.isNegative());
     }
+    void decimalDivision_data()
+    {
+        QTest::addColumn<QString>("left");
+        QTest::addColumn<QString>("right");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<bool>("inexact");
+        QTest::addColumn<int>("error");
+        const auto row = [](const char *name, const QString &a, const QString &b, const QString &expected,
+                            bool inexact = false, DecimalError error = DecimalError::None) {
+            QTest::newRow(name) << a << b << expected << inexact << int(error);
+        };
+        row("eighth-exact", QStringLiteral("1"), QStringLiteral("8"), QStringLiteral("0.125"));
+        row("third-round-down", QStringLiteral("1"), QStringLiteral("3"), QStringLiteral("0.") + QString(50, '3'), true);
+        row("two-thirds-round-up", QStringLiteral("2"), QStringLiteral("3"), QStringLiteral("0.") + QString(49, '6') + '7', true);
+        row("sixth-round-up", QStringLiteral("1"), QStringLiteral("6"), QStringLiteral("0.1") + QString(48, '6') + '7', true);
+        row("sticky-five-even", QStringLiteral("2"), QStringLiteral("7"),
+            QStringLiteral("0.28571428571428571428571428571428571428571428571429"), true);
+        row("carry-and-normalize", QStringLiteral("6"), QStringLiteral("23"),
+            QStringLiteral("0.2608695652173913043478260869565217391304347826087"), true);
+        row("exact-padding", QStringLiteral("12.3400"), QStringLiteral("0.010"), QStringLiteral("1234"));
+        row("coefficient-shorter", QStringLiteral("1"), QStringLiteral("125"), QStringLiteral("0.008"));
+        row("coefficient-longer", QStringLiteral("125"), QStringLiteral("2"), QStringLiteral("62.5"));
+        row("normalized-equal-length", QStringLiteral("12"), QStringLiteral("24"), QStringLiteral("0.5"));
+        row("negative-numerator", QStringLiteral("-1"), QStringLiteral("8"), QStringLiteral("-0.125"));
+        row("negative-denominator", QStringLiteral("1"), QStringLiteral("-8"), QStringLiteral("-0.125"));
+        row("both-negative", QStringLiteral("-1"), QStringLiteral("-8"), QStringLiteral("0.125"));
+        row("signed-zero", QStringLiteral("0"), QStringLiteral("-8"), QStringLiteral("-0"));
+        row("negative-zero", QStringLiteral("-0"), QStringLiteral("8"), QStringLiteral("-0"));
+        row("negative-zero-negative-denominator", QStringLiteral("-0"), QStringLiteral("-8"), QStringLiteral("0"));
+        row("zero-positive-denominator", QStringLiteral("0"), QStringLiteral("8"), QStringLiteral("0"));
+        row("upper-inclusive", QStringLiteral("1e999"), QStringLiteral("1"), QStringLiteral("1e999"));
+        row("lower-inclusive", QStringLiteral("1e-999"), QStringLiteral("1"), QStringLiteral("1e-999"));
+        row("largest-exact", QString(50, '9') + QStringLiteral("e950"), QStringLiteral("1"), QString(50, '9') + QStringLiteral("e950"));
+        row("smallest-quantum", QStringLiteral("1e-999"), QStringLiteral("3"), {}, false, DecimalError::Underflow);
+        row("low-rounded-in-range", QStringLiteral("1e-998"), QStringLiteral("3"), QString(50, '3') + QStringLiteral("e-1048"), true);
+        row("high-rounded-in-range", QStringLiteral("1e999"), QStringLiteral("3"), QString(50, '3') + QStringLiteral("e949"), true);
+        row("far-exponents-overflow", QStringLiteral("1e999"), QStringLiteral("1e-999"), {}, false, DecimalError::Overflow);
+        row("far-exponents-underflow", QStringLiteral("1e-999"), QStringLiteral("1e999"), {}, false, DecimalError::Underflow);
+        row("divide-by-positive-zero", QStringLiteral("1"), QStringLiteral("0"), {}, false, DecimalError::DivisionByZero);
+        row("divide-by-negative-zero", QStringLiteral("-1"), QStringLiteral("-0"), {}, false, DecimalError::DivisionByZero);
+        row("zero-over-zero", QStringLiteral("0"), QStringLiteral("0"), {}, false, DecimalError::DivisionByZero);
+        row("signed-zero-over-zero", QStringLiteral("-0"), QStringLiteral("-0"), {}, false, DecimalError::DivisionByZero);
+        row("long-exact-50", QString(50, '1'), QStringLiteral("1"), QString(50, '1'));
+        row("finite-over-50", QStringLiteral("1"), QStringLiteral("1267650600228229401496703205376"),
+            QStringLiteral("7.8886090522101180541172856528278622967320643510902e-31"), true);
+        // 50 位整数的 .5 半值：偶数不进位，奇数进位；同一规则用于负数。
+        for (const QString &sign : {QString(), QStringLiteral("-")})
+        {
+            const QByteArray name = sign.isEmpty() ? "positive-" : "negative-";
+            row((name + "tie-even").constData(), sign + QString(49, '9') + '3', QStringLiteral("2"),
+                sign + '4' + QString(48, '9') + '6', true);
+            row((name + "tie-odd").constData(), sign + QString(49, '9') + '5', QStringLiteral("2"),
+                sign + '4' + QString(48, '9') + '8', true);
+            row((name + "below-half").constData(), sign + QString(49, '9') + '3', QStringLiteral("4"),
+                sign + "24" + QString(47, '9') + '8', true);
+            row((name + "above-half").constData(), sign + QString(49, '9') + '5', QStringLiteral("4"),
+                sign + "24" + QString(47, '9') + '9', true);
+        }
+
+        QFile file(QFINDTESTDATA("data/decimal_division_vectors.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
+        QCOMPARE(parseError.error, QJsonParseError::NoError);
+        QVERIFY(document.isArray());
+        const auto rows = document.array();
+        QCOMPARE(rows.size(), 475);
+        for (const auto &item : rows)
+        {
+            const auto entry = item.toObject();
+            const auto errorName = entry.value(QStringLiteral("error")).toString();
+            QVERIFY(errorName == QStringLiteral("none") || errorName == QStringLiteral("overflow")
+                || errorName == QStringLiteral("underflow") || errorName == QStringLiteral("division-by-zero"));
+            const auto error = errorName == QStringLiteral("overflow") ? DecimalError::Overflow
+                : errorName == QStringLiteral("underflow") ? DecimalError::Underflow
+                : errorName == QStringLiteral("division-by-zero") ? DecimalError::DivisionByZero : DecimalError::None;
+            const QString expected = (entry.value(QStringLiteral("negative")).toBool() ? QStringLiteral("-") : QString())
+                + entry.value(QStringLiteral("coefficient")).toString() + QLatin1Char('e')
+                + QString::number(entry.value(QStringLiteral("exponent")).toInt());
+            row(qPrintable(entry.value(QStringLiteral("name")).toString()), entry.value(QStringLiteral("left")).toString(),
+                entry.value(QStringLiteral("right")).toString(), expected, entry.value(QStringLiteral("inexact")).toBool(), error);
+        }
+    }
+    void decimalDivision()
+    {
+        QFETCH(QString, left);
+        QFETCH(QString, right);
+        QFETCH(QString, expected);
+        QFETCH(bool, inexact);
+        QFETCH(int, error);
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        DecimalValue originalA, originalB, sentinel, result;
+        QCOMPARE(DecimalValue::parse(left, originalA), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(right, originalB), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("-42.5"), sentinel), DecimalError::None);
+        if (!error) QCOMPARE(DecimalValue::parse(expected, result), DecimalError::None);
+        const auto equal = [](const DecimalValue &a, const DecimalValue &b) {
+            return a.coefficient() == b.coefficient() && a.exponent() == b.exponent() && a.isNegative() == b.isNegative();
+        };
+        for (bool initialFlag : {false, true})
+        {
+            for (int alias = 0; alias < 3; ++alias)
+            {
+                DecimalValue a = originalA, b = originalB, output = sentinel;
+                DecimalValue &target = alias == 1 ? a : alias == 2 ? b : output;
+                const DecimalValue before = target;
+                bool changed = initialFlag;
+                QCOMPARE(int(DecimalValue::divide(a, b, target, changed)), error);
+                QVERIFY(equal(target, error ? before : result));
+                QCOMPARE(changed, error ? initialFlag : inexact);
+                if (alias != 1) QVERIFY(equal(a, originalA));
+                if (alias != 2) QVERIFY(equal(b, originalB));
+            }
+        }
+    }
+    void decimalDivisionSelfAlias()
+    {
+        for (const QString &text : {QStringLiteral("0"), QStringLiteral("-0"), QStringLiteral("2"),
+             QStringLiteral("-2"), QStringLiteral("1e999"), QStringLiteral("-1e-999"), QString(50, '9')})
+        {
+            DecimalValue value;
+            QCOMPARE(DecimalValue::parse(text, value), DecimalError::None);
+            const DecimalValue before = value;
+            bool changed = true;
+            const bool zero = value.isZero();
+            QCOMPARE(DecimalValue::divide(value, value, value, changed), zero ? DecimalError::DivisionByZero : DecimalError::None);
+            QCOMPARE(value.coefficient(), zero ? before.coefficient() : QByteArray("1"));
+            QCOMPARE(value.exponent(), 0);
+            QCOMPARE(value.isNegative(), zero ? before.isNegative() : false);
+            QCOMPARE(changed, zero);
+        }
+    }
+    void decimalDivisionIntermediateRounding()
+    {
+        DecimalValue one, three, six, accumulator;
+        QCOMPARE(DecimalValue::parse(QStringLiteral("1"), one), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("3"), three), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("6"), six), DecimalError::None);
+        bool changed = false;
+        QCOMPARE(DecimalValue::divide(one, three, accumulator, changed), DecimalError::None);
+        QVERIFY(changed);
+        QCOMPARE(DecimalValue::multiply(accumulator, three, accumulator), DecimalError::None);
+        QCOMPARE(accumulator.coefficient(), QByteArray(50, '9'));
+        QCOMPARE(accumulator.exponent(), -50);
+        QCOMPARE(DecimalValue::subtract(accumulator, one, accumulator), DecimalError::None);
+        QCOMPARE(accumulator.coefficient(), QByteArray("1"));
+        QCOMPARE(accumulator.exponent(), -50);
+        QVERIFY(accumulator.isNegative());
+        QCOMPARE(DecimalValue::divide(one, six, accumulator, changed), DecimalError::None);
+        QVERIFY(changed);
+        const DecimalValue sixth = accumulator;
+        QCOMPARE(DecimalValue::multiply(accumulator, six, accumulator), DecimalError::PrecisionLimit);
+        QCOMPARE(accumulator.coefficient(), sixth.coefficient());
+        QCOMPARE(accumulator.exponent(), sixth.exponent());
+        QCOMPARE(accumulator.isNegative(), sixth.isNegative());
+        // 本次相除精确，不把此前舍入来源混进 primitive 的 inexact 输出。
+        QCOMPARE(DecimalValue::divide(sixth, sixth, accumulator, changed), DecimalError::None);
+        QVERIFY(!changed);
+        QCOMPARE(accumulator.coefficient(), QByteArray("1"));
+        QCOMPARE(accumulator.exponent(), 0);
+        // 既有 round(x) 的整数半值规则不受除法舍入方式影响。
+        const auto positive = ExpressionEngine().evaluate(QStringLiteral("round(2.5)"));
+        const auto negative = ExpressionEngine().evaluate(QStringLiteral("round(-2.5)"));
+        QVERIFY(positive.ok && negative.ok);
+        QCOMPARE(positive.value, 3.0);
+        QCOMPARE(negative.value, -3.0);
+    }
     void decimalScaledIntegerOracle()
     {
         // 独立 qint64 精确参考，覆盖进位、借位、符号和小数位；所有整数运算远离溢出。

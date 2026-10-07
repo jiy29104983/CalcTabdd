@@ -21,6 +21,11 @@ QByteArray stripLeadingZeros(QByteArray digits)
     return digits.mid(start);
 }
 
+int compareMagnitude(const QByteArray &left, const QByteArray &right)
+{
+    return left.size() == right.size() ? left.compare(right) : (left.size() > right.size() ? 1 : -1);
+}
+
 QByteArray addMagnitude(const QByteArray &left, const QByteArray &right)
 {
     const int size = qMax(left.size(), right.size());
@@ -171,4 +176,66 @@ DecimalError DecimalValue::multiply(const DecimalValue &left, const DecimalValue
     }
     return finish(std::move(result), left.m_exponent + right.m_exponent,
                   left.m_negative != right.m_negative, output);
+}
+
+DecimalError DecimalValue::divide(const DecimalValue &left, const DecimalValue &right,
+                                  DecimalValue &output, bool &inexact)
+{
+    if (right.isZero()) return DecimalError::DivisionByZero;
+    const bool negative = left.m_negative != right.m_negative;
+    if (left.isZero())
+    {
+        const auto error = finish("0", 0, negative, output);
+        if (error == DecimalError::None) inexact = false;
+        return error;
+    }
+
+    const auto &a = left.m_coefficient;
+    const auto &b = right.m_coefficient;
+    int quotientExponent = a.size() - b.size();
+    // 先比较等长整数，精确确定 floor(log10(a/b))，不经浮点或舍入。
+    const int comparison = quotientExponent >= 0
+        ? compareMagnitude(a, b + QByteArray(quotientExponent, '0'))
+        : compareMagnitude(a + QByteArray(-quotientExponent, '0'), b);
+    if (comparison < 0) --quotientExponent;
+    const int adjusted = left.m_exponent - right.m_exponent + quotientExponent;
+    if (adjusted > maximumAdjustedExponent) return DecimalError::Overflow;
+    if (adjusted < minimumAdjustedExponent) return DecimalError::Underflow;
+
+    // 只按系数长度缩放到 [1,10)，与数值指数差无关。除数最多 50 位，余数临时最多 51 位。
+    QByteArray remainder = a;
+    QByteArray divisor = b;
+    if (quotientExponent < 0) remainder.append(QByteArray(-quotientExponent, '0'));
+    else divisor.append(QByteArray(quotientExponent, '0'));
+    QByteArray coefficient;
+    coefficient.reserve(maximumDigits + 1);
+    for (int i = 0; i < maximumDigits; ++i)
+    {
+        // 每位开始时 remainder < 10*divisor，至多减 9 次。
+        int nextDigit = 0;
+        while (compareMagnitude(remainder, divisor) >= 0)
+        {
+            remainder = subtractMagnitude(remainder, divisor);
+            ++nextDigit;
+        }
+        coefficient.append(char('0' + nextDigit));
+        if (remainder == "0" || i + 1 == maximumDigits) break;
+        remainder.append('0');
+    }
+
+    const bool changed = remainder != "0";
+    const int exponent = adjusted - coefficient.size() + 1;
+    if (changed)
+    {
+        // 用完整余数比较半个 ulp，覆盖首个舍弃位为 5 但后面仍非零的情况，避免二次舍入。
+        const int halfway = compareMagnitude(addMagnitude(remainder, remainder), divisor);
+        if (halfway > 0 || (halfway == 0 && (coefficient.back() - '0') % 2 != 0))
+            coefficient = addMagnitude(coefficient, "1");
+    }
+    DecimalValue value;
+    const auto error = finish(std::move(coefficient), exponent, negative, value);
+    if (error != DecimalError::None) return error;
+    output = std::move(value);
+    inexact = changed;
+    return DecimalError::None;
 }

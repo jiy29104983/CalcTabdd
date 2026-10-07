@@ -1,0 +1,4752 @@
+[
+  {
+    "name": "oracle-000",
+    "left": "-256133933e906",
+    "right": "-391067963868e356",
+    "error": "none",
+    "coefficient": "65496015185343778260664120087340275849158834222711",
+    "exponent": 497,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-001",
+    "left": "42e172",
+    "right": "3545563936062365792871936238920989557189016018649e-443",
+    "error": "none",
+    "coefficient": "11845788359028826723940373112398742930892264716807",
+    "exponent": 519,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-002",
+    "left": "555e-895",
+    "right": "-2443484805937407558026597592e138",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-003",
+    "left": "6850345278013837017397460e-48",
+    "right": "2911627659452936514122e34",
+    "error": "none",
+    "coefficient": "2352754568659697075808046202109191729180898543652",
+    "exponent": -127,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-004",
+    "left": "-711033059650521883e-968",
+    "right": "45451e-811",
+    "error": "none",
+    "coefficient": "15643947540219618556247387296209104310136190622869",
+    "exponent": -193,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-005",
+    "left": "-72437e244",
+    "right": "-76879874738705464991240504404e637",
+    "error": "none",
+    "coefficient": "94221017198836976218060172794348900825126230864938",
+    "exponent": -467,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-006",
+    "left": "-19995904253594875817e513",
+    "right": "-28609122433675034288717599054650e-742",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-007",
+    "left": "-35194782161277318503830470540090932203094333007277e896",
+    "right": "-8510206065262129e-90",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-008",
+    "left": "26543189333366442096539793816e-900",
+    "right": "6875720404343e695",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-009",
+    "left": "4000251e-443",
+    "right": "696007809190e-705",
+    "error": "none",
+    "coefficient": "57474225823060983922981262203961220471374579233261",
+    "exponent": 207,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-010",
+    "left": "72866237944279868923e-210",
+    "right": "727483570258542558795566115642219606677964e446",
+    "error": "none",
+    "coefficient": "1001620392861707089711612405874955979976918781827",
+    "exponent": -726,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-011",
+    "left": "5400658453685783233283130796456944e260",
+    "right": "72343521939358465544029819610185152198710572e-696",
+    "error": "none",
+    "coefficient": "74652965585679580517070694681212538702555430138082",
+    "exponent": 896,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-012",
+    "left": "533454323104176606589060e-859",
+    "right": "1231300668611132e972",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-013",
+    "left": "34589590733838625717920667048442124940e336",
+    "right": "-42908196e526",
+    "error": "none",
+    "coefficient": "80613015596923780524169944241986134630316315325865",
+    "exponent": -210,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-014",
+    "left": "143661391998558467910324892653e-440",
+    "right": "5236869070275396267534690911600437207842169085748e-385",
+    "error": "none",
+    "coefficient": "27432687369249735357692923250349567859641568726555",
+    "exponent": -124,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-015",
+    "left": "2645400774931605121724661e-993",
+    "right": "-185221981163622985202939303367128594788610793e871",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-016",
+    "left": "-621e585",
+    "right": "-634004093724569836888332571876e27",
+    "error": "none",
+    "coefficient": "97948894359944117253865698234572709782785487517029",
+    "exponent": 481,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-017",
+    "left": "117262640181784090373562101441380562e-219",
+    "right": "64274998133041531148524283172149533e445",
+    "error": "none",
+    "coefficient": "18243896318606575505350879972439150272759469367421",
+    "exponent": -713,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-018",
+    "left": "173947451798064934079660657e241",
+    "right": "5703658916440639042854894824436188408073060611001e-521",
+    "error": "none",
+    "coefficient": "30497519986103344343730398138191114960537258384353",
+    "exponent": 690,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-019",
+    "left": "-29210852436965e871",
+    "right": "-45807714987529305827489564e-690",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-020",
+    "left": "-3219806462462406168317516840333891e895",
+    "right": "77637108299248451033e218",
+    "error": "none",
+    "coefficient": "41472519172813843676616337590105110735701715533818",
+    "exponent": 641,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-021",
+    "left": "-921176073638670230255875e-653",
+    "right": "66689600910033578534262820619533e861",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-022",
+    "left": "34566514353024421630989338217503392727071818222871e534",
+    "right": "-3377e-276",
+    "error": "none",
+    "coefficient": "10235864481203559855193763167753447653856031454803",
+    "exponent": 807,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-023",
+    "left": "-965098603333036127205306182e-297",
+    "right": "2437910788500188254615259238367012069287594056185e342",
+    "error": "none",
+    "coefficient": "39587117292621210393809073318375376270452590312163",
+    "exponent": -710,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-024",
+    "left": "90942037417e624",
+    "right": "-437e728",
+    "error": "none",
+    "coefficient": "20810534878032036613272311212814645308924485125858",
+    "exponent": -145,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-025",
+    "left": "716184404240592563505757343429056246100908e93",
+    "right": "-16355174384582572608210e140",
+    "error": "none",
+    "coefficient": "43789469155138665151142350922654485887070568344",
+    "exponent": -74,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-026",
+    "left": "8399551873897901611180037713088e-960",
+    "right": "402839019e-660",
+    "error": "none",
+    "coefficient": "20850889506058254032189562335042822651695515125857",
+    "exponent": -327,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-027",
+    "left": "66017955794364e-163",
+    "right": "-801056246825579246347e-937",
+    "error": "none",
+    "coefficient": "8241363331973197636758413998611162576111517761903",
+    "exponent": 718,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-028",
+    "left": "59659959605805220916247155326656340e769",
+    "right": "-694788169538361430303459026e-807",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-029",
+    "left": "1525153183180021350470e-258",
+    "right": "685168878350211264479829615104023e-10",
+    "error": "none",
+    "coefficient": "22259522161198743329246484532307606155534648526282",
+    "exponent": -309,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-030",
+    "left": "-2303e-173",
+    "right": "-86569193e-747",
+    "error": "none",
+    "coefficient": "26602997211721726457586361004890042119255980588845",
+    "exponent": 520,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-031",
+    "left": "-9471156737145884968e379",
+    "right": "6888827203502956584737415069759751931535039445e224",
+    "error": "none",
+    "coefficient": "13748576437408414500194535737063294909619900166586",
+    "exponent": 79,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-032",
+    "left": "5258596e152",
+    "right": "-349428244715e807",
+    "error": "none",
+    "coefficient": "1504914407903404048669477631582991022952802345848",
+    "exponent": -708,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-033",
+    "left": "95032574029681409709776320753800e611",
+    "right": "2295955665583438e-787",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-034",
+    "left": "-74864728558500452908715430469548486620882774276e369",
+    "right": "87742986992388887847859682903230440195809524995985e271",
+    "error": "none",
+    "coefficient": "85322749002144710467353758623282624914381385447439",
+    "exponent": 45,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-035",
+    "left": "-81938962847108946881984832e-974",
+    "right": "13004816217497798e852",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-036",
+    "left": "-76863215256106303521122791424623362059311964e-132",
+    "right": "4044844643718923e517",
+    "error": "none",
+    "coefficient": "19002760804537723679203893098447257624697099202453",
+    "exponent": -670,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-037",
+    "left": "-97981e662",
+    "right": "-178762938649530877671688262515101250251e-727",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-038",
+    "left": "-4319233618618851e827",
+    "right": "-23072890726251866e689",
+    "error": "none",
+    "coefficient": "18719950048151161215757077548135228311671646608311",
+    "exponent": 88,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-039",
+    "left": "681674421787e979",
+    "right": "-4395712011903699659881953052731e76",
+    "error": "none",
+    "coefficient": "15507713424833300493586714413214072140619815970997",
+    "exponent": 835,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-040",
+    "left": "-94535467633616591984975832800022294939569902835680e282",
+    "right": "4746836851291395157033985372239050e-401",
+    "error": "none",
+    "coefficient": "19915465939786377052386036258380624702428360702582",
+    "exponent": 650,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-041",
+    "left": "-37534635114192164741679139799509376651322686280678e379",
+    "right": "1148973771609419670714599334077557e593",
+    "error": "none",
+    "coefficient": "32667965136937546492530549918791255470367530550963",
+    "exponent": -247,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-042",
+    "left": "-61073913778599775157e160",
+    "right": "880e-129",
+    "error": "none",
+    "coefficient": "69402174748408835405681818181818181818181818181818",
+    "exponent": 256,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-043",
+    "left": "-344054e55",
+    "right": "-26390671e-804",
+    "error": "none",
+    "coefficient": "13036955369569799873599273015831996086799005603154",
+    "exponent": 808,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-044",
+    "left": "-4831646272189251101222756967289628808474428746656e907",
+    "right": "-219914134714e-413",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-045",
+    "left": "-82425144058613015191209251755680516060105752e-929",
+    "right": "2716562315470990660582332284515567e-81",
+    "error": "none",
+    "coefficient": "30341709295309264233467233973685131930712281138175",
+    "exponent": -887,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-046",
+    "left": "-4823792376977900012457457345702582e892",
+    "right": "-82716855830313644128578997595028144609225518239681e-1004",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-047",
+    "left": "-130460732107377505e887",
+    "right": "-58394522765207836385716e529",
+    "error": "none",
+    "coefficient": "22341261804969761411734009678596169578200747700042",
+    "exponent": 303,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-048",
+    "left": "789121657e-838",
+    "right": "-57442034683414905283997e-496",
+    "error": "none",
+    "coefficient": "13737703779978412191783561659722326346056406239979",
+    "exponent": -405,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-049",
+    "left": "87447363917157510133378819056512064264404047577125e377",
+    "right": "918403359e-323",
+    "error": "none",
+    "coefficient": "95216729185718831994579866357514121705650303024561",
+    "exponent": 691,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-050",
+    "left": "-3757701908169802293934937566752842847188149957e661",
+    "right": "-1969463542296874991209893150962377564827533659710e-879",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-051",
+    "left": "-588e837",
+    "right": "583713371289572719448950215e102",
+    "error": "none",
+    "coefficient": "1007343721972578796740589198919669381885155847192",
+    "exponent": 663,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-052",
+    "left": "722037009375356471e471",
+    "right": "68796084345345990e705",
+    "error": "none",
+    "coefficient": "10495321299840836090879527645315968196619855576806",
+    "exponent": -282,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-053",
+    "left": "-16223815164351027176e395",
+    "right": "1844879455449e-264",
+    "error": "none",
+    "coefficient": "87939703141214364626113065085260670202822524834791",
+    "exponent": 616,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-054",
+    "left": "-570572048340528440915316971399784239983537477900e706",
+    "right": "-98e-509",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-055",
+    "left": "-19693633e118",
+    "right": "-5592121333606068113532791467703891637897764e-275",
+    "error": "none",
+    "coefficient": "3521674839501488544248551030282571762825251995102",
+    "exponent": 309,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-056",
+    "left": "12613128550594051915400167045429850055118133131e307",
+    "right": "2929747339469380322090887525793675045413984616e35",
+    "error": "none",
+    "coefficient": "43051932774784846073560311977822229489288952042663",
+    "exponent": 223,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-057",
+    "left": "-9997841882701853788643285612129991416168287775542e89",
+    "right": "46042179085993464936570516903169569935740e-884",
+    "error": "none",
+    "coefficient": "21714528028807626029273772405308183438256524018905",
+    "exponent": 932,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-058",
+    "left": "-60728260038315188696374256152320961254620e-1003",
+    "right": "-83137817074625947532096154254614974045552685582e-627",
+    "error": "none",
+    "coefficient": "73045290549070404983760621066994153005563472028146",
+    "exponent": -432,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-059",
+    "left": "-879985702301416439920145014206e644",
+    "right": "-26005903154347855395741484104213487023468215252104e-575",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-060",
+    "left": "50664212943869915869513670745012718935231e244",
+    "right": "-73011722765e724",
+    "error": "none",
+    "coefficient": "69391888076577583095075007363459955929764726186433",
+    "exponent": -500,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-061",
+    "left": "4605461612308371874418319174236299300258e-272",
+    "right": "-1508073954874527009725879369850940462042427947e54",
+    "error": "none",
+    "coefficient": "30538698698576423985104876195854633035044408295095",
+    "exponent": -381,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-062",
+    "left": "8866697326422981473088731595464317560e-190",
+    "right": "376949413897220891327e795",
+    "error": "none",
+    "coefficient": "23522247281807890229798430198121027879399982419984",
+    "exponent": -1018,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-063",
+    "left": "-74491693722440199203318992e-275",
+    "right": "196347246586125253760e601",
+    "error": "none",
+    "coefficient": "37938751379314786217034437618852773804584087691804",
+    "exponent": -920,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-064",
+    "left": "98059391553581147649492237378128936e-101",
+    "right": "63175856150590864688786755e-892",
+    "error": "none",
+    "coefficient": "15521656140256997181511950088945340369952126163961",
+    "exponent": 751,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-065",
+    "left": "-88072877226064825329842169e-877",
+    "right": "-6639451207947e652",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-066",
+    "left": "-419510830641084525534487007146600e-326",
+    "right": "-88e720",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-067",
+    "left": "-57753716195982667011245071824553463541303e395",
+    "right": "-3110874812891629020608850126376230639311297328e-518",
+    "error": "none",
+    "coefficient": "1856510456693667845632562553555993109885699528587",
+    "exponent": 860,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-068",
+    "left": "365010173601228907075027021e67",
+    "right": "-2770847442585306082029144041267899276e-194",
+    "error": "none",
+    "coefficient": "13173232419488982335820820039787774082901121856279",
+    "exponent": 202,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-069",
+    "left": "-87336075029469332e-422",
+    "right": "6156768068e33",
+    "error": "none",
+    "coefficient": "14185376818626868566977501417225710572276181445398",
+    "exponent": -497,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-070",
+    "left": "-7367736349573517997551894645524492973145e-198",
+    "right": "79072922930201530049021311439761093364768e641",
+    "error": "none",
+    "coefficient": "93176476555408145169271412007815468309818118371695",
+    "exponent": -890,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-071",
+    "left": "838722773605500758783153e79",
+    "right": "2043366717e557",
+    "error": "none",
+    "coefficient": "41046120925219159218748936880134179067183073825118",
+    "exponent": -513,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-072",
+    "left": "677559733045797229164686804189675e471",
+    "right": "-475472673941760850910665440247492003e-998",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-073",
+    "left": "39421766246424004831022456096567496e860",
+    "right": "-18e645",
+    "error": "none",
+    "coefficient": "21900981248013336017234697831426386666666666666667",
+    "exponent": 199,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-074",
+    "left": "-964364559175535928197677e722",
+    "right": "-76201936212737120e129",
+    "error": "none",
+    "coefficient": "12655381307940346243232122191908337255438405505725",
+    "exponent": 551,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-075",
+    "left": "-843780178437824676738107190610402296483307959315e-658",
+    "right": "-58578690e281",
+    "error": "none",
+    "coefficient": "14404217274879733171535710180791040162955299261813",
+    "exponent": -948,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-076",
+    "left": "-39132777711310230691079604e388",
+    "right": "-612269663218635942e420",
+    "error": "none",
+    "coefficient": "63914284933853191412017099736537708024567152835609",
+    "exponent": -74,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-077",
+    "left": "-727791276839619337176417686e581",
+    "right": "28682566428646871e-75",
+    "error": "none",
+    "coefficient": "25373994291972903649916542323263362210831809099203",
+    "exponent": 617,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-078",
+    "left": "-980974902301692737362630665568258758962075770662e77",
+    "right": "179431610177261474779495910583895885651e300",
+    "error": "none",
+    "coefficient": "54671242226081694014806056683261098466246968076306",
+    "exponent": -263,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-079",
+    "left": "-93789491626672023447790776446042632530139436e409",
+    "right": "1322e550",
+    "error": "none",
+    "coefficient": "70945152516393361155666245420607135045491252647504",
+    "exponent": -150,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-080",
+    "left": "-59374677047979387208928129e675",
+    "right": "-76611379859578149529305347e-803",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-081",
+    "left": "628227e-458",
+    "right": "-291519834346110662820995447130700496400e-965",
+    "error": "none",
+    "coefficient": "21550060269797266542721988872332748824588293037294",
+    "exponent": 425,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-082",
+    "left": "-83580594912221946473181075754188139533550e262",
+    "right": "599345e306",
+    "error": "none",
+    "coefficient": "13945322796089388661485634443298624253735327732775",
+    "exponent": -58,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-083",
+    "left": "7165480476534741637734377053003884064809064324294e702",
+    "right": "-1841994e-228",
+    "error": "none",
+    "coefficient": "38900672187503008357977154393575028283528960052497",
+    "exponent": 923,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-084",
+    "left": "13642684344877270438883515145469646e-729",
+    "right": "295422967444020467e228",
+    "error": "none",
+    "coefficient": "46180175031456940026176993018472884456819940531725",
+    "exponent": -990,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-085",
+    "left": "-5716559909744437e-645",
+    "right": "22213e396",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-086",
+    "left": "-5754e564",
+    "right": "691e597",
+    "error": "none",
+    "coefficient": "8327062228654124457308248914616497829232995658466",
+    "exponent": -81,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-087",
+    "left": "783891676511e-659",
+    "right": "589628e425",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-088",
+    "left": "-33123270733e53",
+    "right": "-14406936372e-415",
+    "error": "none",
+    "coefficient": "22991196655366196129681914305604458735371723067397",
+    "exponent": 419,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-089",
+    "left": "-639919822075619815181078730545683e-1002",
+    "right": "-79821271735e-497",
+    "error": "none",
+    "coefficient": "80169083775074460755342503256808452802584253389057",
+    "exponent": -533,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-090",
+    "left": "71710216141e369",
+    "right": "-96862533421471715348450205717765e-841",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-091",
+    "left": "-693473315623258584498e-563",
+    "right": "-76e-727",
+    "error": "none",
+    "coefficient": "91246488897797182170789473684210526315789473684211",
+    "exponent": 133,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-092",
+    "left": "-413691098836443135e29",
+    "right": "8627198397027281609350248242313892630539294e-636",
+    "error": "none",
+    "coefficient": "47951963058945163177548323550956895358951430400228",
+    "exponent": 590,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-093",
+    "left": "-9648212887778836783271e186",
+    "right": "696e-733",
+    "error": "none",
+    "coefficient": "13862374838762696527688218390804597701149425287356",
+    "exponent": 889,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-094",
+    "left": "-852233128225994638161e757",
+    "right": "15228664241398835096361687058223521743485736628314e275",
+    "error": "none",
+    "coefficient": "55962434703183949140659303196991767108332664551914",
+    "exponent": 404,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-095",
+    "left": "-95748025366294651124e-823",
+    "right": "-372e-242",
+    "error": "none",
+    "coefficient": "25738716496315766431182795698924731182795698924731",
+    "exponent": -613,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-096",
+    "left": "-7115159925e-734",
+    "right": "-6590325440278564346876604508e-532",
+    "error": "none",
+    "coefficient": "10796371119267900058441378249787262226246934936087",
+    "exponent": -269,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-097",
+    "left": "-217471679586493786151929130974552037674710877786e-566",
+    "right": "-296843121936165705386715635310212055e-1029",
+    "error": "none",
+    "coefficient": "73261485113089377357069459112327671618615942656163",
+    "exponent": 425,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-098",
+    "left": "-19325490e-957",
+    "right": "-303029977015722741680337062805272e-261",
+    "error": "none",
+    "coefficient": "63774185611337372585284107735669892525423525441019",
+    "exponent": -771,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-099",
+    "left": "-2166672117e347",
+    "right": "-581372621834953256914424993e625",
+    "error": "none",
+    "coefficient": "37268217243554681659320321247888702959178621513996",
+    "exponent": -345,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-100",
+    "left": "885950320632501e626",
+    "right": "127995124021892713727282418413110093249e521",
+    "error": "none",
+    "coefficient": "69217505541927135960694916147312837714272375960937",
+    "exponent": 32,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-101",
+    "left": "8282224460950279225e347",
+    "right": "22049878600264705265211912399463e793",
+    "error": "none",
+    "coefficient": "37561315466157951750710425787221828916304336669657",
+    "exponent": -508,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-102",
+    "left": "213417e12",
+    "right": "16283512381165554802244192e686",
+    "error": "none",
+    "coefficient": "13106324667818618402011648473549156511704312173752",
+    "exponent": -743,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-103",
+    "left": "6627105773827216140920633897e-1026",
+    "right": "4656000709171378589474311073246121052508e640",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-104",
+    "left": "-6957571208749751459632254975561e183",
+    "right": "-3e-411",
+    "error": "none",
+    "coefficient": "2319190402916583819877418325187",
+    "exponent": 594,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-105",
+    "left": "55151768910610802017900488959851253165e259",
+    "right": "-940319446513063246850296248e910",
+    "error": "none",
+    "coefficient": "58652162427489065378811697783299250757916577738334",
+    "exponent": -690,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-106",
+    "left": "-10546291720990887004223e578",
+    "right": "22707216237156115151591942986796318e209",
+    "error": "none",
+    "coefficient": "4644467032349765453436322723569792442451374064202",
+    "exponent": 308,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-107",
+    "left": "1e897",
+    "right": "4679907356375e374",
+    "error": "none",
+    "coefficient": "21367944359791514826961070709684706520046811596538",
+    "exponent": 461,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-108",
+    "left": "1177814575497589603087e941",
+    "right": "-1e638",
+    "error": "none",
+    "coefficient": "1177814575497589603087",
+    "exponent": 303,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-109",
+    "left": "87228710194193365941509218645202198279001626162e72",
+    "right": "3521173961156659701135933922621573667e165",
+    "error": "none",
+    "coefficient": "24772621618938665791846889013908110298241078686006",
+    "exponent": -132,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-110",
+    "left": "-20802772915171179932323515091782276810839e728",
+    "right": "-421974813441222029774573822e944",
+    "error": "none",
+    "coefficient": "49298612743077502004253957833995969172679519442559",
+    "exponent": -252,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-111",
+    "left": "5e-607",
+    "right": "88490645857525731054561294494189642e676",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-112",
+    "left": "54375185037371754892569322242561882054e-188",
+    "right": "-4151234651252228769198104042529163058576475e-727",
+    "error": "none",
+    "coefficient": "1309855732220999951874738784734331464855013275916",
+    "exponent": 486,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-113",
+    "left": "-564469918992e-484",
+    "right": "-5028334660370920814592608730997e529",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-114",
+    "left": "620421415410493034723950947193686975737771445e-111",
+    "right": "214996583530191963755373466e-541",
+    "error": "none",
+    "coefficient": "28857268577171007651284304151865857997137381979812",
+    "exponent": 399,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-115",
+    "left": "-9262564196500310260526908630950e274",
+    "right": "-379352e808",
+    "error": "none",
+    "coefficient": "2441680601789448918294066890631919694637170754339",
+    "exponent": -557,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-116",
+    "left": "-632174279e918",
+    "right": "923649045435776722972931069e114",
+    "error": "none",
+    "coefficient": "6844312589547914152527959517735383405147478986797",
+    "exponent": 737,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-117",
+    "left": "30513560253933199426703070979276485460229435e-202",
+    "right": "6568303557482620253414329648615270e-492",
+    "error": "none",
+    "coefficient": "46455770484560066526050539967643902272784842134042",
+    "exponent": 250,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-118",
+    "left": "3759458854329545466821024582323934988e-982",
+    "right": "876825033307799e379",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-119",
+    "left": "-899636993996432e-401",
+    "right": "8379734423865e331",
+    "error": "none",
+    "coefficient": "10735865225445782195046230572083729455341901593953",
+    "exponent": -779,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-120",
+    "left": "-88594715858990353022359004628105654406135140536874e306",
+    "right": "62247140180400e37",
+    "error": "none",
+    "coefficient": "14232736733323295231428585900192999191071820348684",
+    "exponent": 256,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-121",
+    "left": "791087632576688211530042991279022e-476",
+    "right": "30189788800041943e-33",
+    "error": "none",
+    "coefficient": "26203814734059654797209191711134549403408210778685",
+    "exponent": -476,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-122",
+    "left": "-648320333573358797413281739341716e273",
+    "right": "-2284545803814025088074691762939974e348",
+    "error": "none",
+    "coefficient": "28378522001659798137782172875553601020396276345363",
+    "exponent": -125,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-123",
+    "left": "-316982749266702617397578063e-445",
+    "right": "860628729818265919948991220846551879e-195",
+    "error": "none",
+    "coefficient": "36831532376758798643774082994325200407738432302168",
+    "exponent": -309,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-124",
+    "left": "3482726468812148106e-123",
+    "right": "261439283304769460141034853391e284",
+    "error": "none",
+    "coefficient": "13321358690966899604788677681712051386842960493288",
+    "exponent": -467,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-125",
+    "left": "815652098493770133974195607002678491587105854088e133",
+    "right": "5682869021960e-441",
+    "error": "none",
+    "coefficient": "14352822409629543331362167444569750257477142224218",
+    "exponent": 560,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-126",
+    "left": "-8538976268185682640456431e-387",
+    "right": "-222807339770371101e125",
+    "error": "none",
+    "coefficient": "38324483731039074585057861302709859299231213421099",
+    "exponent": -554,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-127",
+    "left": "746487959613212958632334655729e-479",
+    "right": "1657717691420044615293959795493e147",
+    "error": "none",
+    "coefficient": "45031066717623778298419901908105131362294624161945",
+    "exponent": -676,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-128",
+    "left": "9513889735573e-286",
+    "right": "-795508376895129378e301",
+    "error": "none",
+    "coefficient": "11959509179156263198511644028638086338499816862655",
+    "exponent": -641,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-129",
+    "left": "-48411218e66",
+    "right": "79352346949076686534049206419342458910023391255e-24",
+    "error": "none",
+    "coefficient": "610079220858675489495595610085502737402754259958",
+    "exponent": 3,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-130",
+    "left": "969963502501102e-39",
+    "right": "-722688749782427846243707616474396113738705e252",
+    "error": "none",
+    "coefficient": "13421594051285819966868029458493555941172151686792",
+    "exponent": -367,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-131",
+    "left": "907068659414863743749636e396",
+    "right": "70558798633833266e282",
+    "error": "none",
+    "coefficient": "12855500334155635430292877762914129446952365247087",
+    "exponent": 72,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-132",
+    "left": "1301390441437e-122",
+    "right": "84401347332378e56",
+    "error": "none",
+    "coefficient": "1541907188177979820722285666222461293565738472956",
+    "exponent": -228,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-133",
+    "left": "-676342123e138",
+    "right": "-17428323974800144993956324049549e165",
+    "error": "none",
+    "coefficient": "38807066243313610794786408866241272777797791235472",
+    "exponent": -99,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-134",
+    "left": "9886e130",
+    "right": "-456194972599148867698443752208323236624e-30",
+    "error": "none",
+    "coefficient": "2167055884828145191319573937489344669787469473286",
+    "exponent": 77,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-135",
+    "left": "5686894732827164803e369",
+    "right": "6004066544002403977283977889690592e62",
+    "error": "none",
+    "coefficient": "9471738347916764559125750061364174893856681325374",
+    "exponent": 243,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-136",
+    "left": "693372681727353427288871335052608847768e-208",
+    "right": "62085167321225991035094839140413529e-320",
+    "error": "none",
+    "coefficient": "11168089120866388769966657778760422852483900749452",
+    "exponent": 67,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-137",
+    "left": "248e-225",
+    "right": "-6e254",
+    "error": "none",
+    "coefficient": "41333333333333333333333333333333333333333333333333",
+    "exponent": -527,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-138",
+    "left": "-7576e116",
+    "right": "-87e-69",
+    "error": "none",
+    "coefficient": "87080459770114942528735632183908045977011494252874",
+    "exponent": 137,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-139",
+    "left": "-61607121381109686272096747926476364792551956682481e110",
+    "right": "-84249371177948117566e315",
+    "error": "none",
+    "coefficient": "73124725466479285440827145343549870341192385649853",
+    "exponent": -225,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-140",
+    "left": "-47556228839329119031402469435025200505e-189",
+    "right": "347256868763284776267617710225264715820e-158",
+    "error": "none",
+    "coefficient": "13694827407934401542351635466322859552823006304521",
+    "exponent": -81,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-141",
+    "left": "32746484525882459217170272012781565602425e-322",
+    "right": "9234775039558440e-26",
+    "error": "none",
+    "coefficient": "35459969934956022111847989450485114821595719921362",
+    "exponent": -321,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-142",
+    "left": "-46181728e-235",
+    "right": "3111376033e331",
+    "error": "none",
+    "coefficient": "14842862935943943487977623050617617198827345984123",
+    "exponent": -617,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-143",
+    "left": "-16921132987579551268063059911e-79",
+    "right": "9862527249506643422163011e-312",
+    "error": "none",
+    "coefficient": "1715699491570581252165461325667708048048842652529",
+    "exponent": 188,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-144",
+    "left": "9011726234546e-84",
+    "right": "-19799339421790207814902288311955480589939327725e-66",
+    "error": "none",
+    "coefficient": "45515287366749843660113435960787889720240522097875",
+    "exponent": -101,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-145",
+    "left": "-83156525897958297380034e337",
+    "right": "75570443423660746221e-161",
+    "error": "none",
+    "coefficient": "11003842525015856243607695722729872960119502151221",
+    "exponent": 452,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-146",
+    "left": "-27887379160948006004470e232",
+    "right": "5468079302788475e286",
+    "error": "none",
+    "coefficient": "51000319521201337381449113355993883196727771770429",
+    "exponent": -97,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-147",
+    "left": "89618029770536397221869080224e257",
+    "right": "14966042838847080e375",
+    "error": "none",
+    "coefficient": "59880912232802473626363976794102746008540554059256",
+    "exponent": -155,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-148",
+    "left": "-1186177039389364616991537127346615800696146e-373",
+    "right": "3803229e360",
+    "error": "none",
+    "coefficient": "31188683074023799697350254937228754847424280788772",
+    "exponent": -747,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-149",
+    "left": "-617983e-138",
+    "right": "-46602065682438123583348e40",
+    "error": "none",
+    "coefficient": "13260849941956229804216643453749390981555383451279",
+    "exponent": -244,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-150",
+    "left": "-8628204864e-169",
+    "right": "-4468582260939518792679317770689504134116007e221",
+    "error": "none",
+    "coefficient": "19308595792048642155492400909328293173078705741805",
+    "exponent": -472,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-151",
+    "left": "-682723911709703379837310170012727900397e-464",
+    "right": "2749454879692052140692284931380307065999753524e-205",
+    "error": "none",
+    "coefficient": "24831246250026502384490632465870643107163116412755",
+    "exponent": -315,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-152",
+    "left": "868269950491857887020491015e125",
+    "right": "33000694726497664e-7",
+    "error": "none",
+    "coefficient": "26310656720650397266253759402594920058249533764804",
+    "exponent": 93,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-153",
+    "left": "-304077368273358338602821932746730662e304",
+    "right": "-392788962640747254702539216227769352e-181",
+    "error": "none",
+    "coefficient": "77414947260489511744939715377245742069349713000686",
+    "exponent": 435,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-154",
+    "left": "-392340149148344230363629151100e378",
+    "right": "-3722451704253232831e98",
+    "error": "none",
+    "coefficient": "10539831818370152207281173005286971950696503146763",
+    "exponent": 242,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-155",
+    "left": "-30585672151985336040116948802650841319254887010466e250",
+    "right": "-832838298806e-260",
+    "error": "none",
+    "coefficient": "36724622529769026401236790293779199311591759154816",
+    "exponent": 498,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-156",
+    "left": "2252773501513411996618346292584216943e-38",
+    "right": "-26282705411055359443645497158065e-63",
+    "error": "none",
+    "coefficient": "85713151149417909680409654683791947312450347357642",
+    "exponent": -20,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-157",
+    "left": "39133236888867902093430355785167848e171",
+    "right": "-42199541236300459379641050e90",
+    "error": "none",
+    "coefficient": "92733796961766749720315467877154858080583882780948",
+    "exponent": 40,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-158",
+    "left": "8876511018e258",
+    "right": "980920387815155345408156418953589e-269",
+    "error": "none",
+    "coefficient": "90491655880157828745844912534175078483759124856252",
+    "exponent": 454,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-159",
+    "left": "334683283566115e49",
+    "right": "23027484e424",
+    "error": "none",
+    "coefficient": "14534079518462155917685145281177917657004994553465",
+    "exponent": -417,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-160",
+    "left": "-184524e-159",
+    "right": "-9809919550e376",
+    "error": "none",
+    "coefficient": "18809940189570667783916739663782461906122359586527",
+    "exponent": -589,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-161",
+    "left": "53975736e-146",
+    "right": "6645507314e370",
+    "error": "none",
+    "coefficient": "81221392814195012712012192362173660832419633087473",
+    "exponent": -568,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-162",
+    "left": "-488270558801722110e-27",
+    "right": "402264252894245706376442585320155981795738600784e-210",
+    "error": "none",
+    "coefficient": "12138054905169196136501158403213408813291862821928",
+    "exponent": 104,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-163",
+    "left": "-5722511198395265306444241456e-471",
+    "right": "3207198510947903661618995880515e-40",
+    "error": "none",
+    "coefficient": "17842709700884552732524550931030414580438405053526",
+    "exponent": -483,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-164",
+    "left": "827049070417969261985042860360412e194",
+    "right": "-57339876124165840841770590949675721388e207",
+    "error": "none",
+    "coefficient": "14423628481984287924343481533060151132131481330399",
+    "exponent": -67,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-165",
+    "left": "-282415104606190793241423e-354",
+    "right": "16753e-347",
+    "error": "none",
+    "coefficient": "1685758399129653156099940309198352533874529934937",
+    "exponent": -36,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-166",
+    "left": "-84010823e411",
+    "right": "62671927204931e180",
+    "error": "none",
+    "coefficient": "13404857126108939083512926045446353557640461878237",
+    "exponent": 176,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-167",
+    "left": "-441331273846797208816381705274107e255",
+    "right": "68497972365758217377548007824558948584e174",
+    "error": "none",
+    "coefficient": "64429830344498844366108676732689398446557879766552",
+    "exponent": 26,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-168",
+    "left": "7368839372131166199618250583554435351589403655e-254",
+    "right": "89883947594709551168126825279495429017865070e219",
+    "error": "none",
+    "coefficient": "81981706070115752467594830286643629783549890768118",
+    "exponent": -521,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-169",
+    "left": "-705797430e265",
+    "right": "6293535132366457047961714847877e337",
+    "error": "none",
+    "coefficient": "1121464193264319342222048229500473436503675404154",
+    "exponent": -142,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-170",
+    "left": "-6572858885402915847281289969014e-204",
+    "right": "974015823e273",
+    "error": "none",
+    "coefficient": "67482054502546986316066140221358601070693283798943",
+    "exponent": -505,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-171",
+    "left": "-8717569144771222129786162e332",
+    "right": "632279490100097139211804658174784e-224",
+    "error": "none",
+    "coefficient": "13787524791277240926109236995794247326591709181308",
+    "exponent": 499,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-172",
+    "left": "-11851563001524645611975e109",
+    "right": "45693728876197830257732949e-350",
+    "error": "none",
+    "coefficient": "25936957418457052741641476835329000206279289746374",
+    "exponent": 406,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-173",
+    "left": "9024375508986453519889540846380092161e-477",
+    "right": "-149533436568e-348",
+    "error": "none",
+    "coefficient": "60350218092410647498264488935878277052505759542479",
+    "exponent": -153,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-174",
+    "left": "75054251601759953921452226884e298",
+    "right": "-826532223220047618682e73",
+    "error": "none",
+    "coefficient": "9080620149249555092236338208686422756963684772233",
+    "exponent": 184,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-175",
+    "left": "-2480636848558089995940e276",
+    "right": "-902e-219",
+    "error": "none",
+    "coefficient": "27501517168049778225498891352549889135254988913525",
+    "exponent": 464,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-176",
+    "left": "-115376702803994111045006088032333e-121",
+    "right": "-18239489234590229186364327723172573824435145836525e95",
+    "error": "none",
+    "coefficient": "63256542614794432064868332429847334612369128497897",
+    "exponent": -283,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-177",
+    "left": "-17187305561203194995405921777187e-466",
+    "right": "95541e-323",
+    "error": "none",
+    "coefficient": "17989455376438591803943774690642760699594938298741",
+    "exponent": -166,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-178",
+    "left": "-446746659208014550785271306e-304",
+    "right": "562819706980735524359061135272592677582848212569e45",
+    "error": "none",
+    "coefficient": "79376513236290430719104704297455301780173845786104",
+    "exponent": -420,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-179",
+    "left": "8803821245626332744188181839286451255726249625e370",
+    "right": "605873979253586190230062751749531e17",
+    "error": "none",
+    "coefficient": "14530779579727631295900660302257687411545103064071",
+    "exponent": 317,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-180",
+    "left": "916221610035896494358e-343",
+    "right": "-5914671965066352764454e253",
+    "error": "none",
+    "coefficient": "15490658069413626635451581337184095330908516643471",
+    "exponent": -646,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-181",
+    "left": "4895935821e-268",
+    "right": "18636116995069162233498936e-4",
+    "error": "none",
+    "coefficient": "262712228212314366592081708060406590516905117885",
+    "exponent": -327,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-182",
+    "left": "3457099233537e-25",
+    "right": "2883535958234738077469760890669952643e-242",
+    "error": "none",
+    "coefficient": "11989097010093779596020604816809489655526257886053",
+    "exponent": 144,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-183",
+    "left": "8107691296784635800641162883618e187",
+    "right": "783819876834686505924916062364e-192",
+    "error": "none",
+    "coefficient": "10343819462101506183164857592441559302759759841769",
+    "exponent": 331,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-184",
+    "left": "-10497101375549160e315",
+    "right": "-401881517680084174760944981004e100",
+    "error": "none",
+    "coefficient": "2611989084779292198186061661034175178703843933949",
+    "exponent": 153,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-185",
+    "left": "-7209365795817381139077930273133877e-406",
+    "right": "-653531210037603813995186537961556359e293",
+    "error": "none",
+    "coefficient": "11031402456513987041257194821638671433337762083324",
+    "exponent": -750,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-186",
+    "left": "-17020957341882630503810e-280",
+    "right": "-85e-41",
+    "error": "none",
+    "coefficient": "20024655696332506475070588235294117647058823529412",
+    "exponent": -268,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-187",
+    "left": "-6092525500e398",
+    "right": "-8906254384849546421220855788645e-123",
+    "error": "none",
+    "coefficient": "68407270180425249397719377281081901732855785341912",
+    "exponent": 450,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-188",
+    "left": "857687321887549604173646786986411e408",
+    "right": "-9e320",
+    "error": "none",
+    "coefficient": "95298591320838844908182976331823444444444444444444",
+    "exponent": 70,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-189",
+    "left": "-54557e-448",
+    "right": "-4716850411063e-432",
+    "error": "none",
+    "coefficient": "11566404538087717726883086813076032809295764188485",
+    "exponent": -73,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-190",
+    "left": "904428254e111",
+    "right": "-725810415016827075018842239421937189829418697e337",
+    "error": "none",
+    "coefficient": "12460943454208105803621582170389652256807595904315",
+    "exponent": -311,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-191",
+    "left": "242538630301997623e-281",
+    "right": "1548301320181231748112445521118632894486661518201e12",
+    "error": "none",
+    "coefficient": "15664820997091702671175484658476244567471742700349",
+    "exponent": -373,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-192",
+    "left": "867665465e68",
+    "right": "-78379054e-330",
+    "error": "none",
+    "coefficient": "11070119129021383697741490985589083532444777912221",
+    "exponent": 350,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-193",
+    "left": "-407084776343668995049185121e-48",
+    "right": "-506876226e-157",
+    "error": "none",
+    "coefficient": "80312461990211589653286504899126991211459974846009",
+    "exponent": 77,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-194",
+    "left": "-593154860418227462060814029024963083322502180763e-306",
+    "right": "-6142192278272203616906e273",
+    "error": "none",
+    "coefficient": "96570545750658542021777199898861704064020355880576",
+    "exponent": -603,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-195",
+    "left": "-97175679468186097400263916781901113382e-241",
+    "right": "729835538146309307000080787e106",
+    "error": "none",
+    "coefficient": "13314736593260466656226099356641501023614007132531",
+    "exponent": -385,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-196",
+    "left": "-453944322647050359271498680e-6",
+    "right": "-7732167737112e325",
+    "error": "none",
+    "coefficient": "5870854566026275047394891401680383924011062487962",
+    "exponent": -366,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-197",
+    "left": "3381336017300633455383438918577978663763514e40",
+    "right": "-75062576634861620490822048387875549324382852e-419",
+    "error": "none",
+    "coefficient": "45046895122571980740273066589465841953312425421138",
+    "exponent": 408,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-198",
+    "left": "-17571753066255896299602361540536605701491315839e-209",
+    "right": "776889e-147",
+    "error": "none",
+    "coefficient": "22618099968278475174191372951009224871881717773067",
+    "exponent": -71,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-199",
+    "left": "-2445940538236163497886904e-134",
+    "right": "-3283096912822954829976633e231",
+    "error": "none",
+    "coefficient": "74501015449252562084150944299318264704954717300554",
+    "exponent": -415,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-200",
+    "left": "-4154e218",
+    "right": "-6231476413522557952351309743468898102983972504e390",
+    "error": "none",
+    "coefficient": "6666156981651492075962353293415811004246765054206",
+    "exponent": -263,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-201",
+    "left": "-2739698799097977668129668e-377",
+    "right": "-3221034e-343",
+    "error": "none",
+    "coefficient": "8505650046221113059128428945487691219651826090628",
+    "exponent": -65,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-202",
+    "left": "5168391156401988995342340130785133e186",
+    "right": "4800670678783162e-180",
+    "error": "none",
+    "coefficient": "10765977302388161364592250432478954134749527453822",
+    "exponent": 335,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-203",
+    "left": "-66676496446455448734087297617233922328e227",
+    "right": "52341897062709620256993627969455202596369675e392",
+    "error": "none",
+    "coefficient": "12738647276496661059953200603787442786147359012544",
+    "exponent": -220,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-204",
+    "left": "-6870509829763138149e309",
+    "right": "-4056178192399851818431853931604223573663604227e-413",
+    "error": "none",
+    "coefficient": "16938382644619903421702084965440825309052845756152",
+    "exponent": 646,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-205",
+    "left": "6912087604118337765677988e-237",
+    "right": "-591583264581e-133",
+    "error": "none",
+    "coefficient": "11684048582770430671088707100573861356846272364582",
+    "exponent": -140,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-206",
+    "left": "347457770415659755249988516121270519122e-61",
+    "right": "1709126937068801062051013245e-191",
+    "error": "none",
+    "coefficient": "20329547377654654023160960902329749433997417122097",
+    "exponent": 92,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-207",
+    "left": "594853670111536508341505069820913346755910851126e395",
+    "right": "907543319609869534e-22",
+    "error": "none",
+    "coefficient": "65545484965637719010471857461111365247865015319209",
+    "exponent": 397,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-208",
+    "left": "-90385254344566724268127e-76",
+    "right": "-27595247874542839451694e222",
+    "error": "none",
+    "coefficient": "32753920079097714672867428052758508328124488193716",
+    "exponent": -347,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-209",
+    "left": "17784155085627765270527462569575e45",
+    "right": "-64020498337489444941e-371",
+    "error": "none",
+    "coefficient": "27778845131565666710350320620573255679787827882862",
+    "exponent": 378,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-210",
+    "left": "-5404657325406997639656866451996885073898786582e-211",
+    "right": "-20556974599272255279220962915278084931746e-50",
+    "error": "none",
+    "coefficient": "26291112533642619878289514248141625509554786377229",
+    "exponent": -205,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-211",
+    "left": "1408521917260720e-115",
+    "right": "337300133468e-371",
+    "error": "none",
+    "coefficient": "41758712123200149246138394356361642588568891161836",
+    "exponent": 210,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-212",
+    "left": "454e-341",
+    "right": "-29265062121714799727e378",
+    "error": "none",
+    "coefficient": "15513378994781975263235844257079691486106615762153",
+    "exponent": -785,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-213",
+    "left": "-45208183579099926535692401732634410989254e28",
+    "right": "-26975792982979501844716191251401419237189244e-60",
+    "error": "none",
+    "coefficient": "16758796898991712201416598555110759031996861031924",
+    "exponent": 36,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-214",
+    "left": "-8489624867782341446957633493225774433e169",
+    "right": "-81467067156584378028531831939204638845405069086e260",
+    "error": "none",
+    "coefficient": "10420928559346312636378043611856732302043185745097",
+    "exponent": -150,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-215",
+    "left": "4359452882944426075390905019438885928651890956249e-340",
+    "right": "596003941201855794099372572706021251343899e86",
+    "error": "none",
+    "coefficient": "73144698911780483463132147041563791308078626372468",
+    "exponent": -469,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-216",
+    "left": "8985424927755682644e-169",
+    "right": "5012250168152e-55",
+    "error": "none",
+    "coefficient": "17926928278339664338496436162032473735730555417115",
+    "exponent": -157,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-217",
+    "left": "78110575702944011e-407",
+    "right": "-86472148664920e137",
+    "error": "none",
+    "coefficient": "90330328214258760679508792229620731413779420263156",
+    "exponent": -591,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-218",
+    "left": "6239544051543018035165243752916873481e-452",
+    "right": "887072780402581169408146356541404629530196111e-281",
+    "error": "none",
+    "coefficient": "70338580885227018468956125664179992518436094745502",
+    "exponent": -229,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-219",
+    "left": "-915137924641190955521473460574652447318219e315",
+    "right": "-461754793e-130",
+    "error": "none",
+    "coefficient": "19818698982972786500593475389754155671930816319648",
+    "exponent": 429,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-220",
+    "left": "-7686609639e229",
+    "right": "8616237956711019334302853506e-58",
+    "error": "none",
+    "coefficient": "89210739972809710903470302889005105064338233032632",
+    "exponent": 219,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-221",
+    "left": "-836069719295525e-461",
+    "right": "-73988597e331",
+    "error": "none",
+    "coefficient": "11299980715886868350808165750189856958633774336875",
+    "exponent": -834,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-222",
+    "left": "-81074166714765891856676516248514325e-181",
+    "right": "-915780847000544486048949439869421007927225715e208",
+    "error": "none",
+    "coefficient": "88530096452997436901239004459246653020037350936148",
+    "exponent": -449,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-223",
+    "left": "-54476532e-235",
+    "right": "-29019336271559298841e-394",
+    "error": "none",
+    "coefficient": "18772494136397698928158006838736573132225121963846",
+    "exponent": 98,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-224",
+    "left": "942527546403036495413098899e-173",
+    "right": "-708e335",
+    "error": "none",
+    "coefficient": "13312535966144583268546594618644067796610169491525",
+    "exponent": -533,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-225",
+    "left": "52931578177432597305832433051490417508470736433e-398",
+    "right": "7444339723444721716768286496416201992198e141",
+    "error": "none",
+    "coefficient": "71103120147423297731569752745285541581177039665777",
+    "exponent": -582,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-226",
+    "left": "245068103551178841766e293",
+    "right": "-2982564286478032858838134555064496544e278",
+    "error": "none",
+    "coefficient": "8216691410885497235939095009262827174439790867432",
+    "exponent": -50,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-227",
+    "left": "-4343068362686741805942934021853e280",
+    "right": "365850e-377",
+    "error": "none",
+    "coefficient": "11871172236399458264159994593010796774634413010797",
+    "exponent": 633,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-228",
+    "left": "-733089381062792591908e211",
+    "right": "-904974523518806855248474154751049397425e-156",
+    "error": "none",
+    "coefficient": "81006631900788286876537078463111896289694782171213",
+    "exponent": 299,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-229",
+    "left": "-12815e101",
+    "right": "339712798e372",
+    "error": "none",
+    "coefficient": "37723041567600876785336771445390173378160454231695",
+    "exponent": -325,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-230",
+    "left": "90345368877e185",
+    "right": "-786525449899923e145",
+    "error": "none",
+    "coefficient": "11486642789307769698266665964964557891643249509755",
+    "exponent": -13,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-231",
+    "left": "1747475307554522419435147390e-254",
+    "right": "1252816049694055685497781388317727463923770411453e-163",
+    "error": "none",
+    "coefficient": "1394837899770892258701720282719208986989090274954",
+    "exponent": -160,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-232",
+    "left": "-372952350257035276251132e172",
+    "right": "-38063e51",
+    "error": "none",
+    "coefficient": "97982909980042370872272810866195517957071171478864",
+    "exponent": 90,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-233",
+    "left": "-1877559078061351896063063515586776850878081863477e321",
+    "right": "416467143310286821393069057537467e-66",
+    "error": "none",
+    "coefficient": "45083006143956130256783028857256041361551147170335",
+    "exponent": 353,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-234",
+    "left": "7023e359",
+    "right": "-912879245782041283932459059670848e296",
+    "error": "none",
+    "coefficient": "76932409543209277000060233395378606345036690138644",
+    "exponent": -16,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-235",
+    "left": "11231256177909155937222305679e-415",
+    "right": "66673014e-303",
+    "error": "none",
+    "coefficient": "16845280427714211235781699742867481587078094294642",
+    "exponent": -141,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-236",
+    "left": "4132269534174994376451448929217564344727349962830e197",
+    "right": "-760754343270459413598037634950323406880370225345e-63",
+    "error": "none",
+    "coefficient": "5431805379395529101516371876950142668183792588822",
+    "exponent": 212,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-237",
+    "left": "597841726546245863367661093707635354891438e-339",
+    "right": "4356394373962303304999005195951e238",
+    "error": "none",
+    "coefficient": "13723315091018412457474810730708975940773793539435",
+    "exponent": -615,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-238",
+    "left": "-531082132725915074435600168820408865518287121e203",
+    "right": "-7624760224449000612958433548761370501446202e-232",
+    "error": "none",
+    "coefficient": "69652306051931416948425544608938631480334691486931",
+    "exponent": 387,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-239",
+    "left": "979463207422e-334",
+    "right": "-472203517e142",
+    "error": "none",
+    "coefficient": "20742395432476204958041428564794022912794188273697",
+    "exponent": -522,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-240",
+    "left": "1",
+    "right": "2",
+    "error": "none",
+    "coefficient": "5",
+    "exponent": -1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-241",
+    "left": "1",
+    "right": "8",
+    "error": "none",
+    "coefficient": "125",
+    "exponent": -3,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-242",
+    "left": "1",
+    "right": "32",
+    "error": "none",
+    "coefficient": "3125",
+    "exponent": -5,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-243",
+    "left": "1",
+    "right": "128",
+    "error": "none",
+    "coefficient": "78125",
+    "exponent": -7,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-244",
+    "left": "1",
+    "right": "512",
+    "error": "none",
+    "coefficient": "1953125",
+    "exponent": -9,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-245",
+    "left": "1",
+    "right": "2048",
+    "error": "none",
+    "coefficient": "48828125",
+    "exponent": -11,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-246",
+    "left": "1",
+    "right": "8192",
+    "error": "none",
+    "coefficient": "1220703125",
+    "exponent": -13,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-247",
+    "left": "1",
+    "right": "32768",
+    "error": "none",
+    "coefficient": "30517578125",
+    "exponent": -15,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-248",
+    "left": "1",
+    "right": "131072",
+    "error": "none",
+    "coefficient": "762939453125",
+    "exponent": -17,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-249",
+    "left": "1",
+    "right": "524288",
+    "error": "none",
+    "coefficient": "19073486328125",
+    "exponent": -19,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-250",
+    "left": "1",
+    "right": "2097152",
+    "error": "none",
+    "coefficient": "476837158203125",
+    "exponent": -21,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-251",
+    "left": "1",
+    "right": "8388608",
+    "error": "none",
+    "coefficient": "11920928955078125",
+    "exponent": -23,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-252",
+    "left": "1",
+    "right": "33554432",
+    "error": "none",
+    "coefficient": "298023223876953125",
+    "exponent": -25,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-253",
+    "left": "1",
+    "right": "134217728",
+    "error": "none",
+    "coefficient": "7450580596923828125",
+    "exponent": -27,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-254",
+    "left": "1",
+    "right": "536870912",
+    "error": "none",
+    "coefficient": "186264514923095703125",
+    "exponent": -29,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-255",
+    "left": "1",
+    "right": "2147483648",
+    "error": "none",
+    "coefficient": "4656612873077392578125",
+    "exponent": -31,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-256",
+    "left": "1",
+    "right": "8589934592",
+    "error": "none",
+    "coefficient": "116415321826934814453125",
+    "exponent": -33,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-257",
+    "left": "1",
+    "right": "34359738368",
+    "error": "none",
+    "coefficient": "2910383045673370361328125",
+    "exponent": -35,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-258",
+    "left": "1",
+    "right": "137438953472",
+    "error": "none",
+    "coefficient": "72759576141834259033203125",
+    "exponent": -37,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-259",
+    "left": "1",
+    "right": "549755813888",
+    "error": "none",
+    "coefficient": "1818989403545856475830078125",
+    "exponent": -39,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-260",
+    "left": "1",
+    "right": "2199023255552",
+    "error": "none",
+    "coefficient": "45474735088646411895751953125",
+    "exponent": -41,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-261",
+    "left": "1",
+    "right": "8796093022208",
+    "error": "none",
+    "coefficient": "1136868377216160297393798828125",
+    "exponent": -43,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-262",
+    "left": "1",
+    "right": "35184372088832",
+    "error": "none",
+    "coefficient": "28421709430404007434844970703125",
+    "exponent": -45,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-263",
+    "left": "1",
+    "right": "140737488355328",
+    "error": "none",
+    "coefficient": "710542735760100185871124267578125",
+    "exponent": -47,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-264",
+    "left": "1",
+    "right": "562949953421312",
+    "error": "none",
+    "coefficient": "17763568394002504646778106689453125",
+    "exponent": -49,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-265",
+    "left": "1",
+    "right": "2251799813685248",
+    "error": "none",
+    "coefficient": "444089209850062616169452667236328125",
+    "exponent": -51,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-266",
+    "left": "1",
+    "right": "9007199254740992",
+    "error": "none",
+    "coefficient": "11102230246251565404236316680908203125",
+    "exponent": -53,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-267",
+    "left": "1",
+    "right": "36028797018963968",
+    "error": "none",
+    "coefficient": "277555756156289135105907917022705078125",
+    "exponent": -55,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-268",
+    "left": "1",
+    "right": "144115188075855872",
+    "error": "none",
+    "coefficient": "6938893903907228377647697925567626953125",
+    "exponent": -57,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-269",
+    "left": "1",
+    "right": "576460752303423488",
+    "error": "none",
+    "coefficient": "173472347597680709441192448139190673828125",
+    "exponent": -59,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-270",
+    "left": "1",
+    "right": "2305843009213693952",
+    "error": "none",
+    "coefficient": "4336808689942017736029811203479766845703125",
+    "exponent": -61,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-271",
+    "left": "1",
+    "right": "9223372036854775808",
+    "error": "none",
+    "coefficient": "108420217248550443400745280086994171142578125",
+    "exponent": -63,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-272",
+    "left": "1",
+    "right": "36893488147419103232",
+    "error": "none",
+    "coefficient": "2710505431213761085018632002174854278564453125",
+    "exponent": -65,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-273",
+    "left": "1",
+    "right": "147573952589676412928",
+    "error": "none",
+    "coefficient": "67762635780344027125465800054371356964111328125",
+    "exponent": -67,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-274",
+    "left": "1",
+    "right": "590295810358705651712",
+    "error": "none",
+    "coefficient": "1694065894508600678136645001359283924102783203125",
+    "exponent": -69,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-275",
+    "left": "1",
+    "right": "2361183241434822606848",
+    "error": "none",
+    "coefficient": "42351647362715016953416125033982098102569580078125",
+    "exponent": -71,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-276",
+    "left": "1",
+    "right": "9444732965739290427392",
+    "error": "none",
+    "coefficient": "10587911840678754238354031258495524525642395019531",
+    "exponent": -71,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-277",
+    "left": "1",
+    "right": "37778931862957161709568",
+    "error": "none",
+    "coefficient": "26469779601696885595885078146238811314105987548828",
+    "exponent": -72,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-278",
+    "left": "1",
+    "right": "151115727451828646838272",
+    "error": "none",
+    "coefficient": "6617444900424221398971269536559702828526496887207",
+    "exponent": -72,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-279",
+    "left": "1",
+    "right": "604462909807314587353088",
+    "error": "none",
+    "coefficient": "16543612251060553497428173841399257071316242218018",
+    "exponent": -73,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-280",
+    "left": "1",
+    "right": "2417851639229258349412352",
+    "error": "none",
+    "coefficient": "41359030627651383743570434603498142678290605545044",
+    "exponent": -74,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-281",
+    "left": "1",
+    "right": "9671406556917033397649408",
+    "error": "none",
+    "coefficient": "10339757656912845935892608650874535669572651386261",
+    "exponent": -74,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-282",
+    "left": "1",
+    "right": "38685626227668133590597632",
+    "error": "none",
+    "coefficient": "25849394142282114839731521627186339173931628465652",
+    "exponent": -75,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-283",
+    "left": "1",
+    "right": "154742504910672534362390528",
+    "error": "none",
+    "coefficient": "64623485355705287099328804067965847934829071164131",
+    "exponent": -76,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-284",
+    "left": "1",
+    "right": "618970019642690137449562112",
+    "error": "none",
+    "coefficient": "16155871338926321774832201016991461983707267791033",
+    "exponent": -76,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-285",
+    "left": "1",
+    "right": "2475880078570760549798248448",
+    "error": "none",
+    "coefficient": "40389678347315804437080502542478654959268169477582",
+    "exponent": -77,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-286",
+    "left": "1",
+    "right": "9903520314283042199192993792",
+    "error": "none",
+    "coefficient": "10097419586828951109270125635619663739817042369395",
+    "exponent": -77,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-287",
+    "left": "1",
+    "right": "39614081257132168796771975168",
+    "error": "none",
+    "coefficient": "25243548967072377773175314089049159349542605923489",
+    "exponent": -78,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-288",
+    "left": "1",
+    "right": "158456325028528675187087900672",
+    "error": "none",
+    "coefficient": "63108872417680944432938285222622898373856514808722",
+    "exponent": -79,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-289",
+    "left": "1",
+    "right": "633825300114114700748351602688",
+    "error": "none",
+    "coefficient": "1577721810442023610823457130565572459346412870218",
+    "exponent": -78,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-290",
+    "left": "1",
+    "right": "2535301200456458802993406410752",
+    "error": "none",
+    "coefficient": "39443045261050590270586428264139311483660321755451",
+    "exponent": -80,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-291",
+    "left": "1",
+    "right": "10141204801825835211973625643008",
+    "error": "none",
+    "coefficient": "98607613152626475676466070660348278709150804388628",
+    "exponent": -81,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-292",
+    "left": "1",
+    "right": "40564819207303340847894502572032",
+    "error": "none",
+    "coefficient": "24651903288156618919116517665087069677287701097157",
+    "exponent": -81,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-293",
+    "left": "1",
+    "right": "162259276829213363391578010288128",
+    "error": "none",
+    "coefficient": "61629758220391547297791294162717674193219252742892",
+    "exponent": -82,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-294",
+    "left": "1",
+    "right": "649037107316853453566312041152512",
+    "error": "none",
+    "coefficient": "15407439555097886824447823540679418548304813185723",
+    "exponent": -82,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-295",
+    "left": "1",
+    "right": "2596148429267413814265248164610048",
+    "error": "none",
+    "coefficient": "38518598887744717061119558851698546370762032964308",
+    "exponent": -83,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-296",
+    "left": "1",
+    "right": "10384593717069655257060992658440192",
+    "error": "none",
+    "coefficient": "96296497219361792652798897129246365926905082410769",
+    "exponent": -84,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-297",
+    "left": "1",
+    "right": "41538374868278621028243970633760768",
+    "error": "none",
+    "coefficient": "24074124304840448163199724282311591481726270602692",
+    "exponent": -84,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-298",
+    "left": "1",
+    "right": "166153499473114484112975882535043072",
+    "error": "none",
+    "coefficient": "60185310762101120407999310705778978704315676506731",
+    "exponent": -85,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-299",
+    "left": "1",
+    "right": "664613997892457936451903530140172288",
+    "error": "none",
+    "coefficient": "15046327690525280101999827676444744676078919126683",
+    "exponent": -85,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-300",
+    "left": "1",
+    "right": "2658455991569831745807614120560689152",
+    "error": "none",
+    "coefficient": "37615819226313200254999569191111861690197297816707",
+    "exponent": -86,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-301",
+    "left": "1",
+    "right": "10633823966279326983230456482242756608",
+    "error": "none",
+    "coefficient": "94039548065783000637498922977779654225493244541767",
+    "exponent": -87,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-302",
+    "left": "1",
+    "right": "42535295865117307932921825928971026432",
+    "error": "none",
+    "coefficient": "23509887016445750159374730744444913556373311135442",
+    "exponent": -87,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-303",
+    "left": "1",
+    "right": "170141183460469231731687303715884105728",
+    "error": "none",
+    "coefficient": "58774717541114375398436826861112283890933277838604",
+    "exponent": -88,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-304",
+    "left": "1",
+    "right": "680564733841876926926749214863536422912",
+    "error": "none",
+    "coefficient": "14693679385278593849609206715278070972733319459651",
+    "exponent": -88,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-305",
+    "left": "1",
+    "right": "2722258935367507707706996859454145691648",
+    "error": "none",
+    "coefficient": "36734198463196484624023016788195177431833298649128",
+    "exponent": -89,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-306",
+    "left": "1",
+    "right": "10889035741470030830827987437816582766592",
+    "error": "none",
+    "coefficient": "91835496157991211560057541970487943579583246622819",
+    "exponent": -90,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-307",
+    "left": "1",
+    "right": "43556142965880123323311949751266331066368",
+    "error": "none",
+    "coefficient": "22958874039497802890014385492621985894895811655705",
+    "exponent": -90,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-308",
+    "left": "1",
+    "right": "174224571863520493293247799005065324265472",
+    "error": "none",
+    "coefficient": "57397185098744507225035963731554964737239529139262",
+    "exponent": -91,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-309",
+    "left": "1",
+    "right": "696898287454081973172991196020261297061888",
+    "error": "none",
+    "coefficient": "14349296274686126806258990932888741184309882284816",
+    "exponent": -91,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-310",
+    "left": "1",
+    "right": "2787593149816327892691964784081045188247552",
+    "error": "none",
+    "coefficient": "35873240686715317015647477332221852960774705712039",
+    "exponent": -92,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-311",
+    "left": "1",
+    "right": "11150372599265311570767859136324180752990208",
+    "error": "none",
+    "coefficient": "89683101716788292539118693330554632401936764280097",
+    "exponent": -93,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-312",
+    "left": "1",
+    "right": "44601490397061246283071436545296723011960832",
+    "error": "none",
+    "coefficient": "22420775429197073134779673332638658100484191070024",
+    "exponent": -93,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-313",
+    "left": "1",
+    "right": "178405961588244985132285746181186892047843328",
+    "error": "none",
+    "coefficient": "56051938572992682836949183331596645251210477675061",
+    "exponent": -94,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-314",
+    "left": "1",
+    "right": "713623846352979940529142984724747568191373312",
+    "error": "none",
+    "coefficient": "14012984643248170709237295832899161312802619418765",
+    "exponent": -94,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-315",
+    "left": "1",
+    "right": "2854495385411919762116571938898990272765493248",
+    "error": "none",
+    "coefficient": "35032461608120426773093239582247903282006548546913",
+    "exponent": -95,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-316",
+    "left": "1",
+    "right": "11417981541647679048466287755595961091061972992",
+    "error": "none",
+    "coefficient": "87581154020301066932733098955619758205016371367282",
+    "exponent": -96,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-317",
+    "left": "1",
+    "right": "45671926166590716193865151022383844364247891968",
+    "error": "none",
+    "coefficient": "21895288505075266733183274738904939551254092841821",
+    "exponent": -96,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-318",
+    "left": "1",
+    "right": "182687704666362864775460604089535377456991567872",
+    "error": "none",
+    "coefficient": "54738221262688166832958186847262348878135232104551",
+    "exponent": -97,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-319",
+    "left": "1",
+    "right": "730750818665451459101842416358141509827966271488",
+    "error": "none",
+    "coefficient": "13684555315672041708239546711815587219533808026138",
+    "exponent": -97,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-320",
+    "left": "1",
+    "right": "2923003274661805836407369665432566039311865085952",
+    "error": "none",
+    "coefficient": "34211388289180104270598866779538968048834520065345",
+    "exponent": -98,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-321",
+    "left": "1",
+    "right": "11692013098647223345629478661730264157247460343808",
+    "error": "none",
+    "coefficient": "85528470722950260676497166948847420122086300163362",
+    "exponent": -99,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-322",
+    "left": "1",
+    "right": "46768052394588893382517914646921056628989841375232",
+    "error": "none",
+    "coefficient": "2138211768073756516912429173721185503052157504084",
+    "exponent": -98,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-323",
+    "left": "1",
+    "right": "5",
+    "error": "none",
+    "coefficient": "2",
+    "exponent": -1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-324",
+    "left": "1",
+    "right": "125",
+    "error": "none",
+    "coefficient": "8",
+    "exponent": -3,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-325",
+    "left": "1",
+    "right": "3125",
+    "error": "none",
+    "coefficient": "32",
+    "exponent": -5,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-326",
+    "left": "1",
+    "right": "78125",
+    "error": "none",
+    "coefficient": "128",
+    "exponent": -7,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-327",
+    "left": "1",
+    "right": "1953125",
+    "error": "none",
+    "coefficient": "512",
+    "exponent": -9,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-328",
+    "left": "1",
+    "right": "48828125",
+    "error": "none",
+    "coefficient": "2048",
+    "exponent": -11,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-329",
+    "left": "1",
+    "right": "1220703125",
+    "error": "none",
+    "coefficient": "8192",
+    "exponent": -13,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-330",
+    "left": "1",
+    "right": "30517578125",
+    "error": "none",
+    "coefficient": "32768",
+    "exponent": -15,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-331",
+    "left": "1",
+    "right": "762939453125",
+    "error": "none",
+    "coefficient": "131072",
+    "exponent": -17,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-332",
+    "left": "1",
+    "right": "19073486328125",
+    "error": "none",
+    "coefficient": "524288",
+    "exponent": -19,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-333",
+    "left": "1",
+    "right": "476837158203125",
+    "error": "none",
+    "coefficient": "2097152",
+    "exponent": -21,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-334",
+    "left": "1",
+    "right": "11920928955078125",
+    "error": "none",
+    "coefficient": "8388608",
+    "exponent": -23,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-335",
+    "left": "1",
+    "right": "298023223876953125",
+    "error": "none",
+    "coefficient": "33554432",
+    "exponent": -25,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-336",
+    "left": "1",
+    "right": "7450580596923828125",
+    "error": "none",
+    "coefficient": "134217728",
+    "exponent": -27,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-337",
+    "left": "1",
+    "right": "186264514923095703125",
+    "error": "none",
+    "coefficient": "536870912",
+    "exponent": -29,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-338",
+    "left": "1",
+    "right": "4656612873077392578125",
+    "error": "none",
+    "coefficient": "2147483648",
+    "exponent": -31,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-339",
+    "left": "1",
+    "right": "116415321826934814453125",
+    "error": "none",
+    "coefficient": "8589934592",
+    "exponent": -33,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-340",
+    "left": "1",
+    "right": "2910383045673370361328125",
+    "error": "none",
+    "coefficient": "34359738368",
+    "exponent": -35,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-341",
+    "left": "1",
+    "right": "72759576141834259033203125",
+    "error": "none",
+    "coefficient": "137438953472",
+    "exponent": -37,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-342",
+    "left": "1",
+    "right": "1818989403545856475830078125",
+    "error": "none",
+    "coefficient": "549755813888",
+    "exponent": -39,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-343",
+    "left": "1",
+    "right": "45474735088646411895751953125",
+    "error": "none",
+    "coefficient": "2199023255552",
+    "exponent": -41,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-344",
+    "left": "1",
+    "right": "1136868377216160297393798828125",
+    "error": "none",
+    "coefficient": "8796093022208",
+    "exponent": -43,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-345",
+    "left": "1",
+    "right": "28421709430404007434844970703125",
+    "error": "none",
+    "coefficient": "35184372088832",
+    "exponent": -45,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-346",
+    "left": "1",
+    "right": "710542735760100185871124267578125",
+    "error": "none",
+    "coefficient": "140737488355328",
+    "exponent": -47,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-347",
+    "left": "1",
+    "right": "17763568394002504646778106689453125",
+    "error": "none",
+    "coefficient": "562949953421312",
+    "exponent": -49,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-348",
+    "left": "1",
+    "right": "444089209850062616169452667236328125",
+    "error": "none",
+    "coefficient": "2251799813685248",
+    "exponent": -51,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-349",
+    "left": "1",
+    "right": "11102230246251565404236316680908203125",
+    "error": "none",
+    "coefficient": "9007199254740992",
+    "exponent": -53,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-350",
+    "left": "1",
+    "right": "277555756156289135105907917022705078125",
+    "error": "none",
+    "coefficient": "36028797018963968",
+    "exponent": -55,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-351",
+    "left": "1",
+    "right": "6938893903907228377647697925567626953125",
+    "error": "none",
+    "coefficient": "144115188075855872",
+    "exponent": -57,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-352",
+    "left": "1",
+    "right": "173472347597680709441192448139190673828125",
+    "error": "none",
+    "coefficient": "576460752303423488",
+    "exponent": -59,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-353",
+    "left": "1",
+    "right": "4336808689942017736029811203479766845703125",
+    "error": "none",
+    "coefficient": "2305843009213693952",
+    "exponent": -61,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-354",
+    "left": "1",
+    "right": "108420217248550443400745280086994171142578125",
+    "error": "none",
+    "coefficient": "9223372036854775808",
+    "exponent": -63,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-355",
+    "left": "1",
+    "right": "2710505431213761085018632002174854278564453125",
+    "error": "none",
+    "coefficient": "36893488147419103232",
+    "exponent": -65,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-356",
+    "left": "1",
+    "right": "67762635780344027125465800054371356964111328125",
+    "error": "none",
+    "coefficient": "147573952589676412928",
+    "exponent": -67,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-357",
+    "left": "1",
+    "right": "1694065894508600678136645001359283924102783203125",
+    "error": "none",
+    "coefficient": "590295810358705651712",
+    "exponent": -69,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-358",
+    "left": "1",
+    "right": "42351647362715016953416125033982098102569580078125",
+    "error": "none",
+    "coefficient": "2361183241434822606848",
+    "exponent": -71,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-359",
+    "left": "49023708424808191215092230102654857902561901688266e950",
+    "right": "8e950",
+    "error": "none",
+    "coefficient": "61279635531010239018865287628318572378202377110332",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-360",
+    "left": "-69871994539000354444160152053429877168646646938640e950",
+    "right": "-8e950",
+    "error": "none",
+    "coefficient": "873399931737504430552001900667873464608083086733",
+    "exponent": 1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-361",
+    "left": "97353854857803260481687026865273417174955920952809e50",
+    "right": "-16e50",
+    "error": "none",
+    "coefficient": "60846159286127037801054391790795885734347450595506",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-362",
+    "left": "-58712419710714854793216196498623456903329963060754e-50",
+    "right": "8e-50",
+    "error": "none",
+    "coefficient": "73390524638393568491520245623279321129162453825942",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-363",
+    "left": "29763664998941388168386162033089076599257943139569e50",
+    "right": "-8e50",
+    "error": "none",
+    "coefficient": "37204581248676735210482702541361345749072428924461",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-364",
+    "left": "-59180597267763318714545096628674585143372078404270e0",
+    "right": "-16e0",
+    "error": "none",
+    "coefficient": "36987873292352074196590685392921615714607549002669",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-365",
+    "left": "55609713160243412459400351545400465669789842920403e0",
+    "right": "2e0",
+    "error": "none",
+    "coefficient": "27804856580121706229700175772700232834894921460202",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-366",
+    "left": "-92099831442867495051603161464420449256504533550195e50",
+    "right": "-2e50",
+    "error": "none",
+    "coefficient": "46049915721433747525801580732210224628252266775098",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-367",
+    "left": "74481993142804143423219142304801437525230147663198e50",
+    "right": "-2e50",
+    "error": "none",
+    "coefficient": "37240996571402071711609571152400718762615073831599",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-368",
+    "left": "-55202501137495856623360186157979217336104274083904e950",
+    "right": "8e950",
+    "error": "none",
+    "coefficient": "6900312642186982077920023269747402167013034260488",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-369",
+    "left": "33944988087626845196411238365917737997622594313229e950",
+    "right": "-8e950",
+    "error": "none",
+    "coefficient": "42431235109533556495514047957397172497028242891536",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-370",
+    "left": "-37803256024813701397679613633994458966213828509145e-50",
+    "right": "-4e-50",
+    "error": "none",
+    "coefficient": "94508140062034253494199034084986147415534571272862",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-371",
+    "left": "70338718999270364498920166277660986335324190013789e-50",
+    "right": "2e-50",
+    "error": "none",
+    "coefficient": "35169359499635182249460083138830493167662095006894",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-372",
+    "left": "-78036254198383257351270124173829982108245941838069e-50",
+    "right": "-16e-50",
+    "error": "none",
+    "coefficient": "48772658873989535844543827608643738817653713648793",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-373",
+    "left": "85838436874952752480665632667230606778931716787025e-50",
+    "right": "-2e-50",
+    "error": "none",
+    "coefficient": "42919218437476376240332816333615303389465858393512",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-374",
+    "left": "-77607984161296613053841811093766263925068900500626e-50",
+    "right": "8e-50",
+    "error": "none",
+    "coefficient": "97009980201620766317302263867207829906336125625782",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-375",
+    "left": "56201002686520871913667302532055155363307277764927e0",
+    "right": "-2e0",
+    "error": "none",
+    "coefficient": "28100501343260435956833651266027577681653638882464",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-376",
+    "left": "-84597163315258632316571995690841503705466155893064e-999",
+    "right": "-4e-999",
+    "error": "none",
+    "coefficient": "21149290828814658079142998922710375926366538973266",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-377",
+    "left": "61249252034510286139845183440407135523688375397416e0",
+    "right": "2e0",
+    "error": "none",
+    "coefficient": "30624626017255143069922591720203567761844187698708",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-378",
+    "left": "-61196263324017560699359388150825070176830042984266e950",
+    "right": "-4e950",
+    "error": "none",
+    "coefficient": "15299065831004390174839847037706267544207510746066",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-379",
+    "left": "58913210653390970597317643508926417399445788625701e0",
+    "right": "-8e0",
+    "error": "none",
+    "coefficient": "73641513316738713246647054386158021749307235782126",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-380",
+    "left": "-25500106973843954193353867725344246145160824985915e0",
+    "right": "2e0",
+    "error": "none",
+    "coefficient": "12750053486921977096676933862672123072580412492958",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-381",
+    "left": "75509235075489702319941871116659985550836960740643e0",
+    "right": "-2e0",
+    "error": "none",
+    "coefficient": "37754617537744851159970935558329992775418480370322",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-382",
+    "left": "-72406869650064704359582374863795147928982742130413e-999",
+    "right": "-16e-999",
+    "error": "none",
+    "coefficient": "45254293531290440224738984289871967455614213831508",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-383",
+    "left": "88452219271791826426686711086083119756936044322087e0",
+    "right": "16e0",
+    "error": "none",
+    "coefficient": "55282637044869891516679194428801949848085027701304",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-384",
+    "left": "-61232101340838740128472399688729549610189089079480e0",
+    "right": "-2e0",
+    "error": "none",
+    "coefficient": "3061605067041937006423619984436477480509454453974",
+    "exponent": 1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-385",
+    "left": "70477429122462962319935785048587650422221709069611e-999",
+    "right": "-4e-999",
+    "error": "none",
+    "coefficient": "17619357280615740579983946262146912605555427267403",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-386",
+    "left": "-43294175809175914322138277511610614663167765600379e-50",
+    "right": "8e-50",
+    "error": "none",
+    "coefficient": "54117719761469892902672846889513268328959707000474",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-387",
+    "left": "44629993676294609699946974266821438970799249799260e950",
+    "right": "-4e950",
+    "error": "none",
+    "coefficient": "11157498419073652424986743566705359742699812449815",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-388",
+    "left": "-52804128810108159420350257472785244557517677162077e-50",
+    "right": "-4e-50",
+    "error": "none",
+    "coefficient": "13201032202527039855087564368196311139379419290519",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-389",
+    "left": "70324909942899785346500897426188806663320532057805e50",
+    "right": "2e50",
+    "error": "none",
+    "coefficient": "35162454971449892673250448713094403331660266028902",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-390",
+    "left": "-33332929655371820336542378971289599643315765079117e-50",
+    "right": "-2e-50",
+    "error": "none",
+    "coefficient": "16666464827685910168271189485644799821657882539558",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-391",
+    "left": "33881629134014139869792530751335206277661397285714e950",
+    "right": "-8e950",
+    "error": "none",
+    "coefficient": "42352036417517674837240663439169007847076746607142",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-392",
+    "left": "-89641873222914175780450618823824457126867092306886e0",
+    "right": "8e0",
+    "error": "none",
+    "coefficient": "11205234152864271972556327352978057140858386538361",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-393",
+    "left": "38939151777663978686462060558484287701197168795895e0",
+    "right": "-4e0",
+    "error": "none",
+    "coefficient": "97347879444159946716155151396210719252992921989738",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-394",
+    "left": "-34859813449485798319977182934060979775877811321194e0",
+    "right": "-8e0",
+    "error": "none",
+    "coefficient": "43574766811857247899971478667576224719847264151492",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-395",
+    "left": "46117249444251985565972991930713373302464455433280e50",
+    "right": "16e50",
+    "error": "none",
+    "coefficient": "288232809026574909787331199566958583140402846458",
+    "exponent": 1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-396",
+    "left": "-90624892449735381888022351867123681939204545655730e-50",
+    "right": "-16e-50",
+    "error": "none",
+    "coefficient": "56640557781084613680013969916952301212002841034831",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-397",
+    "left": "92976108255414695637430070341290305766316229284914e0",
+    "right": "-2e0",
+    "error": "none",
+    "coefficient": "46488054127707347818715035170645152883158114642457",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-398",
+    "left": "-99039124093099252644834016535601360156874807900507e0",
+    "right": "4e0",
+    "error": "none",
+    "coefficient": "24759781023274813161208504133900340039218701975127",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-399",
+    "left": "80446532506682608470500344954403087045938954757607e50",
+    "right": "-4e50",
+    "error": "none",
+    "coefficient": "20111633126670652117625086238600771761484738689402",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-400",
+    "left": "-26035169926616738111901201964854845224725720524718e950",
+    "right": "-2e950",
+    "error": "none",
+    "coefficient": "13017584963308369055950600982427422612362860262359",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-401",
+    "left": "77046402178699484121224459652362560267446903410402e0",
+    "right": "16e0",
+    "error": "none",
+    "coefficient": "48154001361687177575765287282726600167154314631501",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-402",
+    "left": "-71267404304750074775036663382581114657655646361005e950",
+    "right": "-4e950",
+    "error": "none",
+    "coefficient": "17816851076187518693759165845645278664413911590251",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-403",
+    "left": "65788882539219564085222004975823798690517423226448e-50",
+    "right": "-2e-50",
+    "error": "none",
+    "coefficient": "32894441269609782042611002487911899345258711613224",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-404",
+    "left": "-99110049248885790194978035003386544156439955377476e0",
+    "right": "4e0",
+    "error": "none",
+    "coefficient": "24777512312221447548744508750846636039109988844369",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-405",
+    "left": "26678017666215674527843308404052282359767083320449e-50",
+    "right": "-2e-50",
+    "error": "none",
+    "coefficient": "13339008833107837263921654202026141179883541660224",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-406",
+    "left": "-69479877017021927244488783637695456570054934379173e0",
+    "right": "-16e0",
+    "error": "none",
+    "coefficient": "43424923135638704527805489773559660356284333986983",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-407",
+    "left": "50486680487854782382371679544251707379675509416008e-50",
+    "right": "16e-50",
+    "error": "none",
+    "coefficient": "31554175304909238988982299715157317112297193385005",
+    "exponent": -1,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-408",
+    "left": "-70617895634196518889480657777935583993964034013933e0",
+    "right": "-16e0",
+    "error": "none",
+    "coefficient": "44136184771372824305925411111209739996227521258708",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-409",
+    "left": "53600491940972940112708556239801215353508678553491e-50",
+    "right": "-16e-50",
+    "error": "none",
+    "coefficient": "33500307463108087570442847649875759595942924095932",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-410",
+    "left": "-50945889302268545712480421697535237685493871827218e-50",
+    "right": "2e-50",
+    "error": "none",
+    "coefficient": "25472944651134272856240210848767618842746935913609",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-411",
+    "left": "67049415120113880563310944317002155452638384014905e-50",
+    "right": "-4e-50",
+    "error": "none",
+    "coefficient": "16762353780028470140827736079250538863159596003726",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-412",
+    "left": "-42474210344084042190238623379775367613768643872407e-50",
+    "right": "-4e-50",
+    "error": "none",
+    "coefficient": "10618552586021010547559655844943841903442160968102",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-413",
+    "left": "28700116911620022160083888222210365790698261346668e-999",
+    "right": "2e-999",
+    "error": "none",
+    "coefficient": "14350058455810011080041944111105182895349130673334",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-414",
+    "left": "-49938091514823330087326376325434496391256744393874e50",
+    "right": "-2e50",
+    "error": "none",
+    "coefficient": "24969045757411665043663188162717248195628372196937",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-415",
+    "left": "99857954569392941412583315406717884173071736271230e950",
+    "right": "-16e950",
+    "error": "none",
+    "coefficient": "62411221605870588382864572129198677608169835169519",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-416",
+    "left": "-84623489760646606006572118217972207169002034619455e-999",
+    "right": "2e-999",
+    "error": "none",
+    "coefficient": "42311744880323303003286059108986103584501017309728",
+    "exponent": 0,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-417",
+    "left": "60603230795335736308038402529375579731682763045032e0",
+    "right": "-4e0",
+    "error": "none",
+    "coefficient": "15150807698833934077009600632343894932920690761258",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-418",
+    "left": "-89330795990922892994380191028291527831807585814877e-999",
+    "right": "-4e-999",
+    "error": "none",
+    "coefficient": "22332698997730723248595047757072881957951896453719",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-419",
+    "left": "78933978477901998340661586749253879507812329679279e-999",
+    "right": "16e-999",
+    "error": "none",
+    "coefficient": "49333736548688748962913491718283674692382706049549",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-420",
+    "left": "-77183704763604955230663797807872411743834720693478e0",
+    "right": "-2e0",
+    "error": "none",
+    "coefficient": "38591852381802477615331898903936205871917360346739",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-421",
+    "left": "28938331199438778440434360000607121370466815274198e-999",
+    "right": "-2e-999",
+    "error": "none",
+    "coefficient": "14469165599719389220217180000303560685233407637099",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-422",
+    "left": "-53590542195212477743175329627917664200682024769016e0",
+    "right": "2e0",
+    "error": "none",
+    "coefficient": "26795271097606238871587664813958832100341012384508",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-423",
+    "left": "24538242038618006944179139477219437074027863928107e-50",
+    "right": "-8e-50",
+    "error": "none",
+    "coefficient": "30672802548272508680223924346524296342534829910134",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-424",
+    "left": "-48709814678618124093065367699469634431764494971150e-50",
+    "right": "-2e-50",
+    "error": "none",
+    "coefficient": "24354907339309062046532683849734817215882247485575",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-425",
+    "left": "93450315414594264215461969927838016225975039747124e-999",
+    "right": "16e-999",
+    "error": "none",
+    "coefficient": "58406447134121415134663731204898760141234399841952",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-426",
+    "left": "-48688345929061613923411775278517743025611504190553e-999",
+    "right": "-8e-999",
+    "error": "none",
+    "coefficient": "60860432411327017404264719098147178782014380238191",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-427",
+    "left": "28942130087549109452441211942545072198835704352718e950",
+    "right": "-4e950",
+    "error": "none",
+    "coefficient": "72355325218872773631103029856362680497089260881795",
+    "exponent": -1,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-428",
+    "left": "-45316134499086114115242642560072638740907621243134e-50",
+    "right": "16e-50",
+    "error": "none",
+    "coefficient": "28322584061928821322026651600045399213067263276959",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-429",
+    "left": "68021765269354174455433216645894394073841599030934e50",
+    "right": "-16e50",
+    "error": "none",
+    "coefficient": "42513603293346359034645760403683996296150999394334",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-430",
+    "left": "-75447471534513940728245572837384050142386668977077e-999",
+    "right": "-4e-999",
+    "error": "none",
+    "coefficient": "18861867883628485182061393209346012535596667244269",
+    "exponent": 0,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-431",
+    "left": "23041669753650745849131441085024547047978841844820e-50",
+    "right": "4e-50",
+    "error": "none",
+    "coefficient": "5760417438412686462282860271256136761994710461205",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-432",
+    "left": "-87832550692246007594050850959464846545515801773944e950",
+    "right": "-8e950",
+    "error": "none",
+    "coefficient": "10979068836530750949256356369933105818189475221743",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-433",
+    "left": "28809352707397707451037898005518548613377124687031e0",
+    "right": "-8e0",
+    "error": "none",
+    "coefficient": "36011690884247134313797372506898185766721405858789",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-434",
+    "left": "-48355614705925699046649245502537682480647477128381e0",
+    "right": "2e0",
+    "error": "none",
+    "coefficient": "2417780735296284952332462275126884124032373856419",
+    "exponent": 1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-435",
+    "left": "37521284834121777896494047231495040443857954193130e950",
+    "right": "-16e950",
+    "error": "none",
+    "coefficient": "23450803021326111185308779519684400277411221370706",
+    "exponent": -1,
+    "negative": true,
+    "inexact": true
+  },
+  {
+    "name": "oracle-436",
+    "left": "-94906998354387618476836275036527505953002936172514e50",
+    "right": "-16e50",
+    "error": "none",
+    "coefficient": "59316873971492261548022671897829691220626835107821",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-437",
+    "left": "98636881996267392372877592549627674141377266836020e0",
+    "right": "16e0",
+    "error": "none",
+    "coefficient": "61648051247667120233048495343517296338360791772512",
+    "exponent": -1,
+    "negative": false,
+    "inexact": true
+  },
+  {
+    "name": "oracle-438",
+    "left": "-26091767652395087971333644004740458025417679285624e-999",
+    "right": "-2e-999",
+    "error": "none",
+    "coefficient": "13045883826197543985666822002370229012708839642812",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-439",
+    "left": "0",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-440",
+    "left": "0",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-441",
+    "left": "0",
+    "right": "1e-999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-442",
+    "left": "0",
+    "right": "-1e-999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-443",
+    "left": "0",
+    "right": "1e999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-444",
+    "left": "0",
+    "right": "-1e999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-445",
+    "left": "-0",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-446",
+    "left": "-0",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-447",
+    "left": "-0",
+    "right": "1e-999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-448",
+    "left": "-0",
+    "right": "-1e-999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-449",
+    "left": "-0",
+    "right": "1e999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-450",
+    "left": "-0",
+    "right": "-1e999",
+    "error": "none",
+    "coefficient": "0",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-451",
+    "left": "1e-999",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-452",
+    "left": "1e-999",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-453",
+    "left": "1e-999",
+    "right": "1e-999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-454",
+    "left": "1e-999",
+    "right": "-1e-999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-455",
+    "left": "1e-999",
+    "right": "1e999",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-456",
+    "left": "1e-999",
+    "right": "-1e999",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-457",
+    "left": "-1e-999",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-458",
+    "left": "-1e-999",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-459",
+    "left": "-1e-999",
+    "right": "1e-999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-460",
+    "left": "-1e-999",
+    "right": "-1e-999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-461",
+    "left": "-1e-999",
+    "right": "1e999",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-462",
+    "left": "-1e-999",
+    "right": "-1e999",
+    "error": "underflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-463",
+    "left": "1e999",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-464",
+    "left": "1e999",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-465",
+    "left": "1e999",
+    "right": "1e-999",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-466",
+    "left": "1e999",
+    "right": "-1e-999",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-467",
+    "left": "1e999",
+    "right": "1e999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-468",
+    "left": "1e999",
+    "right": "-1e999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-469",
+    "left": "-1e999",
+    "right": "0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-470",
+    "left": "-1e999",
+    "right": "-0",
+    "error": "division-by-zero",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-471",
+    "left": "-1e999",
+    "right": "1e-999",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-472",
+    "left": "-1e999",
+    "right": "-1e-999",
+    "error": "overflow",
+    "coefficient": "",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  },
+  {
+    "name": "oracle-473",
+    "left": "-1e999",
+    "right": "1e999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": true,
+    "inexact": false
+  },
+  {
+    "name": "oracle-474",
+    "left": "-1e999",
+    "right": "-1e999",
+    "error": "none",
+    "coefficient": "1",
+    "exponent": 0,
+    "negative": false,
+    "inexact": false
+  }
+]
