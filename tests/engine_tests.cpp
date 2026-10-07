@@ -1,4 +1,5 @@
 #include "expression_engine.h"
+#include "decimal_value.h"
 #include "custom_formula.h"
 #include "calculation_history.h"
 #include "calculation_export.h"
@@ -39,6 +40,257 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void decimalParsing_data()
+    {
+        QTest::addColumn<QString>("input");
+        QTest::addColumn<QByteArray>("coefficient");
+        QTest::addColumn<int>("exponent");
+        QTest::addColumn<bool>("negative");
+        QTest::newRow("default-zero") << QStringLiteral("0") << QByteArray("0") << 0 << false;
+        QTest::newRow("signed-zero") << QStringLiteral("-0.000") << QByteArray("0") << 0 << true;
+        QTest::newRow("padding") << QStringLiteral("+00012.3400") << QByteArray("1234") << -2 << false;
+        QTest::newRow("leading-fraction") << QStringLiteral("-.000123") << QByteArray("123") << -6 << true;
+        QTest::newRow("integer-zeros") << QStringLiteral("1000.") << QByteArray("1") << 3 << false;
+        QTest::newRow("internal-zeros") << QStringLiteral("100.001000") << QByteArray("100001") << -3 << false;
+        QTest::newRow("upper-inclusive") << QStringLiteral("1e999") << QByteArray("1") << 999 << false;
+        QTest::newRow("lower-inclusive") << QStringLiteral("-1E-999") << QByteArray("1") << -999 << true;
+        QTest::newRow("normalized-exponent") << QStringLiteral("0.1e1000") << QByteArray("1") << 999 << false;
+        QTest::newRow("normalized-exponent-negative") << QStringLiteral("10e-1000") << QByteArray("1") << -999 << false;
+        QTest::newRow("maximum-value") << QString(50, QLatin1Char('9')) + QStringLiteral("e950") << QByteArray(50, '9') << 950 << false;
+        QTest::newRow("minimum-quantum") << QStringLiteral("1.") + QString(48, QLatin1Char('0')) + QStringLiteral("1e-999")
+            << QByteArray("1") + QByteArray(48, '0') + "1" << -1048 << false;
+        QTest::newRow("long-leading-zeros") << QString(4095, QLatin1Char('0')) + QLatin1Char('1') << QByteArray("1") << 0 << false;
+        QTest::newRow("long-fractional-padding") << QStringLiteral("1.") + QString(4094, QLatin1Char('0')) << QByteArray("1") << 0 << false;
+        QTest::newRow("long-exponent-padding") << QStringLiteral("1e") + QString(4091, QLatin1Char('0')) + QStringLiteral("999") << QByteArray("1") << 999 << false;
+        QTest::newRow("compensated-large-exponent") << QStringLiteral("0.") + QString(3900, QLatin1Char('0')) + QStringLiteral("1e4900") << QByteArray("1") << 999 << false;
+        QTest::newRow("zero-large-exponent") << QStringLiteral("0e") + QString(4094, QLatin1Char('9')) << QByteArray("0") << 0 << false;
+    }
+    void decimalParsing()
+    {
+        QFETCH(QString, input);
+        QFETCH(QByteArray, coefficient);
+        QFETCH(int, exponent);
+        QFETCH(bool, negative);
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        DecimalValue value;
+        QCOMPARE(DecimalValue::parse(input, value), DecimalError::None);
+        QCOMPARE(value.coefficient(), coefficient);
+        QCOMPARE(value.exponent(), exponent);
+        QCOMPARE(value.isNegative(), negative);
+    }
+    void decimalInvalidLiterals_data()
+    {
+        QTest::addColumn<QString>("input");
+        QTest::addColumn<int>("error");
+        for (const QString &text : {QString(), QStringLiteral("+"), QStringLiteral("-"), QStringLiteral("."),
+             QStringLiteral("1e"), QStringLiteral("1e+"), QStringLiteral("1e-"), QStringLiteral("e1"),
+             QStringLiteral(" 1"), QStringLiteral("1 "), QStringLiteral("1,2"), QStringLiteral("１"),
+             QStringLiteral("١"), QStringLiteral("NaN"), QStringLiteral("Infinity"), QStringLiteral("1..2"),
+             QStringLiteral("1e2.0"), QStringLiteral("--1"), QStringLiteral("1_000"), QStringLiteral("1+2")})
+            QTest::newRow(qPrintable(QStringLiteral("syntax-") + text)) << text << int(DecimalError::Syntax);
+        QTest::newRow("too-many-digits") << QString(51, QLatin1Char('1')) << int(DecimalError::PrecisionLimit);
+        QTest::newRow("too-many-fractional-digits") << QStringLiteral("0.") + QString(51, QLatin1Char('1')) << int(DecimalError::PrecisionLimit);
+        QTest::newRow("internal-zero-precision") << QStringLiteral("1") + QString(49, QLatin1Char('0')) + QLatin1Char('1') << int(DecimalError::PrecisionLimit);
+        QTest::newRow("overflow") << QStringLiteral("1e1000") << int(DecimalError::Overflow);
+        QTest::newRow("underflow") << QStringLiteral("9.9e-1000") << int(DecimalError::Underflow);
+        QTest::newRow("exponent-integer-overflow") << QStringLiteral("1e99999999999999999999999999999") << int(DecimalError::Overflow);
+        QTest::newRow("exponent-integer-underflow") << QStringLiteral("1e-99999999999999999999999999999") << int(DecimalError::Underflow);
+        QTest::newRow("giant-exponent-still-validates-syntax") << QStringLiteral("0e") + QString(4000, QLatin1Char('9')) + QLatin1Char('x') << int(DecimalError::Syntax);
+        QTest::newRow("literal-resource-limit") << QString(4097, QLatin1Char('0')) << int(DecimalError::ResourceLimit);
+        QTest::newRow("compensated-still-overflow") << QStringLiteral("0.") + QString(3900, QLatin1Char('0')) + QStringLiteral("1e4901") << int(DecimalError::Overflow);
+        QTest::newRow("maximum-mantissa-overflow") << QStringLiteral("1") + QString(4095, QLatin1Char('0')) << int(DecimalError::Overflow);
+    }
+    void decimalInvalidLiterals()
+    {
+        QFETCH(QString, input);
+        QFETCH(int, error);
+        DecimalValue value;
+        QCOMPARE(DecimalValue::parse(QStringLiteral("-42.5"), value), DecimalError::None);
+        QCOMPARE(int(DecimalValue::parse(input, value)), error);
+        QCOMPARE(value.coefficient(), QByteArray("425"));
+        QCOMPARE(value.exponent(), -1);
+        QVERIFY(value.isNegative());
+    }
+    void decimalArithmetic_data()
+    {
+        QTest::addColumn<QString>("left");
+        QTest::addColumn<QString>("right");
+        QTest::addColumn<char>("operation");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<int>("error");
+        const auto row = [](const char *name, const QString &a, char op, const QString &b, const QString &result,
+                            DecimalError error = DecimalError::None) {
+            QTest::newRow(name) << a << b << op << result << int(error);
+        };
+        row("decimal-sum", "0.1", '+', "0.2", "0.3");
+        row("decimal-difference", "0.3", '-', "0.2", "0.1");
+        row("decimal-product", "0.1", '*', "0.2", "0.02");
+        row("price-product", "19.9", '*', "3", "59.7");
+        row("negative-sum", "-0.1", '-', "0.2", "-0.3");
+        row("different-signs", "-2.5", '+', "4.05", "1.55");
+        row("reverse-magnitudes", "2.5", '+', "-4.05", "-1.55");
+        row("negative-product", "-19.9", '*', "3", "-59.7");
+        row("both-negative-product", "-19.9", '*', "-3", "59.7");
+        row("carry-boundary", "1e49", '+', "1", "1" + QString(48, '0') + "1");
+        row("precision-boundary", "1e50", '+', "1", {}, DecimalError::PrecisionLimit);
+        row("normalized-carry", QString(50, '9'), '+', "1", "1e50");
+        row("borrow-chain", "1e50", '-', "1", QString(50, '9'));
+        row("cancellation", "1e999", '-', "1e999", "0");
+        row("overflow-product", "1e999", '*', "10", {}, DecimalError::Overflow);
+        row("overflow-sum", "9e999", '+', "1e999", {}, DecimalError::Overflow);
+        row("underflow-product", "1e-999", '*', "0.1", {}, DecimalError::Underflow);
+        row("underflow-difference", "1.00001e-999", '-', "1e-999", {}, DecimalError::Underflow);
+        row("precision-product", QString(50, '9'), '*', QString(50, '9'), {}, DecimalError::PrecisionLimit);
+        row("normalized-product", "5e49", '*', "2", "1e50");
+        row("full-product-normalizes", "2361183241434822606848", '*', "42351647362715016953416125033982098102569580078125", "1e71");
+        row("wide-exponent-product", "1e999", '*', "1e-999", "1");
+        row("widest-alignment", "1e999", '+', "1." + QString(48, '0') + "1e-999", {}, DecimalError::PrecisionLimit);
+        row("widest-subtraction", "1e999", '-', "1." + QString(48, '0') + "1e-999", {}, DecimalError::PrecisionLimit);
+        row("zero-add-large", "0", '+', "1e999", "1e999");
+        row("large-add-zero", "1e999", '+', "0", "1e999");
+        row("zero-product", "0", '*', "1e999", "0");
+        row("negative-zero-product", "-0", '*', "1e999", "-0");
+        row("negative-zeros-sum", "-0", '+', "-0", "-0");
+        row("mixed-zeros-sum", "-0", '+', "0", "0");
+    }
+    void decimalArithmetic()
+    {
+        QFETCH(QString, left);
+        QFETCH(QString, right);
+        QFETCH(char, operation);
+        QFETCH(QString, expected);
+        QFETCH(int, error);
+        DecimalValue a, b, output, result;
+        QCOMPARE(DecimalValue::parse(left, a), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(right, b), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("-42.5"), output), DecimalError::None);
+        const auto apply = [operation](const DecimalValue &a, const DecimalValue &b, DecimalValue &value) {
+            if (operation == '+') return DecimalValue::add(a, b, value);
+            if (operation == '-') return DecimalValue::subtract(a, b, value);
+            return DecimalValue::multiply(a, b, value);
+        };
+        QCOMPARE(int(apply(a, b, output)), error);
+        QCOMPARE(DecimalValue::parse(error == int(DecimalError::None) ? expected : QStringLiteral("-42.5"), result), DecimalError::None);
+        QCOMPARE(output.coefficient(), result.coefficient());
+        QCOMPARE(output.exponent(), result.exponent());
+        QCOMPARE(output.isNegative(), result.isNegative());
+        // 输出别名不能改变输入的读取；失败保留原数值，成功与独立输出一致。
+        const DecimalValue originalA = a, originalB = b;
+        QCOMPARE(int(apply(a, b, a)), error);
+        const DecimalValue expectedA = error ? originalA : result;
+        QCOMPARE(a.coefficient(), expectedA.coefficient());
+        QCOMPARE(a.exponent(), expectedA.exponent());
+        QCOMPARE(a.isNegative(), expectedA.isNegative());
+        QCOMPARE(int(apply(originalA, b, b)), error);
+        const DecimalValue expectedB = error ? originalB : result;
+        QCOMPARE(b.coefficient(), expectedB.coefficient());
+        QCOMPARE(b.exponent(), expectedB.exponent());
+        QCOMPARE(b.isNegative(), expectedB.isNegative());
+    }
+    void decimalScaledIntegerOracle()
+    {
+        // 独立 qint64 精确参考，覆盖进位、借位、符号和小数位；所有整数运算远离溢出。
+        std::mt19937 generator(20261007);
+        std::uniform_int_distribution<int> distribution(-999999999, 999999999);
+        for (int i = 0; i < 1000; ++i)
+        {
+            const qint64 a = distribution(generator), b = distribution(generator);
+            DecimalValue left, right;
+            QCOMPARE(DecimalValue::parse(QString::number(a) + QStringLiteral("e-9"), left), DecimalError::None);
+            QCOMPARE(DecimalValue::parse(QString::number(b) + QStringLiteral("e-9"), right), DecimalError::None);
+            for (int operation = 0; operation < 3; ++operation)
+            {
+                DecimalValue actual, expected;
+                const qint64 integer = operation == 0 ? a + b : operation == 1 ? a - b : a * b;
+                QCOMPARE(DecimalValue::parse(QString::number(integer) + (operation == 2 ? QStringLiteral("e-18") : QStringLiteral("e-9")), expected), DecimalError::None);
+                const auto error = operation == 0 ? DecimalValue::add(left, right, actual)
+                    : operation == 1 ? DecimalValue::subtract(left, right, actual) : DecimalValue::multiply(left, right, actual);
+                QCOMPARE(error, DecimalError::None);
+                QCOMPARE(actual.coefficient(), expected.coefficient());
+                QCOMPARE(actual.exponent(), expected.exponent());
+                if (!actual.isZero()) QCOMPARE(actual.isNegative(), expected.isNegative());
+            }
+        }
+    }
+    void decimalIndependentGoldenVectors()
+    {
+        QFile file(QFINDTESTDATA("data/decimal_vectors.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
+        QCOMPARE(parseError.error, QJsonParseError::NoError);
+        QVERIFY(document.isArray());
+        const auto rows = document.array();
+        QCOMPARE(rows.size(), 360);
+        for (const auto &item : rows)
+        {
+            const auto row = item.toObject();
+            DecimalValue a, b, actual;
+            QCOMPARE(DecimalValue::parse(row.value(QStringLiteral("left")).toString(), a), DecimalError::None);
+            QCOMPARE(DecimalValue::parse(row.value(QStringLiteral("right")).toString(), b), DecimalError::None);
+            const auto operation = row.value(QStringLiteral("operation")).toString();
+            const auto error = operation == QStringLiteral("+") ? DecimalValue::add(a, b, actual)
+                : operation == QStringLiteral("-") ? DecimalValue::subtract(a, b, actual) : DecimalValue::multiply(a, b, actual);
+            const auto errorName = row.value(QStringLiteral("error")).toString();
+            const auto expectedError = errorName == QStringLiteral("overflow") ? DecimalError::Overflow
+                : errorName == QStringLiteral("underflow") ? DecimalError::Underflow
+                : errorName == QStringLiteral("precision") ? DecimalError::PrecisionLimit : DecimalError::None;
+            const auto description = row.value(QStringLiteral("left")).toString() + operation + row.value(QStringLiteral("right")).toString();
+            QVERIFY2(error == expectedError, qPrintable(description));
+            if (error != DecimalError::None) continue;
+            QCOMPARE(actual.coefficient(), row.value(QStringLiteral("coefficient")).toString().toLatin1());
+            QCOMPARE(actual.exponent(), row.value(QStringLiteral("exponent")).toInt());
+            QCOMPARE(actual.isNegative(), row.value(QStringLiteral("negative")).toBool());
+        }
+    }
+    void decimalIntermediateFailurePreservesAccumulator()
+    {
+        DecimalValue accumulator, one, big;
+        QCOMPARE(DecimalValue::parse(QStringLiteral("1e50"), accumulator), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("1"), one), DecimalError::None);
+        big = accumulator;
+        // (1e50+1)-1e50 必须在第一步报告失败；调用方不能继续算第二步来掩盖超限。
+        QCOMPARE(DecimalValue::add(accumulator, one, accumulator), DecimalError::PrecisionLimit);
+        QCOMPARE(accumulator.coefficient(), big.coefficient());
+        QCOMPARE(accumulator.exponent(), big.exponent());
+        QCOMPARE(DecimalValue::parse(QStringLiteral("0.1"), accumulator), DecimalError::None);
+        DecimalValue second, third;
+        QCOMPARE(DecimalValue::parse(QStringLiteral("0.2"), second), DecimalError::None);
+        QCOMPARE(DecimalValue::parse(QStringLiteral("0.3"), third), DecimalError::None);
+        QCOMPARE(DecimalValue::add(accumulator, second, accumulator), DecimalError::None);
+        QCOMPARE(DecimalValue::subtract(accumulator, third, accumulator), DecimalError::None);
+        QVERIFY(accumulator.isZero());
+    }
+    void customExpandedLengthLimit()
+    {
+        CustomFormula formula;
+        QCOMPARE(CustomFormula::parse(QStringLiteral("A=x+x"), formula), QString());
+        QString output = QStringLiteral("unchanged");
+        const QString largeValue = QString(2047, QLatin1Char('0')) + QLatin1Char('1');
+        QVERIFY(formula.substitute(QStringLiteral("x=") + largeValue, output).contains(QStringLiteral("4096")));
+        QCOMPARE(output, QStringLiteral("unchanged"));
+        const QString fittingValue = QString(2046, QLatin1Char('0')) + QLatin1Char('1');
+        QCOMPARE(formula.substitute(QStringLiteral("x=") + fittingValue, output), QString());
+        QCOMPARE(output.size(), 4095);
+        QCOMPARE(CustomFormula::parse(QStringLiteral("A=x+x "), formula), QString());
+        // 恰好 4096：保留内部空格；定义两端空白会被解析器去掉。
+        QCOMPARE(CustomFormula::parse(QStringLiteral("A=x +x"), formula), QString());
+        QCOMPARE(formula.substitute(QStringLiteral("x=") + fittingValue, output), QString());
+        QCOMPARE(output.size(), 4096);
+        // 有符号参数代入时的括号也计入展开上限。
+        output = QStringLiteral("unchanged");
+        QVERIFY(formula.substitute(QStringLiteral("x=-") + fittingValue, output).contains(QStringLiteral("4096")));
+        QCOMPARE(output, QStringLiteral("unchanged"));
+        CalculationHistory history;
+        history.calculate(QStringLiteral("42"));
+        QString error;
+        const auto record = history.calculateCustom(QStringLiteral("A=x+x"), QStringLiteral("x=") + largeValue, error);
+        QCOMPARE(record.id, quint64(0));
+        QVERIFY(error.contains(QStringLiteral("4096")));
+        QCOMPARE(history.count(), 1);
+        QCOMPARE(history.answer(), 42.0);
+    }
     void customFunctions_data()
     {
         QTest::addColumn<QString>("body");

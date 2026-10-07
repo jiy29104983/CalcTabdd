@@ -82,6 +82,16 @@ QString CustomFormula::substitute(const QString &input, QString &expression) con
     }
     for (const auto &name : m_parameters)
         if (!values.contains(name)) return QStringLiteral("缺少参数：%1").arg(name);
+    // 先计算最终长度，再分配代入式；重复参数不能通过展开消耗无界内存。
+    qint64 expandedLength = m_expression.size();
+    for (const auto &token : m_tokens)
+    {
+        const QString &value = values[token.name];
+        const int parentheses = value.startsWith(QLatin1Char('-')) || value.startsWith(QLatin1Char('+')) ? 2 : 0;
+        expandedLength += value.size() + parentheses - token.length;
+    }
+    if (expandedLength > 4096)
+        return QStringLiteral("代入后的公式过长（最多 4096 个 UTF-16 代码单元），请缩短公式或参数值");
     QString substituted = m_expression;
     for (int i = m_tokens.size() - 1; i >= 0; --i)
     {
