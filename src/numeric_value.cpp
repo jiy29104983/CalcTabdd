@@ -265,6 +265,9 @@ NumericStatus NumericValue::function(const QString &name, const QVector<NumericV
         if (!status.ok()) return status;
     }
     const FloatingEnvironment environment;
+    // 相等时必须按左参数保留位模式，尤其是 +0/-0；不让 min/max 指令的平局规则替代此契约。
+    if ((name == QStringLiteral("min") || name == QStringLiteral("max")) && a == b)
+        return finishBinary(a, sources, false, output);
     double value;
     if (name == QStringLiteral("min")) value = a <= b ? a : b;
     else if (name == QStringLiteral("max")) value = a >= b ? a : b;

@@ -22,6 +22,10 @@ add_library(calctabdd_core STATIC
     src/formula_completion.cpp src/formula_completion.h
     src/calculator_page.cpp src/calculator_page.h
     src/plugin_controller.cpp src/plugin_controller.h src/ndd_plugin_api.h)
+# 混算层读取并恢复浮点异常状态；MSVC 的默认 precise 假定环境不被访问。
+if(MSVC)
+    set_source_files_properties(src/numeric_value.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
+endif()
 target_include_directories(calctabdd_core PUBLIC src)
 target_link_libraries(calctabdd_core PUBLIC Qt5::Core Qt5::Gui Qt5::Widgets)
 target_compile_definitions(calctabdd_core PUBLIC CALCTABDD_VERSION="${PROJECT_VERSION}")
@@ -59,6 +63,9 @@ if(BUILD_TESTING)
         endif()
     endfunction()
     calc_test(engine_tests)
+    if(MSVC)
+        set_source_files_properties(tests/engine_tests.cpp PROPERTIES COMPILE_OPTIONS "/fp:strict")
+    endif()
     calc_test(page_tests)
     set(CALCTABDD_HOST_SOURCE_DIR "" CACHE PATH "Pinned notepad-- source; required for native integration tests")
     set(CALCTABDD_QSCINTILLA_LIBRARY "" CACHE FILEPATH "Optional prebuilt host QScintilla static library")

@@ -368,7 +368,7 @@ private slots:
              QStringLiteral("min(-0,0)"), QStringLiteral("max(-0,0)")})
         {
             const auto result = evaluate(text);
-            QVERIFY(result.ok && result.value.isZero() && result.value.isNegative());
+            QVERIFY2(result.ok && result.value.isZero() && result.value.isNegative(), qPrintable(text));
             QVERIFY(!result.value.isBinary());
         }
         for (const QString &text : {QStringLiteral("abs(-0)"), QStringLiteral("min(0,-0)"), QStringLiteral("max(0,-0)")})
@@ -379,7 +379,7 @@ private slots:
         for (const QString &text : {QStringLiteral("min(-0,sin(0))"), QStringLiteral("max(-0,sin(0))"), QStringLiteral("sin(-0)")})
         {
             const auto result = evaluate(text);
-            QVERIFY(result.ok && result.value.isZero() && result.value.isNegative());
+            QVERIFY2(result.ok && result.value.isZero() && result.value.isNegative(), qPrintable(text));
             QVERIFY(result.value.isBinary());
             QCOMPARE(result.value.sources(), unsigned(NumericValue::Approximate));
         }
