@@ -167,9 +167,9 @@ private slots:
         QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 0"));
         QVERIFY(defineFormula(first, QStringLiteral("A=sin(x/y)")));
         submit(first, QStringLiteral("x=1\ny=3"));
-        auto *sources = first.page()->findChild<QLabel *>(QStringLiteral("recordSources"));
+        auto *sources = first.page()->findChild<QTextBrowser *>(QStringLiteral("recordSources"));
         QVERIFY(sources);
-        QCOMPARE(sources->text(), QStringLiteral("来源：含除法舍入；含近似计算；含转换损失"));
+        QCOMPARE(sources->toPlainText(), QStringLiteral("来源：含除法舍入；含近似计算；含转换损失"));
         QVERIFY(selectSession(first, path, false));
         const auto saved = readSession(path).history.answer();
         QVERIFY(saved.isBinary());
@@ -177,7 +177,7 @@ private slots:
         first.closeCurrent();
         first.openAction()->trigger();
         QVERIFY(selectSession(first, path, true));
-        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordSources"))->text(), saved.sourceText());
+        QCOMPARE(first.page()->findChild<QTextBrowser *>(QStringLiteral("recordSources"))->toPlainText(), saved.sourceText());
         first.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
         submit(first, QStringLiteral("ans"));
         QCOMPARE(readSession(path).history.answer(), saved);

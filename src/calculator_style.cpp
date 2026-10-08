@@ -73,7 +73,7 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         RecordText#recordResult[error="false"] { font-size: @resultSize; }
         QDialog, QWidget#calctabddPage { background: @window; color: @text; }
         QLabel { color: @text; background: transparent; }
-        RecordText#recordResult { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
+        RecordText#recordResult, RecordText#recordSources { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
         QLabel#recordCount, QLabel#recordNumber, QLabel#inputHint, QLabel#emptyHistory,
         QLabel#helpMatchCount, QLabel#clearSessionDetails { color: @muted; }
         QLabel#recordCount { background: @hover; border-radius: 10px; padding: 4px 10px; }

@@ -105,7 +105,7 @@ private slots:
         QVERIFY(original.isBinary());
         QCOMPARE(original.sources(), unsigned(NumericValue::Approximate));
         QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 0"));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("recordSources"))->text(), QStringLiteral("来源：含近似计算"));
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordSources"))->text(), QStringLiteral("来源：含近似计算"));
         page.findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0"));
         QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("不保留原计算来源")));
@@ -125,7 +125,7 @@ private slots:
         page.submit();
         QCOMPARE(page.history().answer(), decimalNumber(QStringLiteral("0.1")));
         QCOMPARE(page.history().records().first().result.value, original);
-        QCOMPARE(page.findChildren<QLabel *>(QStringLiteral("recordSources")).size(), 2);
+        QCOMPARE(page.findChildren<RecordText *>(QStringLiteral("recordSources")).size(), 2);
     }
     void decimalCustomAndSavedSources()
     {
@@ -158,7 +158,7 @@ private slots:
         QVERIFY(selectSession(restored, path, true));
         QCOMPARE(restored.history().answer(), savedAnswer);
         QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ans+"));
-        QCOMPARE(restored.findChild<QLabel *>(QStringLiteral("recordSources"))->text(), savedAnswer.sourceText());
+        QCOMPARE(restored.findChild<RecordText *>(QStringLiteral("recordSources"))->text(), savedAnswer.sourceText());
         restored.input()->setPlainText(QStringLiteral("1/0"));
         restored.submit();
         QCOMPARE(restored.history().answer(), savedAnswer);
@@ -215,11 +215,17 @@ private slots:
             const int lines = qMax(1, (label->fontMetrics().horizontalAdvance(label->text()) + label->width() - 1) / label->width());
             QVERIFY2(label->height() >= lines * label->fontMetrics().height(), qPrintable(QStringLiteral("height=%1 width=%2 lines=%3").arg(label->height()).arg(label->width()).arg(lines)));
         }
-        if (auto *sources = page.findChild<QLabel *>(QStringLiteral("recordSources")))
+        if (auto *sources = page.findChild<RecordText *>(QStringLiteral("recordSources")))
         {
             QCOMPARE(sources->text(), page.history().answer().sourceText());
-            const auto needed = sources->fontMetrics().boundingRect(QRect(0, 0, sources->width(), 10000), Qt::TextWordWrap, sources->text());
-            QVERIFY(sources->height() >= needed.height());
+            // 按实际文档排版检查可见高度，含中文字体回退与窄窗口换行。
+            const qreal needed = sources->document()->size().height();
+            QVERIFY2(sources->viewport()->height() >= needed, qPrintable(QStringLiteral("source height=%1 needed=%2 width=%3").arg(sources->viewport()->height()).arg(needed).arg(sources->width())));
+            sources->setFocus();
+            QTRY_VERIFY(sources->hasFocus());
+            sources->selectAll();
+            page.routeEdit(QStringLiteral("actioncopy"));
+            QCOMPARE(QApplication::clipboard()->text(), page.history().answer().sourceText());
             QVERIFY(page.rect().contains(sources->mapTo(&page, sources->rect().bottomRight())));
         }
         const auto directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");

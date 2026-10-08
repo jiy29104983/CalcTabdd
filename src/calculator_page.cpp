@@ -587,12 +587,8 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     values->addWidget(value);
     if (result.ok && result.value.sources())
     {
-        auto *sources = new QLabel(result.value.sourceText(), record);
+        auto *sources = new RecordText(result.value.sourceText(), record);
         sources->setObjectName(QStringLiteral("recordSources"));
-        sources->setTextFormat(Qt::PlainText);
-        sources->setWordWrap(true);
-        sources->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-        sources->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         values->addWidget(sources);
     }
     row->addLayout(values, 1);
