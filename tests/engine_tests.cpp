@@ -1,3 +1,4 @@
+#include "numeric_test_helpers.h"
 #include "expression_engine.h"
 #include "decimal_value.h"
 #include "custom_formula.h"
@@ -32,6 +33,8 @@ quint64 bits(double value)
     return result;
 }
 
+quint64 bits(const NumericValue &value) { return bits(asDouble(value)); }
+
 struct RestoreLocale
 {
     QLocale previous;
@@ -43,6 +46,231 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void canonicalNumericText_data()
+    {
+        QTest::addColumn<QString>("kind");
+        QTest::addColumn<QString>("input");
+        QTest::addColumn<QString>("expected");
+        QFile file(QFINDTESTDATA("data/numeric_text_vectors.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+        QVERIFY(rows.size() >= 600);
+        for (const auto &entry : rows)
+        {
+            const auto row = entry.toObject();
+            QTest::newRow(qPrintable(row.value("name").toString())) << row.value("kind").toString()
+                << row.value("input").toString() << row.value("text").toString();
+        }
+    }
+    void canonicalNumericText()
+    {
+        QFETCH(QString, kind);
+        QFETCH(QString, input);
+        QFETCH(QString, expected);
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        NumericValue value;
+        if (kind == QStringLiteral("decimal")) QVERIFY(NumericValue::parse(input, value).ok());
+        else QVERIFY(NumericValue::restoreBinary(input, NumericValue::Approximate, value));
+        QCOMPARE(value.text(), expected);
+        QVERIFY(value.text().size() <= 58);
+        const auto parsed = ExpressionEngine::evaluate(value.text());
+        QVERIFY(parsed.ok);
+        QVERIFY(!parsed.value.isBinary());
+        QCOMPARE(parsed.value.sources(), 0u);
+        if (value.isBinary()) QCOMPARE(bits(parsed.value), bits(value.binary()));
+        else QCOMPARE(parsed.value, value);
+        NumericValue restored;
+        QVERIFY(value.isBinary() ? NumericValue::restoreBinary(value.binaryHex(), value.sources(), restored)
+                                 : NumericValue::restoreDecimal(value.text(), value.sources(), restored));
+        QCOMPARE(restored, value);
+        QCOMPARE(restored.text(), expected);
+    }
+    void textFormattingIgnoresFloatingRoundingMode()
+    {
+        const int previous = std::fegetround();
+        const double halves[] = {std::ldexp(1., -25), std::ldexp(3., -25), -std::ldexp(1., -25), -std::ldexp(3., -25)};
+        const QStringList expected{"2.9802322387695312e-8", "8.9406967163085938e-8", "-2.9802322387695312e-8", "-8.9406967163085938e-8"};
+        struct Restore { int mode; ~Restore() { std::fesetround(mode); } } restore{previous};
+        for (int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO})
+        {
+            QVERIFY(std::fesetround(mode) == 0);
+            for (int i = 0; i < 4; ++i) QCOMPARE(binaryNumber(halves[i]).text(), expected.at(i));
+            QCOMPARE(std::fegetround(), mode);
+        }
+    }
+    void typedProductPipeline_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<QString>("definition");
+        QTest::addColumn<QString>("parameters");
+        QTest::addColumn<uint>("sources");
+        QTest::addColumn<bool>("binary");
+        const uint R = NumericValue::Rounded, A = NumericValue::Approximate, C = NumericValue::ConversionLoss;
+        QTest::newRow("exact") << QStringLiteral("0.1+0.2") << QStringLiteral("A=x+y") << QStringLiteral("x=0.1\ny=0.2") << 0u << false;
+        QTest::newRow("rounded") << QStringLiteral("1/3") << QStringLiteral("A=x/y") << QStringLiteral("x=1\ny=3") << R << false;
+        QTest::newRow("rounded-zero") << QStringLiteral("floor(1/3)") << QStringLiteral("A=floor(x/y)") << QStringLiteral("x=1\ny=3") << R << false;
+        QTest::newRow("approx-zero") << QStringLiteral("sin(0)") << QStringLiteral("A=sin(x)") << QStringLiteral("x=0") << A << true;
+        QTest::newRow("conversion-loss") << QStringLiteral("sin(0.1)") << QStringLiteral("A=sin(x)") << QStringLiteral("x=0.1") << uint(A | C) << true;
+        QTest::newRow("all-sources") << QStringLiteral("sin(1/3)") << QStringLiteral("A=sin(x/y)") << QStringLiteral("x=1\ny=3") << uint(R | A | C) << true;
+        QTest::newRow("negative-zero") << QStringLiteral("0/(-8)") << QStringLiteral("A=x/y") << QStringLiteral("x=0\ny=-8") << 0u << false;
+        QTest::newRow("approx-negative-zero") << QStringLiteral("sin(-0)") << QStringLiteral("A=sin(x)") << QStringLiteral("x=-0") << A << true;
+        QTest::newRow("maximum-exponent") << QStringLiteral("1e999") << QStringLiteral("A=x") << QStringLiteral("x=1e999") << 0u << false;
+        QTest::newRow("minimum-exponent") << QStringLiteral("1e-999") << QStringLiteral("A=x") << QStringLiteral("x=1e-999") << 0u << false;
+        QTest::newRow("fifty-digits") << QString(50, '9') << QStringLiteral("A=x") << QStringLiteral("x=") + QString(50, '9') << 0u << false;
+    }
+    void typedProductPipeline()
+    {
+        QFETCH(QString, formula);
+        QFETCH(QString, definition);
+        QFETCH(QString, parameters);
+        QFETCH(uint, sources);
+        QFETCH(bool, binary);
+        CalculationSession session;
+        const auto normal = session.history.calculate(formula);
+        QString error;
+        const auto custom = session.history.calculateCustom(definition, parameters, error);
+        QVERIFY2(error.isEmpty() && normal.result.ok && custom.result.ok, qPrintable(error + normal.result.text));
+        QCOMPARE(normal.result.value, custom.result.value);
+        QCOMPARE(custom.result.value.sources(), sources);
+        QCOMPARE(custom.result.value.isBinary(), binary);
+        QCOMPARE(custom.answerBefore, normal.result.value);
+        QCOMPARE(custom.result.text, custom.valueText());
+        const auto answer = session.history.answer();
+        const auto failure = session.history.calculate(QStringLiteral("1/0"));
+        QVERIFY(!failure.result.ok);
+        QCOMPARE(session.history.answer(), answer);
+        QCOMPARE(failure.answerBefore, answer);
+        const auto reuse = session.history.calculate(QStringLiteral("ans"));
+        QCOMPARE(reuse.result.value, answer);
+        const auto plain = ExpressionEngine::evaluate(custom.insertionText());
+        QVERIFY(plain.ok);
+        QVERIFY(!plain.value.isBinary());
+        QCOMPARE(plain.value.sources(), 0u);
+        if (binary) QCOMPARE(bits(plain.value), bits(answer));
+        else QCOMPARE(plain.value.text(), answer.text());
+        for (auto format : {CalculationExport::Format::Text, CalculationExport::Format::Markdown})
+        {
+            const QString output = QString::fromUtf8(CalculationExport::serialize(session.history.records(), format));
+            QVERIFY(output.contains(custom.calculationText()));
+            if (sources) QVERIFY(output.contains(answer.sourceText()));
+            QVERIFY(!output.contains(QLatin1Char('\r')));
+        }
+        session.customInput = {parameters, parameters.size(), 0, definition};
+        const auto bytes = SessionFormat::encode(session);
+        const auto json = QJsonDocument::fromJson(bytes).object();
+        QCOMPARE(json.value("version").toInt(), 3);
+        QVERIFY(json.value("answer").isObject());
+        QVERIFY(!json.value("records").toArray().first().toObject().contains("text"));
+        CalculationSession restored;
+        QVERIFY2(SessionFormat::decode(bytes, restored).isEmpty(), qPrintable(formula));
+        QCOMPARE(restored.history.answer(), answer);
+        QCOMPARE(restored.customInput.text, parameters);
+        QCOMPARE(SessionFormat::encode(restored), bytes);
+        for (int i = 0; i < session.history.count(); ++i)
+        {
+            const auto &a = session.history.records().at(i), &b = restored.history.records().at(i);
+            QCOMPARE(a.result.value, b.result.value);
+            QCOMPARE(a.answerBefore, b.answerBefore);
+            QCOMPARE(a.result.text, b.result.text);
+        }
+        QCOMPARE(restored.history.calculate(QStringLiteral("ans")).result.value, answer);
+        session.history.clear();
+        QCOMPARE(session.history.answer(), NumericValue());
+        QCOMPARE(restored.history.answer(), answer);
+    }
+    void typedNumericObjectsRejectCorruption_data()
+    {
+        QTest::addColumn<QJsonObject>("value");
+        const auto decimal = [](const QString &text, const QJsonArray &sources = {}) {
+            return QJsonObject{{"kind", "decimal"}, {"text", text}, {"sources", sources}};
+        };
+        const auto binary = [](const QString &bits, const QJsonArray &sources = QJsonArray{"A"}) {
+            return QJsonObject{{"kind", "binary64"}, {"bits", bits}, {"sources", sources}};
+        };
+        QTest::newRow("decimal-approx") << decimal("1", {"A"});
+        QTest::newRow("conversion-without-approx") << decimal("1", {"C"});
+        QTest::newRow("unknown-source") << decimal("1", {"X"});
+        QTest::newRow("duplicate-source") << decimal("1", {"R", "R"});
+        QTest::newRow("nonstring-source") << decimal("1", {1});
+        QTest::newRow("unsorted-source") << binary("0000000000000000", {"A", "R"});
+        QTest::newRow("binary-missing-A") << binary("0000000000000000", {});
+        QTest::newRow("binary-only-C") << binary("0000000000000000", {"C"});
+        QTest::newRow("infinity") << binary("7ff0000000000000");
+        QTest::newRow("negative-infinity") << binary("fff0000000000000");
+        QTest::newRow("nan") << binary("7ff8000000000000");
+        QTest::newRow("uppercase-bits") << binary("3FF0000000000000");
+        QTest::newRow("short-bits") << binary("0");
+        QTest::newRow("nonhex-bits") << binary("z000000000000000");
+        QTest::newRow("trailing-zeros") << decimal("1.00");
+        QTest::newRow("positive-prefix") << decimal("+1");
+        QTest::newRow("padded-exponent") << decimal("1e+099");
+        QTest::newRow("wrong-notation") << decimal("1e-6");
+        QTest::newRow("decimal-overflow") << decimal("1e+1000");
+        QTest::newRow("decimal-underflow") << decimal("1e-1000");
+        QTest::newRow("too-many-digits") << decimal(QString(51, '1'));
+        QTest::newRow("missing-sources") << QJsonObject{{"kind", "decimal"}, {"text", "0"}};
+        QTest::newRow("unknown-kind") << QJsonObject{{"kind", "integer"}, {"text", "0"}, {"sources", QJsonArray()}};
+        QTest::newRow("numeric-payload") << QJsonObject{{"kind", "decimal"}, {"text", 1}, {"sources", QJsonArray()}};
+        QTest::newRow("unexpected-key") << QJsonObject{{"kind", "decimal"}, {"text", "0"}, {"sources", QJsonArray()}, {"bits", "0000000000000000"}};
+    }
+    void typedNumericObjectsRejectCorruption()
+    {
+        QFETCH(QJsonObject, value);
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("sin(1/3)"));
+        const auto root = QJsonDocument::fromJson(SessionFormat::encode(original)).object();
+        for (const auto &target : {QStringLiteral("answer"), QStringLiteral("value"), QStringLiteral("answerBefore")})
+        {
+            auto changed = root;
+            if (target == QStringLiteral("answer")) changed.insert(target, value);
+            else
+            {
+                auto records = changed.value("records").toArray();
+                auto record = records.first().toObject();
+                record.insert(target, value);
+                records[0] = record;
+                changed.insert("records", records);
+            }
+            CalculationSession destination;
+            destination.history.calculate(QStringLiteral("42"));
+            const auto before = SessionFormat::encode(destination);
+            QVERIFY(!SessionFormat::decode(QJsonDocument(changed).toJson(), destination).isEmpty());
+            QCOMPARE(SessionFormat::encode(destination), before);
+        }
+    }
+    void typedSessionChainIncludesSourcesAndZeroSigns()
+    {
+        for (const auto &formula : {QStringLiteral("floor(1/3)"), QStringLiteral("sin(0)"), QStringLiteral("sin(-0)")})
+        {
+            CalculationSession session;
+            session.history.calculate(formula);
+            session.history.calculate(QStringLiteral("1/0"));
+            const auto original = QJsonDocument::fromJson(SessionFormat::encode(session)).object();
+            for (bool top : {false, true})
+            {
+                auto root = original;
+                if (top) root.insert("answer", QJsonObject{{"kind", "decimal"}, {"text", "0"}, {"sources", QJsonArray()}});
+                else
+                {
+                    auto records = root.value("records").toArray();
+                    auto failure = records.at(1).toObject();
+                    failure.insert("answerBefore", QJsonObject{{"kind", "decimal"}, {"text", "0"}, {"sources", QJsonArray()}});
+                    records[1] = failure;
+                    root.insert("records", records);
+                }
+                CalculationSession result;
+                QVERIFY(!SessionFormat::decode(QJsonDocument(root).toJson(), result).isEmpty());
+                QCOMPARE(result.history.count(), 0);
+            }
+        }
+        auto value = decimalNumber(QStringLiteral("42"));
+        QVERIFY(!NumericValue::restoreBinary(QStringLiteral("7ff0000000000000"), NumericValue::Approximate, value));
+        QCOMPARE(value, decimalNumber(QStringLiteral("42")));
+        QVERIFY(!NumericValue::restoreDecimal(QStringLiteral("1.0"), 0, value));
+        QCOMPARE(value, decimalNumber(QStringLiteral("42")));
+    }
+
     void numericReferences_data()
     {
         QTest::addColumn<QByteArray>("data");
@@ -188,7 +416,7 @@ private slots:
         QFETCH(uint, sources);
         const auto result = ExpressionEngine::evaluateNumeric(formula);
         QVERIFY2(result.ok, qPrintable(result.text));
-        QVERIFY(result.text.isEmpty()); // 尚未定义用户显示格式。
+        QCOMPARE(result.text, result.value.text());
         QCOMPARE(result.value.isBinary(), binary);
         QCOMPARE(result.value.sources(), sources);
         if (binary)
@@ -297,10 +525,10 @@ private slots:
         CustomFormula custom;
         QVERIFY(CustomFormula::parse(QStringLiteral("A=sqrt(x)"), custom).isEmpty());
         QString expression = QStringLiteral("sentinel");
-        QVERIFY(!custom.substitute(QStringLiteral("x=1e400"), expression).isEmpty());
-        QCOMPARE(expression, QStringLiteral("sentinel"));
+        QVERIFY(custom.substitute(QStringLiteral("x=1e400"), expression).isEmpty());
+        QCOMPARE(expression, QStringLiteral("sqrt(1e400)"));
         QVERIFY(!custom.substituteNumeric(QStringLiteral("x=1e1000"), expression).isEmpty());
-        QCOMPARE(expression, QStringLiteral("sentinel"));
+        QCOMPARE(expression, QStringLiteral("sqrt(1e400)"));
         const auto approximate = ExpressionEngine::evaluateNumeric(QStringLiteral("sin(1/3)"));
         QVERIFY(approximate.ok);
         const auto copied = approximate.value;
@@ -746,8 +974,8 @@ private slots:
         const auto positive = ExpressionEngine().evaluate(QStringLiteral("round(2.5)"));
         const auto negative = ExpressionEngine().evaluate(QStringLiteral("round(-2.5)"));
         QVERIFY(positive.ok && negative.ok);
-        QCOMPARE(positive.value, 3.0);
-        QCOMPARE(negative.value, -3.0);
+        QCOMPARE(asDouble(positive.value), 3.0);
+        QCOMPARE(asDouble(negative.value), -3.0);
     }
     void decimalScaledIntegerOracle()
     {
@@ -850,7 +1078,7 @@ private slots:
         QCOMPARE(record.id, quint64(0));
         QVERIFY(error.contains(QStringLiteral("4096")));
         QCOMPARE(history.count(), 1);
-        QCOMPARE(history.answer(), 42.0);
+        QCOMPARE(asDouble(history.answer()), 42.0);
     }
     void customFunctions_data()
     {
@@ -900,9 +1128,9 @@ private slots:
         QCOMPARE(record.expression, QStringLiteral("A=")+substituted);
         QCOMPARE(record.customDefinition, QStringLiteral("A=")+body);
         QCOMPARE(record.parameterInput, input);
-        QCOMPARE(record.answerBefore, 10.0);
-        QCOMPARE(record.result.value, expected);
-        QCOMPARE(history.answer(), expected);
+        QCOMPARE(asDouble(record.answerBefore), 10.0);
+        QCOMPARE(asDouble(record.result.value), expected);
+        QCOMPARE(asDouble(history.answer()), expected);
         QCOMPARE(record.id, quint64(2));
     }
     void customInvalidDefinition_data()
@@ -928,7 +1156,7 @@ private slots:
     {
         QTest::addColumn<QString>("input");
         for (const auto *text : {"", "x=1", "x=\ny=2", "x=1\ny=", "x=1\nx=2\ny=3", "x=1\nz=2", "X=1\ny=2",
-                                "x=1+2\ny=3", "x=nan\ny=2", "x=inf\ny=2", "x=1e400\ny=2", "x=1e-400\ny=2",
+                                "x=1+2\ny=3", "x=nan\ny=2", "x=inf\ny=2", "x=1e1000\ny=2", "x=1e-1000\ny=2",
                                 "x=1y=2", "x=1,\ny=2", "x=(1)\ny=2", "oops\nx=1\ny=2", "x=1\ny=2 extra", "x=ans\ny=2"})
             QTest::newRow(text[0] ? qPrintable(QString::fromLatin1(text).replace(QLatin1Char('\n'), QStringLiteral(" / "))) : "empty") << QString::fromLatin1(text);
         QTest::newRow("same-line-space") << QStringLiteral("x=1 y=2");
@@ -946,7 +1174,7 @@ private slots:
         QCOMPARE(history.calculateCustom(QStringLiteral("A=x+y"), input, error).id, quint64(0));
         QVERIFY(!error.isEmpty());
         QCOMPARE(history.count(), 1);
-        QCOMPARE(history.answer(), 42.0);
+        QCOMPARE(asDouble(history.answer()), 42.0);
     }
     void customManyParametersAndSignedZero()
     {
@@ -963,7 +1191,7 @@ private slots:
         QCOMPARE(formula.parameterTemplate().split(QLatin1Char('\n')).size(), 40);
         CalculationHistory history;
         QString error;
-        QCOMPARE(history.calculateCustom(formula.definition(), assignments.join(QLatin1Char('\n')), error).result.value, 40.0);
+        QCOMPARE(asDouble(history.calculateCustom(formula.definition(), assignments.join(QLatin1Char('\n')), error).result.value), 40.0);
         const auto zero = history.calculateCustom(QStringLiteral("Zero=x"), QStringLiteral("x=-0"), error);
         QCOMPARE(zero.valueText(), QStringLiteral("-0"));
         QCOMPARE(zero.expression, QStringLiteral("Zero=(-0)"));
@@ -991,10 +1219,10 @@ private slots:
         QVERIFY(!failed.result.ok);
         QCOMPARE(failed.result.error, CalculationError::DivisionByZero);
         QCOMPARE(failed.expression.mid(failed.result.errorPosition, failed.result.errorLength), QStringLiteral("0"));
-        QCOMPARE(history.answer(), 3.0);
+        QCOMPARE(asDouble(history.answer()), 3.0);
         const auto domain = history.calculateCustom(QStringLiteral("A=sqrt(x)"), QStringLiteral("x=-1"), error);
         QCOMPARE(domain.result.error, CalculationError::Domain);
-        QCOMPARE(history.calculate(QStringLiteral("ans+1")).result.value, 4.0);
+        QCOMPARE(asDouble(history.calculate(QStringLiteral("ans+1")).result.value), 4.0);
         QCOMPARE(history.records().first().calculationText(), QStringLiteral("A=1+2\n= 3"));
         QCOMPARE(first.expression, history.records().first().expression);
         QVERIFY(CalculationExport::serialize(history.records(), CalculationExport::Format::Text).contains("A=1+2\n= 3"));
@@ -1006,7 +1234,7 @@ private slots:
         QString error;
         original.history.calculateCustom(QStringLiteral("A=x+y"), QStringLiteral("x=1\ny=2"), error);
         auto records = original.history.records();
-        records[0].result.value = 17; // 已保存的结果快照必须保留，不能用当前求值替换成 3。
+        records[0].result.value = decimalNumber(QStringLiteral("17")); // 已保存的结果快照必须保留，不能用当前求值替换成 3。
         records[0].result.text = QStringLiteral("历史结果 17");
         QVERIFY(original.history.restoreRecords(records));
         original.input = {QStringLiteral("x=5\ny=6"), 3, 3, QStringLiteral("A=x+y")};
@@ -1016,8 +1244,8 @@ private slots:
         const auto bytes = SessionFormat::encode(original);
         QVERIFY(SessionFormat::decode(bytes, restored).isEmpty());
         QCOMPARE(SessionFormat::encode(restored), bytes);
-        QCOMPARE(restored.history.answer(), 17.0);
-        QCOMPARE(restored.history.records().first().result.text, QStringLiteral("历史结果 17"));
+        QCOMPARE(asDouble(restored.history.answer()), 17.0);
+        QCOMPARE(restored.history.records().first().result.text, QStringLiteral("17"));
         QCOMPARE(restored.normalInput.text, QStringLiteral("123+"));
     }
     void corruptCustomSessionsAreAtomic_data()
@@ -1058,7 +1286,8 @@ private slots:
     {
         QTest::addColumn<int>("version");
         QTest::newRow("unsupported-1") << 1;
-        QTest::newRow("unsupported-3") << 3;
+        QTest::newRow("unsupported-2") << 2;
+        QTest::newRow("unsupported-4") << 4;
     }
     void unsupportedVersionFileStaysUnchanged()
     {
@@ -1109,7 +1338,7 @@ private slots:
         if (!crash) QCOMPARE(process.exitCode(), 0);
         QVERIFY2(file.load(path, session).isEmpty(), "Session should be available after its process exits");
         QCOMPARE(session.history.count(), 2);
-        QCOMPARE(session.history.answer(), 42.0);
+        QCOMPARE(asDouble(session.history.answer()), 42.0);
         QCOMPARE(session.input.text, QStringLiteral("跨进程草稿😀"));
         QCOMPARE(session.history.records().last().result.error, CalculationError::DivisionByZero);
     }
@@ -1139,14 +1368,14 @@ private slots:
         QCOMPARE(restored.id, original.id);
         QCOMPARE(bits(restored.history.answer()), bits(original.history.answer()));
         QCOMPARE(restored.history.records().first().expression, records[0].expression);
-        QCOMPARE(restored.history.records().first().result.text, records[0].result.text);
+        QCOMPARE(restored.history.records().first().result.text, records[0].result.value.text());
         QCOMPARE(restored.history.records().last().result.error, CalculationError::Domain);
         QCOMPARE(restored.input.text, original.input.text);
         QCOMPARE(restored.input.anchor, 1);
         QCOMPARE(restored.draft.position, 3);
         QCOMPARE(restored.recalledInputs.value(3).text, QStringLiteral("ln(9)"));
         QCOMPARE(restored.history.calculate(QStringLiteral("ans+1")).id, quint64(4));
-        QCOMPARE(bits(restored.history.answer()), bits(original.history.answer() + 1));
+        QCOMPARE(bits(restored.history.answer()), bits(ExpressionEngine::evaluate(QStringLiteral("ans+1"), original.history.answer()).value));
     }
     void sessionNumbersRoundTripExactly()
     {
@@ -1163,18 +1392,18 @@ private slots:
         }
         CalculationSession original;
         QVector<CalculationRecord> records;
-        double before = 0;
+        NumericValue before;
         for (const double value : values)
         {
             CalculationRecord entry;
             entry.id = static_cast<quint64>(records.size()) + 1;
             entry.expression = QStringLiteral("historical result");
             entry.result.ok = true;
-            entry.result.value = value;
+            entry.result.value = binaryNumber(value);
             entry.result.text = QStringLiteral("saved display");
             entry.answerBefore = before;
             records.append(entry);
-            before = value;
+            before = entry.result.value;
         }
         QVERIFY(original.history.restoreRecords(records));
         CalculationSession restored;
@@ -1190,7 +1419,7 @@ private slots:
     {
         QTest::addColumn<QString>("field");
         QTest::addColumn<QJsonValue>("replacement");
-        QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(3);
+        QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(4);
         QTest::newRow("other-version") << QStringLiteral("version") << QJsonValue(1);
         QTest::newRow("zero-version") << QStringLiteral("version") << QJsonValue(0);
         QTest::newRow("missing-version") << QStringLiteral("version") << QJsonValue();
@@ -1215,7 +1444,7 @@ private slots:
         QTest::newRow("before-mismatch") << QStringLiteral("record.answerBefore") << QJsonValue("9");
         QTest::newRow("missing-value") << QStringLiteral("record.value") << QJsonValue();
         QTest::newRow("value-overflow") << QStringLiteral("record.value") << QJsonValue("1e500");
-        QTest::newRow("missing-text") << QStringLiteral("record.text") << QJsonValue();
+        QTest::newRow("unexpected-success-text") << QStringLiteral("record.text") << QJsonValue("untrusted");
         QTest::newRow("missing-record-definition") << QStringLiteral("record.customDefinition") << QJsonValue();
         QTest::newRow("missing-record-parameters") << QStringLiteral("record.parameterInput") << QJsonValue();
         QTest::newRow("missing-mode-draft") << QStringLiteral("normalInput") << QJsonValue();
@@ -1358,7 +1587,7 @@ private slots:
         QCOMPARE(restored.history.count(), 0);
         QCOMPARE(bits(restored.history.answer()), bits(0.0));
         QCOMPARE(restored.history.calculate(QStringLiteral("ans+1")).id, quint64(1));
-        QCOMPARE(restored.history.answer(), 1.0);
+        QCOMPARE(asDouble(restored.history.answer()), 1.0);
     }
     void exportKeepsOrderAndHistoricalResults_data()
     {
@@ -1389,8 +1618,8 @@ private slots:
         QVERIFY(!text.contains(QStringLiteral("= 101"))); // 不按当前 ans 重算历史。
         QVERIFY(text.contains(markdown ? QStringLiteral("## 记录 04") : QStringLiteral("[04]")));
         QCOMPARE(history.count(), 4);
-        QCOMPARE(history.answer(), 100.0);
-        QCOMPARE(history.record(2)->result.value, 43.0);
+        QCOMPARE(asDouble(history.answer()), 100.0);
+        QCOMPARE(asDouble(history.record(2)->result.value), 43.0);
         QCOMPARE(history.calculate(QStringLiteral("ans+1")).id, quint64(5));
         QCOMPARE(CalculationExport::serialize(snapshot, markdown
             ? CalculationExport::Format::Markdown : CalculationExport::Format::Text), bytes);
@@ -1454,7 +1683,7 @@ private slots:
         QVERIFY2(parsed.ok, qPrintable(number));
         QCOMPARE(bits(parsed.value), bits(entry.result.value));
         QCOMPARE(bits(history.answer()), bits(entry.result.value));
-        if (formula == QStringLiteral("0.1+0.2")) QCOMPARE(number, QStringLiteral("0.30000000000000004"));
+        if (formula == QStringLiteral("0.1+0.2")) QCOMPARE(number, QStringLiteral("0.3"));
         if (formula == QStringLiteral("-0")) QCOMPARE(number, QStringLiteral("-0"));
     }
     void exportWritesUtf8AndReplacesCompleteFile()
@@ -1514,27 +1743,27 @@ private slots:
         QVERIFY(!history.record(2));
         QCOMPARE(bits(history.answer()), bits(0.0));
         QCOMPARE(snapshot.size(), 2);
-        QCOMPARE(snapshot.first().result.value, 42.0);
+        QCOMPARE(asDouble(snapshot.first().result.value), 42.0);
         QCOMPARE(other.count(), 1);
-        QCOMPARE(other.answer(), 100.0);
+        QCOMPARE(asDouble(other.answer()), 100.0);
         const auto next = history.calculate(QStringLiteral("ans+1"));
         QCOMPARE(next.id, quint64(1));
-        QCOMPARE(next.answerBefore, 0.0);
-        QCOMPARE(next.result.value, 1.0);
+        QCOMPARE(asDouble(next.answerBefore), 0.0);
+        QCOMPARE(asDouble(next.result.value), 1.0);
         QVERIFY(!history.record(2));
         history.clear();
         history.clear();
         const auto error = history.calculate(QStringLiteral("1+"));
         QCOMPARE(error.id, quint64(1));
         QVERIFY(!error.result.ok);
-        QCOMPARE(history.answer(), 0.0);
+        QCOMPARE(asDouble(history.answer()), 0.0);
         history.clear();
-        QCOMPARE(history.calculate(QStringLiteral("ans")).result.value, 0.0);
+        QCOMPARE(asDouble(history.calculate(QStringLiteral("ans")).result.value), 0.0);
         history.calculate(QStringLiteral("-0"));
-        QVERIFY(std::signbit(history.answer()));
+        QVERIFY(history.answer().isNegative());
         history.clear();
         QCOMPARE(bits(history.answer()), bits(0.0));
-        QCOMPARE(other.calculate(QStringLiteral("ans+1")).result.value, 101.0);
+        QCOMPARE(asDouble(other.calculate(QStringLiteral("ans+1")).result.value), 101.0);
     }
     void clearingEmptyHistoryIsSafe()
     {
@@ -1543,7 +1772,7 @@ private slots:
         history.clear();
         QCOMPARE(history.count(), 0);
         QVERIFY(!history.record(1));
-        QCOMPARE(history.answer(), 0.0);
+        QCOMPARE(asDouble(history.answer()), 0.0);
         QCOMPARE(history.calculate(QStringLiteral("ans")).id, quint64(1));
     }
     void historyStartsEmpty()
@@ -1551,7 +1780,7 @@ private slots:
         const CalculationHistory history;
         QCOMPARE(history.count(), 0);
         QVERIFY(history.records().isEmpty());
-        QCOMPARE(history.answer(), 0.0);
+        QCOMPARE(asDouble(history.answer()), 0.0);
         QVERIFY(!history.record(0));
         QVERIFY(!history.record(1));
     }
@@ -1565,10 +1794,10 @@ private slots:
         QCOMPARE(first.id, quint64(1));
         QCOMPARE(first.expression, QStringLiteral("6*7"));
         QVERIFY(first.result.ok);
-        QCOMPARE(first.result.value, 42.0);
+        QCOMPARE(asDouble(first.result.value), 42.0);
         QCOMPARE(first.result.text, QStringLiteral("42"));
         QCOMPARE(first.result.errorPosition, -1);
-        QCOMPARE(first.answerBefore, 0.0);
+        QCOMPARE(asDouble(first.answerBefore), 0.0);
         QCOMPARE(error.id, quint64(2));
         QCOMPARE(error.expression, QStringLiteral("12/(3-3)"));
         QVERIFY(!error.result.ok);
@@ -1576,12 +1805,12 @@ private slots:
         QCOMPARE(error.result.errorPosition, 3);
         QCOMPARE(error.result.errorLength, 5);
         QCOMPARE(error.result.error, CalculationError::DivisionByZero);
-        QCOMPARE(error.answerBefore, 42.0);
+        QCOMPARE(asDouble(error.answerBefore), 42.0);
         QCOMPARE(next.id, quint64(3));
-        QCOMPARE(next.answerBefore, 42.0);
+        QCOMPARE(asDouble(next.answerBefore), 42.0);
         QVERIFY(next.result.ok);
-        QCOMPARE(next.result.value, 43.0);
-        QCOMPARE(history.answer(), 43.0);
+        QCOMPARE(asDouble(next.result.value), 43.0);
+        QCOMPARE(asDouble(history.answer()), 43.0);
         for (int index = 0; index < history.count(); ++index)
         {
             const auto &entry = history.records().at(index);
@@ -1606,35 +1835,34 @@ private slots:
         const auto first = history.calculate(QStringLiteral("0.1+0.2"));
         QVERIFY(first.result.ok);
         QCOMPARE(first.result.text, QStringLiteral("0.3"));
-        // 精确比较，避免模糊浮点断言掩盖错误的“显示文本转回 double”。
-        QVERIFY(first.result.value == 0.1 + 0.2);
-        QVERIFY(first.result.value != first.result.text.toDouble());
+        QCOMPARE(first.result.value, decimalNumber(QStringLiteral("0.3")));
+        QCOMPARE(first.result.value.sources(), 0u);
         history.calculate(QStringLiteral("1/0"));
         const auto next = history.calculate(QStringLiteral("ans-0.3"));
-        QVERIFY(next.answerBefore == first.result.value);
-        QVERIFY(next.result.value == (0.1 + 0.2) - 0.3);
-        QVERIFY(next.result.value > 0);
-        QVERIFY(history.answer() == next.result.value);
-        QVERIFY(history.record(first.id)->result.value == first.result.value);
+        QCOMPARE(next.answerBefore, first.result.value);
+        QCOMPARE(next.result.value, NumericValue());
+        QCOMPARE(history.answer(), next.result.value);
+        QCOMPARE(history.record(first.id)->result.value, first.result.value);
     }
+
     void historyPreservesSubmittedFormulaAndErrors()
     {
         CalculationHistory history;
         const QString expression = QStringLiteral("  2 × 3 ÷ 2 − 1\n");
         const auto first = history.calculate(expression);
         QCOMPARE(first.expression, expression);
-        QCOMPARE(first.result.value, 2.0);
+        QCOMPARE(asDouble(first.result.value), 2.0);
         for (const auto &formula : {QStringLiteral("1+"), QStringLiteral("sqrt(-1)"),
-                                   QStringLiteral("1+中"), QStringLiteral("1e309")})
+                                   QStringLiteral("1+中"), QStringLiteral("1e1000")})
         {
             const auto entry = history.calculate(formula);
-            const auto expected = ExpressionEngine::evaluate(formula, 2);
+            const auto expected = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("2")));
             QVERIFY(!entry.result.ok);
             QCOMPARE(entry.expression, formula);
             QCOMPARE(entry.result.text, expected.text);
             QCOMPARE(entry.result.errorPosition, expected.errorPosition);
-            QCOMPARE(entry.answerBefore, 2.0);
-            QCOMPARE(history.answer(), 2.0);
+            QCOMPARE(asDouble(entry.answerBefore), 2.0);
+            QCOMPARE(asDouble(history.answer()), 2.0);
         }
     }
     void historyIdsAndSnapshotsSurviveGrowth()
@@ -1647,15 +1875,15 @@ private slots:
         {
             const auto entry = history.calculate(QStringLiteral("ans+1"));
             QCOMPARE(entry.id, quint64(index + 3));
-            QCOMPARE(entry.answerBefore, double(index + 1));
-            QCOMPARE(entry.result.value, double(index + 2));
+            QCOMPARE(asDouble(entry.answerBefore), double(index + 1));
+            QCOMPARE(asDouble(entry.result.value), double(index + 2));
         }
         QCOMPARE(history.count(), 514);
         QCOMPARE(snapshot.size(), 2);
-        QCOMPARE(first.result.value, 1.0);
-        QCOMPARE(history.record(first.id)->result.value, 1.0);
+        QCOMPARE(asDouble(first.result.value), 1.0);
+        QCOMPARE(asDouble(history.record(first.id)->result.value), 1.0);
         QCOMPARE(history.record(failed.id)->result.text, failed.result.text);
-        QCOMPARE(history.record(failed.id)->answerBefore, 1.0);
+        QCOMPARE(asDouble(history.record(failed.id)->answerBefore), 1.0);
         for (int index = 0; index < history.count(); ++index)
             QCOMPARE(history.records().at(index).id, quint64(index + 1));
     }
@@ -1668,25 +1896,25 @@ private slots:
             first.calculate(QStringLiteral("1/0"));
             const auto entry = second.calculate(QStringLiteral("ans+1"));
             QCOMPARE(entry.id, quint64(1));
-            QCOMPARE(entry.answerBefore, 0.0);
-            QCOMPARE(entry.result.value, 1.0);
+            QCOMPARE(asDouble(entry.answerBefore), 0.0);
+            QCOMPARE(asDouble(entry.result.value), 1.0);
             QCOMPARE(first.count(), 2);
-            QCOMPARE(first.answer(), 123.0);
+            QCOMPARE(asDouble(first.answer()), 123.0);
         }
         QCOMPARE(second.count(), 1);
-        QCOMPARE(second.answer(), 1.0);
+        QCOMPARE(asDouble(second.answer()), 1.0);
         CalculationHistory reopened;
         const auto entry = reopened.calculate(QStringLiteral("ans"));
         QCOMPARE(entry.id, quint64(1));
-        QCOMPARE(entry.result.value, 0.0);
-        QCOMPARE(second.calculate(QStringLiteral("ans+1")).result.value, 2.0);
+        QCOMPARE(asDouble(entry.result.value), 0.0);
+        QCOMPARE(asDouble(second.calculate(QStringLiteral("ans+1")).result.value), 2.0);
     }
     void reusableValueBoundaries_data()
     {
         QTest::addColumn<double>("value");
         QTest::newRow("positive-zero") << 0.0;
         QTest::newRow("negative-zero") << -0.0;
-        QTest::newRow("decimal-residue") << (0.1 + 0.2);
+        QTest::newRow("decimal-residue") << (0.3);
         QTest::newRow("third") << (1.0 / 3.0);
         QTest::newRow("negative-root") << -std::sqrt(2.0);
         QTest::newRow("integer-boundary") << 9007199254740992.0;
@@ -1707,7 +1935,7 @@ private slots:
         QLocale::setDefault(QLocale(QLocale::German));
         CalculationRecord entry;
         entry.result.ok = true;
-        entry.result.value = value;
+        entry.result.value = binaryNumber(value);
         entry.result.text = QStringLiteral("显示文本不能用于数值复用");
         const QString text = entry.valueText();
         QVERIFY(!text.isEmpty());
@@ -1734,7 +1962,7 @@ private slots:
             if (!std::isfinite(value)) continue;
             CalculationRecord entry;
             entry.result.ok = true;
-            entry.result.value = value;
+            entry.result.value = binaryNumber(value);
             const auto parsed = ExpressionEngine::evaluate(entry.valueText());
             QVERIFY2(parsed.ok, qPrintable(entry.valueText()));
             QCOMPARE(bits(parsed.value), raw);
@@ -1745,25 +1973,25 @@ private slots:
         CalculationHistory history;
         const auto first = history.calculate(QStringLiteral("0.1+0.2"));
         QCOMPARE(first.result.text, QStringLiteral("0.3"));
-        QCOMPARE(first.valueText(), QStringLiteral("0.30000000000000004"));
-        QCOMPARE(first.calculationText(), QStringLiteral("0.1+0.2\n= 0.30000000000000004"));
+        QCOMPARE(first.valueText(), QStringLiteral("0.3"));
+        QCOMPARE(first.calculationText(), QStringLiteral("0.1+0.2\n= 0.3"));
         const auto second = history.calculate(QStringLiteral("ans*2"));
         history.calculate(QStringLiteral("100"));
         QCOMPARE(history.record(second.id)->calculationText(), second.calculationText());
         const auto fixed = ExpressionEngine::evaluate(second.insertionText(), history.answer());
         QVERIFY(fixed.ok);
         QCOMPARE(bits(fixed.value), bits(second.result.value));
-        QCOMPARE(history.answer(), 100.0);
+        QCOMPARE(asDouble(history.answer()), 100.0);
         const auto error = history.calculate(QStringLiteral("1+中"));
         QVERIFY(!error.result.ok);
         QVERIFY(error.valueText().isEmpty());
         QVERIFY(error.insertionText().isEmpty());
         QCOMPARE(error.calculationText(), QStringLiteral("1+中\n无法计算：") + error.result.text);
-        QCOMPARE(history.answer(), 100.0);
+        QCOMPARE(asDouble(history.answer()), 100.0);
         const auto negative = history.calculate(QStringLiteral("-2"));
         QCOMPARE(negative.valueText(), QStringLiteral("-2"));
         QCOMPARE(negative.insertionText(), QStringLiteral("(-2)"));
-        QCOMPARE(ExpressionEngine::evaluate(negative.insertionText() + QStringLiteral("^2")).value, 4.0);
+        QCOMPARE(asDouble(ExpressionEngine::evaluate(negative.insertionText() + QStringLiteral("^2")).value), 4.0);
     }
     void arithmetic_data()
     {
@@ -1797,9 +2025,9 @@ private slots:
     {
         QFETCH(QString, formula);
         QFETCH(double, expected);
-        const auto result = ExpressionEngine::evaluate(formula, 42);
+        const auto result = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("42")));
         QVERIFY2(result.ok, qPrintable(result.text));
-        QVERIFY(std::abs(result.value - expected) <= 1e-12 * qMax(1.0, std::abs(expected)));
+        QVERIFY(std::abs(asDouble(result.value) - expected) <= 1e-12 * qMax(1.0, std::abs(expected)));
     }
     void errors_data()
     {
@@ -1808,7 +2036,7 @@ private slots:
             QStringLiteral("1+"), QStringLiteral("(2+3"), QStringLiteral("2+3)"),
             QStringLiteral("2(3)"), QStringLiteral("1..2"), QStringLiteral("1e"),
             QStringLiteral("nan"), QStringLiteral("inf"), QStringLiteral("sqrt(-1)"),
-            QStringLiteral("ln(0)"), QStringLiteral("1e309"), QStringLiteral("1e308*2"),
+            QStringLiteral("ln(0)"), QStringLiteral("1e1000"), QStringLiteral("1e999*10"),
             QStringLiteral("2^1024"), QStringLiteral("unknown(2)"), QStringLiteral("sqrt(1,2)"),
             QStringLiteral("min(1)"), QStringLiteral("max(1,2,3)"), QStringLiteral("sqrt()"),
             QStringLiteral("<b>1</b>"), QStringLiteral("1,234"), QStringLiteral("１２+１"),
@@ -1872,13 +2100,13 @@ private slots:
         row("pow-domain", QStringLiteral("pow(-8,1/3)"), CalculationError::Domain, 7, 3, QStringLiteral("指数必须为整数"));
         row("zero-negative-power", QStringLiteral("0^-1"), CalculationError::Domain, 2, 2, QStringLiteral("指数不能为负数"));
         row("zero-negative-pow", QStringLiteral("pow(0,-2)"), CalculationError::Domain, 6, 2, QStringLiteral("指数不能为负数"));
-        row("literal-overflow", QStringLiteral("1e309"), CalculationError::Overflow, 0, 5, QStringLiteral("字面量过大"));
-        row("literal-underflow", QStringLiteral("1e-400"), CalculationError::Underflow, 0, 6, QStringLiteral("字面量过小"));
-        row("literal-near-zero", QStringLiteral("1e-324"), CalculationError::Underflow, 0, 6, QStringLiteral("下溢"));
-        row("arithmetic-overflow", QStringLiteral("1e308 * 2"), CalculationError::Overflow, 6, 1, QStringLiteral("数值溢出"));
-        row("addition-overflow", QStringLiteral("1e308+1e308"), CalculationError::Overflow, 5, 1, QStringLiteral("数值溢出"));
-        row("power-overflow", QStringLiteral("2^1024"), CalculationError::Overflow, 1, 1, QStringLiteral("数值溢出"));
-        row("function-overflow", QStringLiteral("1+exp(1000)"), CalculationError::Overflow, 2, 3, QStringLiteral("数值溢出"));
+        row("literal-overflow", QStringLiteral("1e1000"), CalculationError::Overflow, 0, 6, QStringLiteral("字面量过大"));
+        row("literal-underflow", QStringLiteral("1e-1000"), CalculationError::Underflow, 0, 7, QStringLiteral("字面量过小"));
+        row("literal-near-zero", QStringLiteral("9e-1000"), CalculationError::Underflow, 0, 7, QStringLiteral("下溢"));
+        row("arithmetic-overflow", QStringLiteral("1e999 * 10"), CalculationError::Overflow, 6, 1, QStringLiteral("上溢"));
+        row("addition-overflow", QStringLiteral("9e999+1e999"), CalculationError::Overflow, 5, 1, QStringLiteral("上溢"));
+        row("power-overflow", QStringLiteral("2^1024"), CalculationError::Limit, 1, 1, QStringLiteral("精度超限"));
+        row("function-overflow", QStringLiteral("1+exp(1000)"), CalculationError::Overflow, 2, 3, QStringLiteral("上溢"));
         row("input-limit", QString(4097, QLatin1Char('1')), CalculationError::Limit, 4096, 1, QStringLiteral("公式过长"));
         row("surrogate-at-limit", QString(4095, QLatin1Char('1')) + QStringLiteral("😀"), CalculationError::Limit, 4095, 2, QStringLiteral("公式过长"));
         row("nesting-limit", QString(129, QLatin1Char('-')) + QLatin1Char('1'), CalculationError::Limit, 128, 1, QStringLiteral("嵌套过深"));
@@ -1899,10 +2127,10 @@ private slots:
         QCOMPARE(entry.result.errorLength, length);
         QVERIFY2(entry.result.text.contains(message), qPrintable(entry.result.text));
         QCOMPARE(entry.expression, formula);
-        QCOMPARE(history.answer(), 42.0);
-        QCOMPARE(entry.answerBefore, 42.0);
+        QCOMPARE(asDouble(history.answer()), 42.0);
+        QCOMPARE(asDouble(entry.answerBefore), 42.0);
         const auto next = history.calculate(QStringLiteral("ans+1"));
-        QCOMPARE(next.result.value, 43.0);
+        QCOMPARE(asDouble(next.result.value), 43.0);
         QCOMPARE(next.result.error, CalculationError::None);
         QCOMPARE(next.result.errorPosition, -1);
         QCOMPARE(next.result.errorLength, 0);
@@ -1915,63 +2143,52 @@ private slots:
     void numericBoundaries_data()
     {
         QTest::addColumn<QString>("formula");
-        QTest::addColumn<double>("expected");
-        const QVector<QPair<QString, double>> cases = {
-            {QStringLiteral("9007199254740991"), 9007199254740991.0},
-            {QStringLiteral("9007199254740993"), 9007199254740992.0},
-            {QStringLiteral("9007199254740994-9007199254740992"), 2.0},
-            {QStringLiteral("(2^53+1)-2^53"), 0.0},
-            {QStringLiteral("-9007199254740993"), -9007199254740992.0},
-            {QStringLiteral("(1e16+1)-1e16"), 0.0},
-            {QStringLiteral("(1e16-1e16)+1"), 1.0},
-            {QStringLiteral("(0.1+0.2)-0.3"), 5.5511151231257827021181583404541015625e-17},
-            {QStringLiteral("5.5%2"), 1.5},
-            {QStringLiteral("-5.5%2"), -1.5},
-            {QStringLiteral("5.5%-2"), 1.5},
-            {QStringLiteral("-5.5%-2"), -1.5},
-            {QStringLiteral("-4%2"), -0.0},
-            {QStringLiteral("0.3%0.1"), 0.09999999999999998},
-            {QStringLiteral("round(1.005*100)/100"), 1.0},
-            {QStringLiteral("1e-200*1e-200"), 0.0},
-            {QStringLiteral("-1e-200*1e-200"), -0.0},
-            {QStringLiteral("2.2250738585072014e-308/2"), std::numeric_limits<double>::min() / 2},
-            {QStringLiteral("4.9406564584124654e-324"), std::numeric_limits<double>::denorm_min()},
-            {QStringLiteral("4.9406564584124654e-324/2"), 0.0},
-            {QStringLiteral("-4.9406564584124654e-324/2"), -0.0},
-            {QStringLiteral("exp(-1000)"), 0.0},
-            {QStringLiteral("0^0"), 1.0},
-            {QStringLiteral("pow(0,0)"), 1.0},
-            {QStringLiteral("(-2)^-3"), -0.125},
-            {QStringLiteral("sqrt(-0)"), -0.0}
+        QTest::addColumn<QString>("expected");
+        const QVector<QPair<QString, QString>> cases = {
+            {"9007199254740991", "9007199254740991"}, {"9007199254740993", "9007199254740993"},
+            {"9007199254740994-9007199254740992", "2"}, {"(2^53+1)-2^53", "1"},
+            {"-9007199254740993", "-9007199254740993"}, {"(1e16+1)-1e16", "1"},
+            {"(1e16-1e16)+1", "1"}, {"(0.1+0.2)-0.3", "0"},
+            {"5.5%2", "1.5"}, {"-5.5%2", "-1.5"}, {"5.5%-2", "1.5"}, {"-5.5%-2", "-1.5"},
+            {"-4%2", "-0"}, {"0.3%0.1", "0"}, {"round(1.005*100)/100", "1.01"},
+            {"1e-200*1e-200", "1e-400"}, {"-1e-200*1e-200", "-1e-400"},
+            {"2.2250738585072014e-308/2", "1.1125369292536007e-308"},
+            {"4.9406564584124654e-324", "4.9406564584124654e-324"},
+            {"4.9406564584124654e-324/2", "2.4703282292062327e-324"},
+            {"-4.9406564584124654e-324/2", "-2.4703282292062327e-324"},
+            {"0^0", "1"}, {"pow(0,0)", "1"}, {"(-2)^-3", "-0.125"}, {"sqrt(-0)", "-0"},
+            {"1e999", "1e+999"}, {"1e-999", "1e-999"}
         };
         for (const auto &entry : cases) QTest::newRow(qPrintable(entry.first)) << entry.first << entry.second;
     }
     void numericBoundaries()
     {
         QFETCH(QString, formula);
-        QFETCH(double, expected);
+        QFETCH(QString, expected);
         CalculationHistory history;
         const auto entry = history.calculate(formula);
         QVERIFY2(entry.result.ok, qPrintable(entry.result.text));
-        // 精确逐位比较；微小值和有符号零不能被统一绝对误差容限掩盖。
-        QCOMPARE(bits(entry.result.value), bits(expected));
-        QCOMPARE(bits(history.answer()), bits(expected));
+        const auto value = decimalNumber(expected);
+        QCOMPARE(entry.result.value, value);
+        QCOMPARE(history.answer(), value);
+        QCOMPARE(entry.result.text, expected);
         const auto parsed = ExpressionEngine::evaluate(entry.valueText());
         const auto inserted = ExpressionEngine::evaluate(entry.insertionText());
         QVERIFY(parsed.ok && inserted.ok);
-        QCOMPARE(bits(parsed.value), bits(expected));
-        QCOMPARE(bits(inserted.value), bits(expected));
+        QCOMPARE(parsed.value, value);
+        QCOMPARE(inserted.value, value);
     }
-    void nonFiniteAnswerIsRejectedAtItsToken()
+    void rejectsNonfiniteAnswer()
     {
+        const auto before = decimalNumber(QStringLiteral("42"));
         for (double value : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
         {
-            const auto result = ExpressionEngine::evaluate(QStringLiteral("1+ans"), value);
-            QVERIFY(!result.ok);
-            QCOMPARE(result.errorPosition, 2);
-            QCOMPARE(result.errorLength, 3);
+            auto answer = before;
+            QVERIFY(!NumericValue::fromBinary(value, answer).ok());
+            QCOMPARE(answer, before);
         }
     }
+
     void advertisedCapabilitiesAreExecutable()
     {
         QSet<QString> functions, constants;
@@ -1986,7 +2203,7 @@ private slots:
                 formula += entry.insertion.contains(QLatin1Char(',')) ? QStringLiteral("(2,3)") : QStringLiteral("(1)");
             }
             else constants.insert(entry.name);
-            const auto result = ExpressionEngine::evaluate(formula, 42);
+            const auto result = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("42")));
             QVERIFY2(result.ok, qPrintable(formula + QStringLiteral(": ") + result.text));
         }
         QCOMPARE(functions.size(), 14);
@@ -1995,7 +2212,7 @@ private slots:
     void displayPrecision()
     {
         QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("0.1+0.2")).text, QStringLiteral("0.3"));
-        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("-0")).text, QStringLiteral("0"));
+        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("-0")).text, QStringLiteral("-0"));
         QLocale::setDefault(QLocale(QLocale::German));
         QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("1.5+2.5")).text, QStringLiteral("4"));
         QLocale::setDefault(QLocale::c());

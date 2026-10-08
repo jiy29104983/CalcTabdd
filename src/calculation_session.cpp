@@ -11,21 +11,43 @@
 #include <QLockFile>
 #include <QSaveFile>
 #include <cmath>
-#include <limits>
 
 namespace {
-QString number(double value)
+QJsonObject number(const NumericValue &value)
 {
-    if (value == 0 && std::signbit(value)) return QStringLiteral("-0");
-    return QString::number(value, 'g', std::numeric_limits<double>::max_digits10);
+    QJsonArray sources;
+    if (value.sources() & NumericValue::Rounded) sources.append(QStringLiteral("R"));
+    if (value.sources() & NumericValue::Approximate) sources.append(QStringLiteral("A"));
+    if (value.sources() & NumericValue::ConversionLoss) sources.append(QStringLiteral("C"));
+    return {{QStringLiteral("kind"), value.isBinary() ? QStringLiteral("binary64") : QStringLiteral("decimal")},
+            {value.isBinary() ? QStringLiteral("bits") : QStringLiteral("text"), value.isBinary() ? value.binaryHex() : value.text()},
+            {QStringLiteral("sources"), sources}};
 }
 
-bool readNumber(const QJsonValue &value, double &result)
+bool readNumber(const QJsonValue &value, NumericValue &result)
 {
-    if (!value.isString()) return false;
-    bool ok = false;
-    result = value.toString().toDouble(&ok);
-    return ok && std::isfinite(result) && number(result) == value.toString();
+    if (!value.isObject()) return false;
+    const auto object = value.toObject();
+    if (object.size() != 3 || !object.value(QStringLiteral("kind")).isString()
+        || !object.value(QStringLiteral("sources")).isArray()) return false;
+    const QString kind = object.value(QStringLiteral("kind")).toString();
+    const bool binary = kind == QStringLiteral("binary64");
+    if (!binary && kind != QStringLiteral("decimal")) return false;
+    const auto payload = object.value(binary ? QStringLiteral("bits") : QStringLiteral("text"));
+    if (!payload.isString()) return false;
+    unsigned sources = 0, previous = 0;
+    for (const auto &item : object.value(QStringLiteral("sources")).toArray())
+    {
+        if (!item.isString()) return false;
+        const QString name = item.toString();
+        const unsigned flag = name == QStringLiteral("R") ? unsigned(NumericValue::Rounded)
+            : name == QStringLiteral("A") ? unsigned(NumericValue::Approximate) : name == QStringLiteral("C") ? unsigned(NumericValue::ConversionLoss) : 0u;
+        if (!flag || flag <= previous) return false;
+        sources |= flag;
+        previous = flag;
+    }
+    return binary ? NumericValue::restoreBinary(payload.toString(), sources, result)
+                  : NumericValue::restoreDecimal(payload.toString(), sources, result);
 }
 
 bool readInteger(const QJsonValue &value, int &result, int minimum, int maximum)
@@ -81,20 +103,22 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
     for (const auto &entry : session.history.records())
     {
         const auto &result = entry.result;
-        records.append(QJsonObject{
+        QJsonObject record{
             {QStringLiteral("id"), QString::number(entry.id)},
             {QStringLiteral("expression"), entry.expression},
             {QStringLiteral("customDefinition"), entry.customDefinition}, {QStringLiteral("parameterInput"), entry.parameterInput},
             {QStringLiteral("answerBefore"), number(entry.answerBefore)},
-            {QStringLiteral("ok"), result.ok}, {QStringLiteral("value"), number(result.value)},
-            {QStringLiteral("text"), result.text}, {QStringLiteral("error"), static_cast<int>(result.error)},
-            {QStringLiteral("errorPosition"), result.errorPosition}, {QStringLiteral("errorLength"), result.errorLength}});
+            {QStringLiteral("ok"), result.ok}, {QStringLiteral("value"), result.ok ? QJsonValue(number(result.value)) : QJsonValue(QJsonValue::Null)},
+            {QStringLiteral("error"), static_cast<int>(result.error)},
+            {QStringLiteral("errorPosition"), result.errorPosition}, {QStringLiteral("errorLength"), result.errorLength}};
+        if (!result.ok) record.insert(QStringLiteral("text"), result.text);
+        records.append(record);
     }
     QJsonObject recalled;
     for (auto it = session.recalledInputs.cbegin(); it != session.recalledInputs.cend(); ++it)
         recalled.insert(QString::number(it.key()), inputJson(it.value()));
     return QJsonDocument(QJsonObject{
-        {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 2},
+        {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 3},
         {QStringLiteral("sessionId"), session.id}, {QStringLiteral("records"), records},
         {QStringLiteral("answer"), number(session.history.answer())},
         {QStringLiteral("normalInput"), inputJson(session.normalInput)}, {QStringLiteral("customInput"), inputJson(session.customInput)},
@@ -112,7 +136,7 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) return invalid;
     const auto root = document.object();
     if (root.value(QStringLiteral("format")) != QStringLiteral("CalcTabdd.Session")) return invalid;
-    if (root.value(QStringLiteral("version")) != QJsonValue(2))
+    if (root.value(QStringLiteral("version")) != QJsonValue(3))
         return QStringLiteral("不支持此会话格式版本，原文件未修改。");
     CalculationSession restored;
     restored.id = root.value(QStringLiteral("sessionId")).toString();
@@ -129,29 +153,36 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
         entry.id = static_cast<quint64>(records.size()) + 1;
         if (object.value(QStringLiteral("id")) != QString::number(entry.id)
             || !object.value(QStringLiteral("expression")).isString()
-            || !object.value(QStringLiteral("text")).isString()
             || !object.value(QStringLiteral("ok")).isBool()) return invalid;
         if (!object.value(QStringLiteral("customDefinition")).isString()
             || !object.value(QStringLiteral("parameterInput")).isString()) return invalid;
         entry.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
         entry.parameterInput = object.value(QStringLiteral("parameterInput")).toString();
         entry.expression = object.value(QStringLiteral("expression")).toString();
-        entry.result.text = object.value(QStringLiteral("text")).toString();
         entry.result.ok = object.value(QStringLiteral("ok")).toBool();
         int kind = 0;
         if (!readNumber(object.value(QStringLiteral("answerBefore")), entry.answerBefore)
-            || !readNumber(object.value(QStringLiteral("value")), entry.result.value)
             || !readInteger(object.value(QStringLiteral("error")), kind, 0, static_cast<int>(CalculationError::Limit))
             || !readInteger(object.value(QStringLiteral("errorPosition")), entry.result.errorPosition, -1, entry.expression.size())
             || !readInteger(object.value(QStringLiteral("errorLength")), entry.result.errorLength, 0, entry.expression.size()))
             return invalid;
+        if (entry.result.ok)
+        {
+            if (object.contains(QStringLiteral("text")) || !readNumber(object.value(QStringLiteral("value")), entry.result.value)) return invalid;
+            entry.result.text = entry.result.value.text();
+        }
+        else
+        {
+            if (!object.value(QStringLiteral("value")).isNull() || !object.value(QStringLiteral("text")).isString()) return invalid;
+            entry.result.text = object.value(QStringLiteral("text")).toString();
+        }
         entry.result.error = static_cast<CalculationError>(kind);
         records.append(entry);
     }
     if (!restored.history.restoreRecords(records)) return invalid;
-    double answer = 0;
+    NumericValue answer;
     if (!readNumber(root.value(QStringLiteral("answer")), answer)
-        || number(answer) != number(restored.history.answer())
+        || answer != restored.history.answer()
         || !readInput(root.value(QStringLiteral("input")), restored.input)
         || !readInput(root.value(QStringLiteral("draft")), restored.draft)
         || !readInteger(root.value(QStringLiteral("historyPosition")), restored.historyPosition, -1, records.size() - 1)

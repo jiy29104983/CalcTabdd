@@ -158,7 +158,7 @@ void showCalculatorAbout(QWidget *owner)
         "<p>上述版本对应源码接口参考，不代表两个发布二进制都已实机验收；"
         "真实宿主 DLL 加载、输入法、关闭退出与 DPI 仍需手动确认。其他宿主版本未验证。</p>"
         "<p><b>本次构建：</b>Qt %2；当前 Qt 运行库 %3；%4 位。</p>"
-        "<p>双精度实数计算，最多显示 15 位有效数字。详细能力见“运算与精度帮助”。"
+        "<p>有界精确十进制计算，最多50位有效数字；科学函数使用近似路径，最多17位可往返显示。详细能力见“运算与精度帮助”。"
         "本地保存默认关闭；可通过“本地会话”开启保存，关闭后在空白计算器中从文件恢复。</p>")
         .arg(QStringLiteral(CALCTABDD_VERSION), QStringLiteral(QT_VERSION_STR), QString::fromLatin1(qVersion()))
         .arg(sizeof(void *) * 8));

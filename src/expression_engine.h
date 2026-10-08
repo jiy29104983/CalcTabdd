@@ -19,7 +19,7 @@ enum class CalculationError
 struct CalculationResult
 {
     bool ok = false;
-    double value = 0;
+    NumericValue value;
     QString text;
     // 相对传入公式的 UTF-16 范围；长度 0 表示插入点（例如末尾缺少右括号）。
     int errorPosition = -1;
@@ -27,16 +27,8 @@ struct CalculationResult
     CalculationError error = CalculationError::None;
 };
 
-// 成功结果不生成用户显示文本；供完整数值链路接入的内部接口。
-struct NumericCalculationResult
-{
-    bool ok = false;
-    NumericValue value;
-    QString text;
-    int errorPosition = -1;
-    int errorLength = 0;
-    CalculationError error = CalculationError::None;
-};
+// 内部入口与生产入口使用同一结果类型和格式。
+using NumericCalculationResult = CalculationResult;
 
 struct ExpressionParameter
 {
@@ -52,5 +44,5 @@ public:
     static CalculationResult inspect(const QString &expression, QVector<ExpressionParameter> &parameters);
     static bool isReservedName(const QString &name);
     static NumericCalculationResult evaluateNumeric(const QString &expression, const NumericValue &answer = NumericValue());
-    static CalculationResult evaluate(const QString &expression, double answer = 0);
+    static CalculationResult evaluate(const QString &expression, const NumericValue &answer = NumericValue());
 };

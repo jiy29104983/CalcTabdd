@@ -1,3 +1,4 @@
+#include "numeric_test_helpers.h"
 #include "ndd_plugin_api.h"
 #include "calculation_session.h"
 #include <Qsci/qsciscintilla.h>
@@ -145,6 +146,51 @@ class PluginTests : public QObject
         return !host.page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
     }
 private slots:
+    void typedResultsSurviveNativeHostCloseAndRestore()
+    {
+        QTemporaryDir directory;
+        const auto path = directory.filePath(QStringLiteral("numeric.calctabdd"));
+        Host first, second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        auto submit = [](Host &host, const QString &formula) {
+            host.input()->setPlainText(formula);
+            host.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        };
+        submit(first, QStringLiteral("0.1+0.2"));
+        QVERIFY(first.input());
+        QVERIFY(first.findChild<QTextBrowser *>(QStringLiteral("recordResult")));
+        QCOMPARE(first.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 0.3"));
+        submit(first, QStringLiteral("ans-0.3"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 0"));
+        QVERIFY(defineFormula(first, QStringLiteral("A=sin(x/y)")));
+        submit(first, QStringLiteral("x=1\ny=3"));
+        auto *sources = first.page()->findChild<QLabel *>(QStringLiteral("recordSources"));
+        QVERIFY(sources);
+        QCOMPARE(sources->text(), QStringLiteral("来源：含除法舍入；含近似计算；含转换损失"));
+        QVERIFY(selectSession(first, path, false));
+        const auto saved = readSession(path).history.answer();
+        QVERIFY(saved.isBinary());
+        QCOMPARE(saved.sources(), unsigned(NumericValue::Rounded | NumericValue::Approximate | NumericValue::ConversionLoss));
+        first.closeCurrent();
+        first.openAction()->trigger();
+        QVERIFY(selectSession(first, path, true));
+        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordSources"))->text(), saved.sourceText());
+        first.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        submit(first, QStringLiteral("ans"));
+        QCOMPARE(readSession(path).history.answer(), saved);
+        submit(second, QStringLiteral("ans"));
+        QCOMPARE(second.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 0"));
+        for (Host *host : {&first, &second})
+        {
+            const auto *native = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
+            QVERIFY(native && native->isReadOnly() && native->text().isEmpty() && !native->isModified());
+            QCOMPARE(host->ordinary->text(), QStringLiteral("普通文档，不得改动"));
+            QCOMPARE(host->hostEditCalls, 0);
+        }
+    }
     void customFormulaModesAndFilesStayWithinTheirHostWindow()
     {
         QTemporaryDir directory;
@@ -159,12 +205,12 @@ private slots:
         QVERIFY(defineFormula(first, QStringLiteral("A=x^2+y")));
         first.input()->setPlainText(QStringLiteral("x=-2 y=3"));
         first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
         QVERIFY(first.page()->findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("每行只能填写一个参数")));
         first.input()->setPlainText(QStringLiteral("x=-2\ny=3"));
         first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordFormula"))->text(), QStringLiteral("A=(-2)^2+3"));
-        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 7"));
+        QCOMPARE(first.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 7"));
         QVERIFY(defineFormula(second, QStringLiteral("B=t*3")));
         second.input()->setPlainText(QStringLiteral("t=10"));
         second.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
@@ -191,9 +237,9 @@ private slots:
         first.input()->moveCursor(QTextCursor::End);
         QTest::keyClick(first.input(), Qt::Key_Return);
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(readSession(path).history.answer(), 21.0);
+        QCOMPARE(asDouble(readSession(path).history.answer()), 21.0);
         QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=t*3"));
-        QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 30"));
+        QCOMPARE(second.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 30"));
         for (Host *host : {&first, &second})
         {
             const auto *editor = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
@@ -207,7 +253,7 @@ private slots:
         second.openAction()->trigger();
         QVERIFY(!second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
         QVERIFY(second.input()->toPlainText().isEmpty());
-        QVERIFY(second.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
     }
     void customDefinitionDialogLifetime_data()
     {
@@ -263,7 +309,7 @@ private slots:
             // 第二窗口不能恢复正在使用的会话，也不能覆盖它。
             QVERIFY(selectSession(second, firstPath, true));
             QVERIFY(second.page()->findChild<QLabel *>(QStringLiteral("sessionSaveStatus"))->text().contains(QStringLiteral("其他窗口或进程")));
-            QVERIFY(second.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            QVERIFY(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
             second.input()->setPlainText(QStringLiteral("21"));
             second.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
             QVERIFY(selectSession(second, secondPath, false));
@@ -276,19 +322,19 @@ private slots:
             first.closeCurrent();
             const auto saved = readSession(firstPath);
             QCOMPARE(saved.history.count(), 1);
-            QCOMPARE(saved.history.answer(), 0.1 + 0.2);
+            QCOMPARE(asDouble(saved.history.answer()), 0.3);
             QCOMPARE(saved.input.text, QStringLiteral("ans+2"));
             QCOMPARE(saved.draft.text, QStringLiteral("原草稿😀"));
-            QCOMPARE(readSession(secondPath).history.answer(), 21.0);
+            QCOMPARE(asDouble(readSession(secondPath).history.answer()), 21.0);
             first.openAction()->trigger();
-            QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
             QVERIFY(first.input()->toPlainText().isEmpty());
             QVERIFY(selectSession(first, firstPath, true));
             QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+2"));
             first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
             QCOMPARE(first.input()->toPlainText(), QStringLiteral("原草稿😀"));
-            QCOMPARE(readSession(firstPath).history.answer(), 0.1 + 0.2 + 2);
-            QCOMPARE(readSession(secondPath).history.answer(), 21.0);
+            QCOMPARE(asDouble(readSession(firstPath).history.answer()), 2.3);
+            QCOMPARE(asDouble(readSession(secondPath).history.answer()), 21.0);
             for (Host *host : {&first, &second})
             {
                 auto *native = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
@@ -307,7 +353,7 @@ private slots:
         reopened.openAction()->trigger();
         QVERIFY(selectSession(reopened, secondPath, true));
         QCOMPARE(reopened.input()->toPlainText(), QStringLiteral("窗口退出前草稿"));
-        QCOMPARE(reopened.page()->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 21"));
+        QCOMPARE(reopened.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 21"));
     }
     void sessionFileDialogsFollowPageLifetime_data()
     {
@@ -354,7 +400,7 @@ private slots:
         {
             if (closeMode == 0) host->tabs->setCurrentWidget(native);
             else host->openAction()->trigger();
-            QVERIFY(host->page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+            QVERIFY(host->page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
             delete host;
         }
     }
@@ -434,7 +480,7 @@ private slots:
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("2+sqrt()"));
         QTest::keyClicks(host.input(), "9");
         QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 5"));
+        QCOMPARE(host.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 5"));
         QCOMPARE(native->text(), QString());
         QVERIFY(!native->isModified());
         QTest::keyClicks(host.input(), "@");
@@ -462,12 +508,12 @@ private slots:
         QTest::keyClicks(host.input(), "1+2*3");
         QTest::keyClick(host.input(), Qt::Key_Return);
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("1+2*3"));
-        QVERIFY(host.findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(host.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
         QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 7"));
+        QCOMPARE(host.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 7"));
         QTest::keyClicks(host.input(), "2+3");
         QTest::keyClick(host.input(), Qt::Key_Enter, Qt::ControlModifier | Qt::KeypadModifier);
-        QCOMPARE(host.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 2);
+        QCOMPARE(host.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 2);
         QTest::keyClick(native->viewport(), Qt::Key_Return);
         QCOMPARE(native->text(), QString());
         QVERIFY(!native->isModified());
@@ -503,7 +549,7 @@ private slots:
         QTRY_VERIFY(host.page()->isVisible());
         native->viewport()->setFocus();
         QTRY_VERIFY(host.input()->hasFocus());
-        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 43"));
+        QCOMPARE(host.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 43"));
         QVERIFY(!native->isModified());
     }
     void lifecycleAndWindowsAreIndependent()
@@ -516,8 +562,8 @@ private slots:
         second.openAction()->trigger();
         first.input()->setPlainText(QStringLiteral("123"));
         first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 1);
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 0);
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 1);
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 0);
         QPointer<QWidget> page = first.page();
         QPointer<QWidget> editor = first.tabs->currentWidget();
         first.closeCurrent();
@@ -526,7 +572,7 @@ private slots:
         QVERIFY(second.page()->isVisible());
         first.openAction()->trigger();
         QVERIFY(first.page());
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 0);
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 0);
     }
     void recordSessionsSurviveSwitchingAndResetOnReopen()
     {
@@ -547,22 +593,22 @@ private slots:
         first.tabs->setCurrentWidget(first.ordinary);
         first.tabs->setCurrentWidget(native);
         submit(first, QStringLiteral("ans+1"));
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 5"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 5"));
         QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordNumber")).last()->text(), QStringLiteral("03"));
         first.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).last()->click();
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 44"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 44"));
         QVERIFY(native->text().isEmpty());
         QVERIFY(!native->isModified());
         first.closeCurrent();
         first.openAction()->trigger();
         submit(first, QStringLiteral("ans"));
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 1);
-        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 0"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 1);
+        QCOMPARE(first.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 0"));
         QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
         submit(second, QStringLiteral("ans+1"));
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 6"));
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 6"));
         QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordNumber")).last()->text(), QStringLiteral("02"));
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
@@ -581,9 +627,9 @@ private slots:
         first.input()->setPlainText(QStringLiteral("0.1+0.2"));
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
         first.page()->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
-        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.30000000000000004"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.3"));
         first.page()->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
-        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.1+0.2\n= 0.30000000000000004"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.1+0.2\n= 0.3"));
         first.input()->setPlainText(QStringLiteral("-2"));
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
         first.input()->setPlainText(QStringLiteral("99^2"));
@@ -598,7 +644,7 @@ private slots:
         first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionredo"))->trigger();
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("(-2)^2"));
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 4"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 4"));
         auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
         QVERIFY(native->text().isEmpty());
         QVERIFY(!native->isModified());
@@ -609,7 +655,7 @@ private slots:
         QVERIFY(first.findChild<QAction *>(QStringLiteral("actioncopy"))->isEnabled());
         first.tabs->setCurrentWidget(native);
         first.page()->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
-        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.30000000000000004"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0.3"));
         QPointer<QToolButton> menuOwner = first.page()->findChild<QToolButton *>(QStringLiteral("recordActions"));
         first.closeCurrent();
         QVERIFY(menuOwner.isNull());
@@ -654,7 +700,7 @@ private slots:
         QVERIFY(first.input()->extraSelections().isEmpty());
         first.input()->setPlainText(QStringLiteral("ans+1"));
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
         QVERIFY(native->text().isEmpty());
         QVERIFY(!native->isModified());
         QCOMPARE(first.hostEditCalls, 0);
@@ -693,7 +739,7 @@ private slots:
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("6*7"));
         QTest::keyClicks(first.input(), "+1");
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("第一份草稿"));
         second.activateWindow();
         second.input()->setFocus();
@@ -794,21 +840,21 @@ private slots:
         QTRY_VERIFY(second.input()->hasFocus());
         second.input()->setPlainText(QStringLiteral("ans+2"));
         QTest::keyClick(second.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 102"));
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 102"));
         second.input()->setPlainText(QStringLiteral("second draft"));
         first.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncut"))->trigger();
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("42+9"));
         dialog->activateWindow();
         QTest::mouseClick(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok), Qt::LeftButton);
-        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
         QCOMPARE(second.input()->toPlainText(), QStringLiteral("second draft"));
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 2);
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 2);
         first.activateWindow();
         first.input()->setFocus();
         QTRY_VERIFY(first.input()->hasFocus());
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 1"));
+        QCOMPARE(first.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 1"));
         QCOMPARE(first.findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
         QVERIFY(native->text().isEmpty());
         QVERIFY(!native->isModified());
@@ -818,7 +864,7 @@ private slots:
         first.tabs->setCurrentWidget(native);
         first.closeCurrent();
         first.openAction()->trigger();
-        QVERIFY(first.page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
         QVERIFY(!first.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->isEnabled());
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
@@ -842,10 +888,10 @@ private slots:
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(dialog.isNull());
         host.tabs->setCurrentWidget(native);
-        QCOMPARE(host.findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 42"));
+        QCOMPARE(host.findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 42"));
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("ans+1"));
         host.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QCOMPARE(host.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(host.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
     }
     void destroyingPageWithClearConfirmationIsSafe()
     {
@@ -862,7 +908,7 @@ private slots:
         host->openAction()->trigger();
         host->input()->setPlainText(QStringLiteral("ans+1"));
         host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QCOMPARE(host->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 1"));
+        QCOMPARE(host->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 1"));
         host->page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
         dialog = host->page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
         QVERIFY(dialog);
@@ -895,7 +941,7 @@ private slots:
         QTRY_VERIFY(second.input()->hasFocus());
         second.input()->setPlainText(QStringLiteral("ans+2"));
         QTest::keyClick(second.input(), Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 102"));
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 102"));
         second.input()->setPlainText(QStringLiteral("第二窗口草稿"));
         first.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncut"))->trigger();
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
@@ -915,9 +961,9 @@ private slots:
         QVERIFY(!contents.contains("ans+1"));
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
         first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QCOMPARE(first.findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+        QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
         QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二窗口草稿"));
-        QCOMPARE(second.findChildren<QLabel *>(QStringLiteral("recordResult")).size(), 2);
+        QCOMPARE(second.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 2);
         QVERIFY(native->text().isEmpty());
         QVERIFY(!native->isModified());
         QCOMPARE(first.hostEditCalls, 0);
@@ -986,11 +1032,11 @@ private slots:
             {
                 QCOMPARE(host->input()->toPlainText(), QStringLiteral("ans+1"));
                 host->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-                QCOMPARE(host->findChildren<QLabel *>(QStringLiteral("recordResult")).last()->text(), QStringLiteral("= 43"));
+                QCOMPARE(host->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
             }
             else
             {
-                QVERIFY(host->page()->findChildren<QLabel *>(QStringLiteral("recordResult")).isEmpty());
+                QVERIFY(host->page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
                 QVERIFY(!host->page()->findChild<QToolButton *>(QStringLiteral("exportHistoryButton"))->isEnabled());
             }
             delete host;
@@ -1024,7 +1070,7 @@ private slots:
         QVERIFY(input);
         input->setPlainText(QStringLiteral("6*7"));
         QTest::keyClick(input, Qt::Key_Return, Qt::ControlModifier);
-        QCOMPARE(current->findChild<QLabel *>(QStringLiteral("recordResult"))->text(), QStringLiteral("= 42"));
+        QCOMPARE(current->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 42"));
         host.openAction()->trigger();
         QCOMPARE(host.creations, 2);
     }

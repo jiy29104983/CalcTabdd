@@ -1,8 +1,6 @@
 #include "expression_engine.h"
 
-#include <QLocale>
 #include <QVector>
-#include <cmath>
 #include <utility>
 
 namespace {
@@ -19,13 +17,7 @@ struct ParseError
     SourceRange range;
 };
 
-struct Value
-{
-    double legacy = 0;
-    NumericValue numeric;
-    Value(double value = 0) : legacy(value) {}
-    explicit Value(const NumericValue &value) : numeric(value) {}
-};
+using Value = NumericValue;
 
 struct Argument
 {
@@ -36,20 +28,13 @@ struct Argument
 class Parser
 {
 public:
-    Parser(QString text, double answer, QVector<ExpressionParameter> *parameters = nullptr)
+    Parser(QString text, const NumericValue &answer, QVector<ExpressionParameter> *parameters = nullptr)
         : m_text(std::move(text)), m_answer(answer), m_parameters(parameters)
     {
         // 逐代码单元替换，错误范围始终对应原始公式。
         m_text.replace(QChar(0x00d7), QLatin1Char('*'));
         m_text.replace(QChar(0x00f7), QLatin1Char('/'));
         m_text.replace(QChar(0x2212), QLatin1Char('-'));
-    }
-
-    Parser(QString text, const NumericValue &answer)
-        : Parser(std::move(text), 0)
-    {
-        m_answer = Value(answer);
-        m_numeric = true;
     }
 
     Value parse()
@@ -98,15 +83,6 @@ private:
         while (end > start && m_text.at(end - 1).isSpace()) --end;
         return {start, end - start};
     }
-    double finite(double value, SourceRange range) const
-    {
-        if (m_parameters) return 1;
-        if (std::isnan(value))
-            fail(QStringLiteral("运算超出实数定义域"), CalculationError::Domain, range);
-        if (!std::isfinite(value))
-            fail(QStringLiteral("数值溢出，结果超出 double 可表示范围"), CalculationError::Overflow, range);
-        return value;
-    }
     void skipSpace()
     {
         while (m_position < m_text.size() && m_text.at(m_position).isSpace()) ++m_position;
@@ -124,34 +100,16 @@ private:
     Value binary(char operation, const Value &left, const Value &right,
                  SourceRange leftRange, SourceRange rightRange, SourceRange operationRange) const
     {
-        if (m_parameters) return 1;
-        if (m_numeric)
-        {
-            NumericValue result;
-            const auto status = NumericValue::operate(operation, left.numeric, right.numeric, result);
-            numericCheck(status, status.argument == 0 ? leftRange : status.argument == 1 ? rightRange : operationRange);
-            return Value(result);
-        }
-        const double a = left.legacy, b = right.legacy;
-        if ((operation == '/' || operation == '%') && b == 0)
-            fail(operation == '/' ? QStringLiteral("除数不能为 0") : QStringLiteral("取余的除数不能为 0"),
-                 CalculationError::DivisionByZero, rightRange);
-        if (operation == '^')
-        {
-            if (a == 0 && b < 0)
-                fail(QStringLiteral("乘方的底数为 0 时，指数不能为负数"), CalculationError::Domain, rightRange);
-            if (a < 0 && std::trunc(b) != b)
-                fail(QStringLiteral("实数乘方中，负底数的指数必须为整数"), CalculationError::Domain, rightRange);
-            return finite(std::pow(a, b), operationRange);
-        }
-        switch (operation)
-        {
-        case '+': return finite(a + b, operationRange);
-        case '-': return finite(a - b, operationRange);
-        case '*': return finite(a * b, operationRange);
-        case '/': return finite(a / b, operationRange);
-        default: return finite(std::fmod(a, b), operationRange);
-        }
+        if (m_parameters) return {};
+        NumericValue result;
+        const auto status = NumericValue::operate(operation, left, right, result);
+        if (status.error == NumericError::DivisionByZero && operation == '%')
+            fail(QStringLiteral("取余的除数不能为 0"), CalculationError::DivisionByZero, rightRange);
+        if (status.error == NumericError::Domain && operation == '^')
+            fail(left.isZero() ? QStringLiteral("乘方的底数为 0 时，指数不能为负数")
+                               : QStringLiteral("实数乘方中，负底数的指数必须为整数"), CalculationError::Domain, rightRange);
+        numericCheck(status, status.argument == 0 ? leftRange : status.argument == 1 ? rightRange : operationRange);
+        return result;
     }
     void numericCheck(NumericStatus status, SourceRange range) const
     {
@@ -221,8 +179,7 @@ private:
         else if (take(QLatin1Char('-')))
         {
             value = unary();
-            if (m_numeric) value.numeric = value.numeric.negated();
-            else value.legacy = -value.legacy;
+            value = value.negated();
         }
         else value = power();
         --m_depth;
@@ -260,13 +217,12 @@ private:
             const QString name = m_text.mid(start, nameRange.length).toLower();
             if (name == QStringLiteral("pi") || name == QStringLiteral("e"))
             {
-                if (m_parameters) return 1;
-                if (!m_numeric) return name == QStringLiteral("pi") ? std::acos(-1.0) : std::exp(1.0);
+                if (m_parameters) return {};
                 NumericValue result;
                 numericCheck(NumericValue::constant(name, result), nameRange);
                 return Value(result);
             }
-            if (name == QStringLiteral("ans")) return m_numeric ? m_answer : Value(finite(m_answer.legacy, nameRange));
+            if (name == QStringLiteral("ans")) return m_answer;
             const int count = argumentCount(name);
             if (count == 0 && m_parameters)
             {
@@ -274,7 +230,7 @@ private:
                 if (m_position < m_text.size() && m_text.at(m_position) == QLatin1Char('('))
                     fail(QStringLiteral("未知函数：%1").arg(name), CalculationError::UnknownName, nameRange);
                 m_parameters->append({m_text.mid(start, nameRange.length), start, nameRange.length});
-                return 1;
+                return {};
             }
             if (count == 0)
                 fail(QStringLiteral("未知函数或常量：%1").arg(name), CalculationError::UnknownName, nameRange);
@@ -318,83 +274,52 @@ private:
             if (exponent == m_position)
                 fail(QStringLiteral("科学计数法缺少指数"), CalculationError::Syntax, {exponentStart, m_position - exponentStart});
         }
-        if (m_parameters) return 1;
-        bool ok = false;
+        if (m_parameters) return {};
         const SourceRange number{start, m_position - start};
-        if (m_numeric)
-        {
-            NumericValue result;
-            numericCheck(NumericValue::parse(m_text.mid(start, number.length), result), number);
-            return Value(result);
-        }
-        const double value = QLocale::c().toDouble(m_text.mid(start, number.length), &ok);
-        if (!ok)
-        {
-            // 数字语法已在上面验证；Qt 转换溢出返回无穷，下溢返回 0。
-            if (value == 0)
-                fail(QStringLiteral("数值字面量过小，转换为 double 时下溢为 0"), CalculationError::Underflow, number);
-            fail(QStringLiteral("数值字面量过大，超出 double 可表示范围"), CalculationError::Overflow, number);
-        }
-        return finite(value, number);
+        NumericValue result;
+        const auto status = NumericValue::parse(m_text.mid(start, number.length), result);
+        if (status.error == NumericError::Overflow)
+            fail(QStringLiteral("数值字面量过大，规范化指数最多 999"), CalculationError::Overflow, number);
+        if (status.error == NumericError::Underflow)
+            fail(QStringLiteral("数值字面量过小，规范化指数至少 -999，不能下溢为 0"), CalculationError::Underflow, number);
+        numericCheck(status, number);
+        return result;
     }
     static bool isDigit(QChar ch) { return ch >= QLatin1Char('0') && ch <= QLatin1Char('9'); }
     static int argumentCount(const QString &name) { return NumericValue::argumentCount(name); }
     Value function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
     {
-        if (m_parameters) return 1;
-        if (m_numeric)
-        {
-            QVector<NumericValue> values;
-            for (const auto &argument : args) values.append(argument.value.numeric);
-            NumericValue result;
-            const auto status = NumericValue::function(name, values, result);
-            numericCheck(status, status.argument >= 0 ? args.at(status.argument).range : nameRange);
-            return Value(result);
-        }
-        if (name == QStringLiteral("min")) return qMin(args[0].value.legacy, args[1].value.legacy);
-        if (name == QStringLiteral("max")) return qMax(args[0].value.legacy, args[1].value.legacy);
+        if (m_parameters) return {};
         if (name == QStringLiteral("pow")) return binary('^', args[0].value, args[1].value, args[0].range, args[1].range, nameRange);
-        const double value = args.first().value.legacy;
-        const SourceRange range = args.first().range;
-        if (name == QStringLiteral("sqrt"))
-        {
-            if (value < 0) fail(QStringLiteral("sqrt(x) 的参数必须大于或等于 0"), CalculationError::Domain, range);
-            return finite(std::sqrt(value), nameRange);
-        }
-        if (name == QStringLiteral("ln") || name == QStringLiteral("log"))
-        {
-            if (value <= 0) fail(QStringLiteral("%1(x) 的参数必须大于 0；0 和负数没有实数对数").arg(name), CalculationError::Domain, range);
-            return finite(name == QStringLiteral("ln") ? std::log(value) : std::log10(value), nameRange);
-        }
-        if (name == QStringLiteral("abs")) return std::abs(value);
-        if (name == QStringLiteral("sin")) return finite(std::sin(value), nameRange);
-        if (name == QStringLiteral("cos")) return finite(std::cos(value), nameRange);
-        if (name == QStringLiteral("tan")) return finite(std::tan(value), nameRange);
-        if (name == QStringLiteral("exp")) return finite(std::exp(value), nameRange);
-        if (name == QStringLiteral("floor")) return std::floor(value);
-        if (name == QStringLiteral("ceil")) return std::ceil(value);
-        if (name == QStringLiteral("round")) return std::round(value);
-        fail(QStringLiteral("未知函数：%1").arg(name), CalculationError::UnknownName, nameRange);
+        QVector<NumericValue> values;
+        for (const auto &argument : args) values.append(argument.value);
+        NumericValue result;
+        const auto status = NumericValue::function(name, values, result);
+        if (status.error == NumericError::Domain && name == QStringLiteral("sqrt"))
+            fail(QStringLiteral("sqrt(x) 的参数必须大于或等于 0"), CalculationError::Domain, args.first().range);
+        if (status.error == NumericError::Domain && (name == QStringLiteral("ln") || name == QStringLiteral("log")))
+            fail(QStringLiteral("%1(x) 的参数必须大于 0；0 和负数没有实数对数").arg(name), CalculationError::Domain, args.first().range);
+        numericCheck(status, status.argument >= 0 ? args.at(status.argument).range : nameRange);
+        return result;
     }
 
     QString m_text;
     Value m_answer;
-    bool m_numeric = false;
     QVector<ExpressionParameter> *m_parameters;
     int m_position = 0;
     int m_depth = 0;
 };
 }
 
-CalculationResult ExpressionEngine::evaluate(const QString &expression, double answer)
+CalculationResult ExpressionEngine::evaluate(const QString &expression, const NumericValue &answer)
 {
     CalculationResult result;
     try
     {
         Parser parser(expression, answer);
-        result.value = parser.parse().legacy;
+        result.value = parser.parse();
         result.ok = true;
-        result.text = QString::number(result.value == 0 ? 0 : result.value, 'g', 15);
+        result.text = result.value.text();
     }
     catch (const ParseError &error)
     {
@@ -412,7 +337,7 @@ CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<E
     QVector<ExpressionParameter> found;
     try
     {
-        Parser parser(expression, 0, &found);
+        Parser parser(expression, NumericValue(), &found);
         parser.parse();
         parameters = found;
         result.ok = true;
@@ -434,19 +359,5 @@ bool ExpressionEngine::isReservedName(const QString &name)
 
 NumericCalculationResult ExpressionEngine::evaluateNumeric(const QString &expression, const NumericValue &answer)
 {
-    NumericCalculationResult result;
-    try
-    {
-        Parser parser(expression, answer);
-        result.value = parser.parse().numeric;
-        result.ok = true;
-    }
-    catch (const ParseError &error)
-    {
-        result.text = error.text;
-        result.error = error.kind;
-        result.errorPosition = error.range.start;
-        result.errorLength = error.range.length;
-    }
-    return result;
+    return evaluate(expression, answer);
 }

@@ -2,21 +2,18 @@
 #include "custom_formula.h"
 
 #include <algorithm>
-#include <cmath>
-#include <limits>
 
 QString CalculationRecord::valueText() const
 {
     if (!result.ok) return {};
-    // QString 的 C 区域格式不含分组符；保留负零，避免往返时丢失符号。
-    if (result.value == 0 && std::signbit(result.value)) return QStringLiteral("-0");
-    return QString::number(result.value, 'g', std::numeric_limits<double>::max_digits10);
+    return result.value.text();
 }
 
 QString CalculationRecord::calculationText() const
 {
-    return expression + (result.ok ? QStringLiteral("\n= ") + valueText()
-                                   : QStringLiteral("\n无法计算：") + result.text);
+    if (!result.ok) return expression + QStringLiteral("\n无法计算：") + result.text;
+    const QString sources = result.value.sourceText();
+    return expression + QStringLiteral("\n= ") + valueText() + (sources.isEmpty() ? QString() : QLatin1Char('\n') + sources);
 }
 
 QString CalculationRecord::insertionText() const
@@ -62,7 +59,7 @@ CalculationRecord CalculationHistory::calculateCustom(const QString &definition,
 void CalculationHistory::clear()
 {
     m_records.clear();
-    m_answer = 0;
+    m_answer = NumericValue();
     m_nextId = 1;
 }
 
@@ -75,7 +72,7 @@ const CalculationRecord *CalculationHistory::record(quint64 id) const
 
 bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &records)
 {
-    double answer = 0;
+    NumericValue answer;
     quint64 nextId = 1;
     for (const auto &entry : records)
     {
@@ -89,9 +86,8 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
         }
         else if (!entry.parameterInput.isEmpty()) return false;
         const auto &result = entry.result;
-        if (entry.id != nextId++ || entry.expression.isEmpty() || result.text.isEmpty()
-            || !std::isfinite(entry.answerBefore) || !std::isfinite(result.value)
-            || entry.answerBefore != answer || std::signbit(entry.answerBefore) != std::signbit(answer))
+        if (entry.id != nextId++ || entry.expression.isEmpty() || (!result.ok && result.text.isEmpty())
+            || entry.answerBefore != answer)
             return false;
         if (result.ok)
         {
@@ -99,12 +95,14 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
                 return false;
             answer = result.value;
         }
-        else if (result.error <= CalculationError::None || result.error > CalculationError::Limit
+        else if (result.value != NumericValue() || result.error <= CalculationError::None || result.error > CalculationError::Limit
                  || result.errorPosition < 0 || result.errorPosition > entry.expression.size()
                  || result.errorLength < 0 || result.errorLength > entry.expression.size() - result.errorPosition)
             return false;
     }
     m_records = records;
+    for (auto &entry : m_records)
+        if (entry.result.ok) entry.result.text = entry.result.value.text();
     m_nextId = nextId;
     m_answer = answer;
     return true;

@@ -1,3 +1,4 @@
+#include "record_text.h"
 #include "calculator_page.h"
 #include "calculator_help.h"
 #include "calculator_style.h"
@@ -201,6 +202,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
         if (!now || !isAncestorOf(now)) return;
         if (now == m_input || m_input->isAncestorOf(now)) m_editTarget = m_input;
+        else if (auto *result = qobject_cast<RecordText *>(now)) m_editTarget = result;
         else if (auto *label = qobject_cast<QLabel *>(now))
         {
             if (label->textInteractionFlags() & Qt::TextSelectableByKeyboard) m_editTarget = label;
@@ -574,16 +576,25 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     formula->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     formula->setFont(m_input->font());
     values->addWidget(formula);
-    auto *value = new QLabel(result.ok ? QStringLiteral("= %1").arg(result.text) : QStringLiteral("无法计算：%1").arg(result.text), record);
+    auto *value = new RecordText(result.ok ? QStringLiteral("= %1").arg(result.text) : QStringLiteral("无法计算：%1").arg(result.text), record);
     value->setObjectName(QStringLiteral("recordResult"));
-    value->setTextFormat(Qt::PlainText);
-    value->setWordWrap(true);
     value->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     value->setProperty("error", !result.ok);
     QFont resultFont = result.ok ? m_input->font() : font();
     if (result.ok) resultFont.setPointSizeF(m_input->font().pointSizeF() + 4);
     value->setFont(resultFont);
+    value->setMinimumWidth(0);
     values->addWidget(value);
+    if (result.ok && result.value.sources())
+    {
+        auto *sources = new QLabel(result.value.sourceText(), record);
+        sources->setObjectName(QStringLiteral("recordSources"));
+        sources->setTextFormat(Qt::PlainText);
+        sources->setWordWrap(true);
+        sources->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        sources->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        values->addWidget(sources);
+    }
     row->addLayout(values, 1);
     auto *reuse = new QPushButton(result.ok ? QStringLiteral("再次使用") : QStringLiteral("修改公式"), record);
     reuse->setObjectName(QStringLiteral("reuseFormula"));
@@ -608,6 +619,7 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     {
         auto *copyValue = menu->addAction(QStringLiteral("复制纯数值"));
         copyValue->setObjectName(QStringLiteral("copyValue"));
+        copyValue->setToolTip(QStringLiteral("复制完整数值文本；重新输入作为新十进制数字，不保留原类型和计算来源"));
         connect(copyValue, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, true); });
     }
     auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
@@ -615,8 +627,9 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
     if (result.ok)
     {
-        auto *insert = menu->addAction(QStringLiteral("插入历史结果"));
+        auto *insert = menu->addAction(QStringLiteral("插入结果数值"));
         insert->setObjectName(QStringLiteral("insertResult"));
+        insert->setToolTip(QStringLiteral("插入当时的数值文本；再次计算作为新十进制数字，不保留原类型和计算来源"));
         connect(insert, &QAction::triggered, this, [this, id = entry.id]() { insertResult(id); });
     }
     actions->addWidget(more);
@@ -714,8 +727,9 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || (valueOnly && !entry->result.ok)) return;
     QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
-    m_status->setText(valueOnly ? QStringLiteral("已复制纯数值，保留内部计算精度")
-                               : QStringLiteral("已复制公式与结果"));
+    m_status->setText(!valueOnly ? QStringLiteral("已复制公式、结果与来源说明")
+        : entry->result.value.sources() ? QStringLiteral("已复制数值文本；重新输入按新数字处理，不保留原计算来源")
+                                       : QStringLiteral("已复制完整十进制数值"));
 }
 
 void CalculatorPage::insertResult(quint64 id)
@@ -725,7 +739,7 @@ void CalculatorPage::insertResult(quint64 id)
     if (!entry || !entry->result.ok) return;
     if (m_composing)
     {
-        m_status->setText(QStringLiteral("请先完成输入法组词，再插入历史结果"));
+        m_status->setText(QStringLiteral("请先完成输入法组词，再插入结果数值"));
         return;
     }
     QTextCursor cursor = m_input->textCursor();
@@ -735,7 +749,9 @@ void CalculatorPage::insertResult(quint64 id)
     m_input->setTextCursor(cursor);
     m_editTarget = m_input;
     focusInput();
-    m_status->setText(QStringLiteral("已插入当时的固定结果，可继续编辑后计算"));
+    m_status->setText(entry->result.value.sources()
+        ? QStringLiteral("已插入数值文本；再次计算按新数字处理，不保留原计算来源")
+        : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
 }
 
 void CalculatorPage::routeEdit(const QString &command)
@@ -764,6 +780,13 @@ void CalculatorPage::routeEdit(const QString &command)
         return;
     }
     if (m_definitionDialog) return;
+    if (auto *result = qobject_cast<RecordText *>(m_editTarget.data()))
+    {
+        if (command == QStringLiteral("actioncopy")) result->copy();
+        else if (command == QStringLiteral("actionselect_All")) result->selectAll();
+        else if (command == QStringLiteral("actionpaste")) { focusInput(); m_input->paste(); }
+        return;
+    }
     auto *selectedLabel = qobject_cast<QLabel *>(m_editTarget.data());
     if (selectedLabel)
     {

@@ -18,7 +18,7 @@ struct NumericStatus
 };
 
 // 独立混算值：数值类型和计算来源共同传递，不以显示文本重建。
-// 当前界面／历史／文件仍使用原有接口，统一文本契约确定后再整体接入。
+// 显示、复用与持久化均读取同一数值；纯文本重新输入不携带来源。
 class NumericValue
 {
 public:
@@ -38,6 +38,16 @@ public:
     const DecimalValue &decimal() const { return m_decimal; }
     double binary() const { return m_binary; }
     unsigned sources() const { return m_sources; }
+    // 统一、区域无关的完整正文与独立来源说明。
+    QString text() const;
+    QString sourceText() const;
+    QString binaryHex() const;
+    // 只接受规范存储形式及合法来源组合，失败不修改输出。
+    static bool restoreDecimal(const QString &text, unsigned sources, NumericValue &output);
+    static bool restoreBinary(const QString &hex, unsigned sources, NumericValue &output);
+    // 快照相等包含类型、数值、零符号和来源；不是数学上的大小比较。
+    bool operator==(const NumericValue &other) const;
+    bool operator!=(const NumericValue &other) const { return !(*this == other); }
     bool isZero() const;
     bool isNegative() const;
     bool isInteger() const;

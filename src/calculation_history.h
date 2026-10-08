@@ -9,7 +9,7 @@ struct CalculationRecord
     quint64 id = 0;
     QString expression;
     CalculationResult result;
-    double answerBefore = 0;
+    NumericValue answerBefore;
     QString customDefinition;
     QString parameterInput;
 
@@ -35,10 +35,10 @@ public:
     // 未找到时返回 nullptr；指针只在下次修改模型前有效。跨事件保存 id。
     const CalculationRecord *record(quint64 id) const;
     int count() const { return m_records.size(); }
-    double answer() const { return m_answer; }
+    const NumericValue &answer() const { return m_answer; }
 
 private:
     QVector<CalculationRecord> m_records;
     quint64 m_nextId = 1;
-    double m_answer = 0;
+    NumericValue m_answer;
 };

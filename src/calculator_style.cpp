@@ -70,9 +70,10 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         QDialog, QLabel, QPushButton, QToolButton, QMenu, QLineEdit, QComboBox, QTabBar, QTextBrowser { font-size: @uiSize; }
         QLabel#calculatorTitle { font-size: @titleSize; font-weight: bold; }
         QLabel#recordFormula, QLabel#currentCustomDefinition { font-size: @formulaSize; }
-        QLabel#recordResult[error="false"] { font-size: @resultSize; }
+        RecordText#recordResult[error="false"] { font-size: @resultSize; }
         QDialog, QWidget#calctabddPage { background: @window; color: @text; }
         QLabel { color: @text; background: transparent; }
+        RecordText#recordResult { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
         QLabel#recordCount, QLabel#recordNumber, QLabel#inputHint, QLabel#emptyHistory,
         QLabel#helpMatchCount, QLabel#clearSessionDetails { color: @muted; }
         QLabel#recordCount { background: @hover; border-radius: 10px; padding: 4px 10px; }
@@ -81,7 +82,7 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         QScrollArea#calculationHistory, QWidget#historyCanvas { background: @window; border: none; }
         QFrame#calculationRecord { background: @card; border: 1px solid @border; border-radius: 8px; }
         QLabel#currentCustomDefinition { background: @hover; border-radius: 6px; padding: 8px 12px; }
-        QLabel#recordResult[error="true"], QLabel#customDefinitionError { color: @error; }
+        RecordText#recordResult[error="true"], QLabel#customDefinitionError { color: @error; }
         QPushButton, QToolButton {
             background: @button; color: @text; border: 1px solid @border;
             border-radius: 6px; padding: 6px 12px;

@@ -65,12 +65,12 @@ QString CustomFormula::parameterTemplate(const QString &previousInput) const
 
 QString CustomFormula::substitute(const QString &input, QString &expression) const
 {
-    return substituteImpl(input, expression, false);
+    return substituteImpl(input, expression);
 }
 
 QString CustomFormula::substituteNumeric(const QString &input, QString &expression) const
 {
-    return substituteImpl(input, expression, true);
+    return substitute(input, expression);
 }
 
 NumericCalculationResult CustomFormula::evaluateNumeric(const QString &input, const NumericValue &answer, QString &parameterError) const
@@ -81,7 +81,7 @@ NumericCalculationResult CustomFormula::evaluateNumeric(const QString &input, co
     return ExpressionEngine::evaluateNumeric(expression, answer);
 }
 
-QString CustomFormula::substituteImpl(const QString &input, QString &expression, bool numericValues) const
+QString CustomFormula::substituteImpl(const QString &input, QString &expression) const
 {
     QString error;
     const auto items = assignments(input, error);
@@ -94,16 +94,8 @@ QString CustomFormula::substituteImpl(const QString &input, QString &expression,
         if (values.contains(item.name)) return QStringLiteral("参数重复：%1").arg(item.name);
         if (!numeric.match(item.value).hasMatch())
             return QStringLiteral("请填写 %1 的数字值（支持正负号、小数和科学计数法）").arg(item.name);
-        if (numericValues)
-        {
-            const auto checked = ExpressionEngine::evaluateNumeric(item.value);
-            if (!checked.ok) return QStringLiteral("参数 %1：%2").arg(item.name, checked.text);
-        }
-        else
-        {
-            const auto checked = ExpressionEngine::evaluate(item.value);
-            if (!checked.ok) return QStringLiteral("参数 %1：%2").arg(item.name, checked.text);
-        }
+        const auto checked = ExpressionEngine::evaluate(item.value);
+        if (!checked.ok) return QStringLiteral("参数 %1：%2").arg(item.name, checked.text);
         values.insert(item.name, item.value);
     }
     for (const auto &name : m_parameters)

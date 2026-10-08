@@ -5,6 +5,8 @@
 #include <cfenv>
 #include <cmath>
 #include <limits>
+#include <cstring>
+#include <QStringList>
 
 namespace {
 static_assert(std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::digits == 53
@@ -43,43 +45,91 @@ private:
     std::fenv_t m_environment;
 };
 
-void multiplyDigits(QByteArray &digits, int factor)
+quint64 binaryBits(double value)
 {
-    int carry = 0;
+    quint64 bits;
+    static_assert(sizeof(bits) == sizeof(value), "Requires 64-bit double");
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+void multiplyDigits(QByteArray &digits, quint32 factor)
+{
+    quint64 carry = 0;
     for (int i = digits.size() - 1; i >= 0; --i)
     {
-        const int product = (digits.at(i) - '0') * factor + carry;
+        const quint64 product = quint64(digits.at(i) - '0') * factor + carry;
         digits[i] = char('0' + product % 10);
         carry = product / 10;
     }
-    if (carry) digits.prepend(char('0' + carry));
+    if (carry) digits.prepend(QByteArray::number(carry));
+}
+
+void normalizeDigits(QByteArray &digits, int &exponent)
+{
+    while (digits.size() > 1 && digits.endsWith('0')) { digits.chop(1); ++exponent; }
+}
+
+// 从位模式展开精确有限十进制数，不依赖平台浮点舍入模式、区域或格式库的半值规则。
+// 最大 1074 次乘5，按9次合并；有界展开仅用于格式化与转换损失判断。
+void exactBinaryDigits(double value, QByteArray &digits, int &decimalExponent)
+{
+    const quint64 bits = binaryBits(value);
+    const int storedExponent = int((bits >> 52) & 0x7ff);
+    quint64 integer = bits & ((quint64(1) << 52) - 1);
+    if (storedExponent) integer |= quint64(1) << 52;
+    int exponent = storedExponent ? storedExponent - 1023 - 52 : -1074;
+    decimalExponent = 0;
+    if (!integer) { digits = "0"; return; }
+    while (exponent < 0 && integer % 2 == 0) { integer /= 2; ++exponent; }
+    digits = QByteArray::number(integer);
+    if (exponent >= 0)
+    {
+        while (exponent >= 29) { multiplyDigits(digits, quint32(1) << 29); exponent -= 29; }
+        if (exponent) multiplyDigits(digits, quint32(1) << exponent);
+    }
+    else
+    {
+        decimalExponent = exponent;
+        while (exponent <= -9) { multiplyDigits(digits, 1953125); exponent += 9; }
+        while (exponent++ < 0) multiplyDigits(digits, 5);
+    }
+    normalizeDigits(digits, decimalExponent);
+}
+
+QString formatDigits(QByteArray digits, int exponent, bool negative)
+{
+    if (digits == "0") return negative ? QStringLiteral("-0") : QStringLiteral("0");
+    normalizeDigits(digits, exponent);
+    const int adjusted = exponent + digits.size() - 1;
+    QByteArray body;
+    if (adjusted >= -6 && adjusted < 21)
+    {
+        const int point = digits.size() + exponent;
+        if (point <= 0) body = "0." + QByteArray(-point, '0') + digits;
+        else if (exponent >= 0) body = digits + QByteArray(exponent, '0');
+        else { body = digits; body.insert(point, '.'); }
+    }
+    else
+    {
+        body = digits;
+        if (body.size() > 1) body.insert(1, '.');
+        body += 'e';
+        if (adjusted >= 0) body += '+';
+        body += QByteArray::number(adjusted);
+    }
+    if (negative) body.prepend('-');
+    return QString::fromLatin1(body);
 }
 
 bool sameExactValue(const DecimalValue &decimal, double binary)
 {
     if (decimal.isZero()) return binary == 0;
     if (binary == 0 || decimal.isNegative() != std::signbit(binary)) return false;
-    // 从二进制有效数和二进制指数构造其精确十进制表示；最多 1074 次小整数乘法。
-    // 不使用 15/17 位打印值比较，避免把 0.1 的回显误判为无损转换。
-    int exponent = 0;
-    const double fraction = std::frexp(std::abs(binary), &exponent);
-    const auto integer = static_cast<quint64>(std::ldexp(fraction, 53));
-    exponent -= 53;
-    QByteArray digits = QByteArray::number(integer);
-    int decimalExponent = 0;
-    if (exponent >= 0)
-        for (int i = 0; i < exponent; ++i) multiplyDigits(digits, 2);
-    else
-    {
-        // 先去掉二进制尾零，非正规数也不会多做无用的 53 位展开。
-        quint64 reduced = integer;
-        while (exponent < 0 && reduced % 2 == 0) { reduced /= 2; ++exponent; }
-        digits = QByteArray::number(reduced);
-        decimalExponent = exponent;
-        for (int i = 0; i < -exponent; ++i) multiplyDigits(digits, 5);
-    }
-    while (digits.endsWith('0')) { digits.chop(1); ++decimalExponent; }
-    return decimal.coefficient() == digits && decimal.exponent() == decimalExponent;
+    QByteArray digits;
+    int exponent;
+    exactBinaryDigits(binary, digits, exponent);
+    return decimal.coefficient() == digits && decimal.exponent() == exponent;
 }
 
 NumericStatus convert(const NumericValue &value, int argument, double &output, unsigned &sources)
@@ -283,4 +333,79 @@ NumericStatus NumericValue::function(const QString &name, const QVector<NumericV
     else if (name == QStringLiteral("ceil")) value = std::ceil(a);
     else value = std::round(a);
     return finishBinary(value, sources, name == QStringLiteral("exp") || environment.underflow(), output);
+}
+
+QString NumericValue::text() const
+{
+    if (!m_isBinary) return formatDigits(m_decimal.coefficient(), m_decimal.exponent(), m_decimal.isNegative());
+    QByteArray digits;
+    int exponent;
+    exactBinaryDigits(m_binary, digits, exponent);
+    constexpr int precision = 17;
+    if (digits.size() > precision)
+    {
+        const char first = digits.at(precision);
+        bool remainder = false;
+        for (int i = precision + 1; i < digits.size(); ++i) remainder |= digits.at(i) != '0';
+        const bool roundUp = first > '5' || (first == '5' && (remainder || (digits.at(precision - 1) - '0') % 2));
+        exponent += digits.size() - precision;
+        digits.truncate(precision);
+        if (roundUp)
+        {
+            int position = digits.size() - 1;
+            while (position >= 0 && digits.at(position) == '9') digits[position--] = '0';
+            if (position < 0) digits.prepend('1');
+            else digits[position] = char(digits.at(position) + 1);
+        }
+    }
+    return formatDigits(digits, exponent, std::signbit(m_binary));
+}
+
+QString NumericValue::sourceText() const
+{
+    QStringList names;
+    if (m_sources & Rounded) names.append(QStringLiteral("含除法舍入"));
+    if (m_sources & Approximate) names.append(QStringLiteral("含近似计算"));
+    if (m_sources & ConversionLoss) names.append(QStringLiteral("含转换损失"));
+    return names.isEmpty() ? QString() : QStringLiteral("来源：") + names.join(QStringLiteral("；"));
+}
+
+QString NumericValue::binaryHex() const
+{
+    return m_isBinary ? QString::number(binaryBits(m_binary), 16).rightJustified(16, QLatin1Char('0')) : QString();
+}
+
+bool NumericValue::restoreDecimal(const QString &text, unsigned sources, NumericValue &output)
+{
+    if (sources & ~unsigned(Rounded) || text.size() > 58) return false;
+    NumericValue restored;
+    if (!parse(text, restored).ok() || restored.text() != text) return false;
+    restored.m_sources = sources;
+    output = restored;
+    return true;
+}
+
+bool NumericValue::restoreBinary(const QString &hex, unsigned sources, NumericValue &output)
+{
+    if (hex.size() != 16 || !(sources & Approximate) || (sources & ~unsigned(Rounded | Approximate | ConversionLoss))) return false;
+    for (const auto c : hex)
+        if (!(c >= QLatin1Char('0') && c <= QLatin1Char('9')) && !(c >= QLatin1Char('a') && c <= QLatin1Char('f'))) return false;
+    bool ok = false;
+    const quint64 bits = hex.toULongLong(&ok, 16);
+    if (!ok) return false;
+    double value;
+    std::memcpy(&value, &bits, sizeof(value));
+    NumericValue restored;
+    if (!fromBinary(value, restored).ok()) return false;
+    restored.m_sources = sources;
+    output = restored;
+    return true;
+}
+
+bool NumericValue::operator==(const NumericValue &other) const
+{
+    if (m_isBinary != other.m_isBinary || m_sources != other.m_sources) return false;
+    if (m_isBinary) return binaryBits(m_binary) == binaryBits(other.m_binary);
+    return m_decimal.coefficient() == other.m_decimal.coefficient() && m_decimal.exponent() == other.m_decimal.exponent()
+        && m_decimal.isNegative() == other.m_decimal.isNegative();
 }
