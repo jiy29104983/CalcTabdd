@@ -139,9 +139,12 @@ class PluginTests : public QObject
     }
     bool defineFormula(Host &host, const QString &definition)
     {
-        host.page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
         auto *edit = host.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
-        if (!edit || !edit->isVisible()) return false;
+        if (!edit) return false;
+        if (!edit->isVisible())
+            host.page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        if (!edit->isVisible()) return false;
+        edit->setFocus();
         edit->setPlainText(definition);
         QTest::keyClick(edit, Qt::Key_Return);
         return host.input()->isVisible() && host.page()->findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
@@ -280,7 +283,7 @@ private slots:
         QTest::keyClick(edit, Qt::Key_Return);
         QCOMPARE(edit->toPlainText(), QStringLiteral("A=sqrt()"));
         QTest::keyClicks(edit, "x");
-        host.page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+        QTest::mouseClick(edit->viewport(), Qt::LeftButton);
         host.findChild<QAction *>(QStringLiteral("calctabddRoute_actionselect_All"))->trigger();
         host.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncopy"))->trigger();
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("A=sqrt(x)"));
@@ -312,7 +315,7 @@ private slots:
         host->openAction()->trigger();
         host->input()->setPlainText(QStringLiteral("old draft"));
         auto *native = host->tabs->currentWidget();
-        host->page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+        host->page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
         QPointer<QPlainTextEdit> edit = host->page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
         QVERIFY(edit && edit->isVisible());
         edit->window()->activateWindow();

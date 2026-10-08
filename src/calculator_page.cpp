@@ -165,13 +165,9 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_modeButton->setObjectName(QStringLiteral("calculationModeButton"));
     m_modeButton->setPopupMode(QToolButton::InstantPopup);
     m_modeButton->setProperty("calculatorMenu", true);
-    m_modeButton->setToolTip(QStringLiteral("切换计算模式，或定义／修改自定义公式"));
+    m_modeButton->setToolTip(QStringLiteral("切换普通计算或自定义公式模式"));
     auto *modeMenu = new QMenu(m_modeButton);
     m_modeButton->setMenu(modeMenu);
-    auto *define = modeMenu->addAction(QStringLiteral("定义／修改公式…"));
-    define->setObjectName(QStringLiteral("defineCustomFormula"));
-    connect(define, &QAction::triggered, this, &CalculatorPage::requestDefinition);
-    modeMenu->addSeparator();
     m_normalModeAction = modeMenu->addAction(QStringLiteral("普通计算模式"));
     m_normalModeAction->setObjectName(QStringLiteral("normalCalculationMode"));
     m_normalModeAction->setCheckable(true);

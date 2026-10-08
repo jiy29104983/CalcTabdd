@@ -87,9 +87,12 @@ class PageTests : public QObject
     }
     bool defineFormula(CalculatorPage &page, const QString &definition)
     {
-        page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
         auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
-        if (!edit || !edit->isVisible()) return false;
+        if (!edit) return false;
+        if (!edit->isVisible())
+            page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        if (!edit->isVisible()) return false;
+        edit->setFocus();
         edit->setPlainText(definition);
         QTest::keyClick(edit, Qt::Key_Return);
         return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
@@ -427,8 +430,8 @@ private slots:
         page.input()->setPlainText(QStringLiteral("x=1e-\ny=2"));
         QVERIFY(defineFormula(page, QStringLiteral("B=y+x+z")));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("y=2\nx=1e-\nz="));
-        page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
         auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        edit->setFocus();
         edit->setPlainText(QStringLiteral("B=sqrt(x,y)"));
         QTest::keyClick(edit, Qt::Key_Return);
         QVERIFY(!page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty());
@@ -627,8 +630,8 @@ private slots:
         QApplication::sendEvent(page.input(), &preedit);
         QVERIFY(!page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->isEnabled());
         page.submit();
-        page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog")));
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QVERIFY(edit->isVisible());
         QCOMPARE(page.recordCount(), 0);
         QInputMethodEvent end;
         QApplication::sendEvent(page.input(), &end);
@@ -663,7 +666,7 @@ private slots:
             QVERIFY(page.input()->viewport()->height() >= 3 * page.input()->fontMetrics().lineSpacing());
             QVERIFY(page.rect().contains(QRect(definition->mapTo(&page, QPoint()), definition->size())));
             if (!screenshots.isEmpty()) QVERIFY(page.grab().save(screenshots + (dark ? "/custom-dark.png" : "/custom-light.png")));
-            page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+            QTest::mouseClick(definition->viewport(), Qt::LeftButton);
             QVERIFY(definition->hasFocus());
             QCOMPARE(definition->palette().color(QPalette::Base), colors.color(QPalette::Base));
             QTest::keyClick(definition, Qt::Key_Escape);
@@ -2613,8 +2616,12 @@ private slots:
         CalculatorPage page;
         prepare(page, QStringLiteral("2+3"));
         auto *mode = page.findChild<QToolButton *>(QStringLiteral("calculationModeButton"));
-        // 通过实际菜单进入内嵌定义栏，取消后普通草稿保持。
-        QVERIFY(chooseRecordAction(mode, mode->menu()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))));
+        // 模式菜单仅保留两种模式；通过真实菜单进入定义栏，取消后普通草稿保持。
+        const auto actions = mode->menu()->actions();
+        QCOMPARE(actions.size(), 2);
+        QCOMPARE(actions.at(0)->text(), QStringLiteral("普通计算模式"));
+        QCOMPARE(actions.at(1)->text(), QStringLiteral("自定义公式模式"));
+        QVERIFY(chooseRecordAction(mode, actions.at(1)));
         auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
         QVERIFY(edit && edit->isVisible());
         for (bool dark : {true, false})
