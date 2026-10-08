@@ -15,6 +15,8 @@ struct CalculationInputState
     int anchor = 0;
     // 空定义表示普通模式；历史浏览也携带当时的模式和定义。
     QString customDefinition;
+    // 未确认的定义仅在窗口内随模式／历史草稿保留；文件仍只保存已确认定义。
+    QString definitionDraft = {};
 };
 
 struct CalculationSession

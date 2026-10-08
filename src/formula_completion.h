@@ -11,7 +11,7 @@ class FormulaCompletion : public QObject
 {
     Q_OBJECT
 public:
-    explicit FormulaCompletion(QPlainTextEdit *input);
+    explicit FormulaCompletion(QPlainTextEdit *input, bool definition = false);
     bool hasVisiblePopup() const;
     void setEnabled(bool enabled);
 
@@ -36,6 +36,7 @@ private:
     QPlainTextEdit *m_input;
     QCompleter *m_completer;
     QStandardItemModel *m_model;
+    bool m_definition = false;
     bool m_enabled = true;
     bool m_composing = false;
     bool m_inserting = false;

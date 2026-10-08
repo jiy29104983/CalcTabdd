@@ -69,7 +69,7 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
     QString css = QStringLiteral(R"(
         QDialog, QLabel, QPushButton, QToolButton, QMenu, QLineEdit, QComboBox, QTabBar, QTextBrowser { font-size: @uiSize; }
         QLabel#calculatorTitle { font-size: @titleSize; font-weight: bold; }
-        QLabel#recordFormula, QLabel#currentCustomDefinition { font-size: @formulaSize; }
+        QLabel#recordFormula { font-size: @formulaSize; }
         RecordText#recordResult[error="false"] { font-size: @resultSize; }
         QDialog, QWidget#calctabddPage { background: @window; color: @text; }
         QLabel { color: @text; background: transparent; }
@@ -81,7 +81,6 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         QFrame#formulaComposer { border-top: 1px solid @border; }
         QScrollArea#calculationHistory, QWidget#historyCanvas { background: @window; border: none; }
         QFrame#calculationRecord { background: @card; border: 1px solid @border; border-radius: 8px; }
-        QLabel#currentCustomDefinition { background: @hover; border-radius: 6px; padding: 8px 12px; }
         RecordText#recordResult[error="true"], QLabel#customDefinitionError { color: @error; }
         QPushButton, QToolButton {
             background: @button; color: @text; border: 1px solid @border;

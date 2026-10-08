@@ -18,6 +18,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QSignalBlocker>
 #include <QMenu>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -98,7 +99,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_saveNowAction->setObjectName(QStringLiteral("saveSessionNow"));
     m_saveNowAction->setEnabled(false);
     connect(m_saveNowAction, &QAction::triggered, this, [this]() {
-        if (!m_composing && !m_definitionDialog && !m_sessionDialog && !m_exportDialog && !m_clearConfirmation) saveSession();
+        if (!m_composing && !m_sessionDialog && !m_exportDialog && !m_clearConfirmation) saveSession();
     });
     m_stopSavingAction = sessionMenu->addAction(QStringLiteral("停止保存（保留文件）"));
     m_stopSavingAction->setObjectName(QStringLiteral("stopSavingSession"));
@@ -182,13 +183,24 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     inputHeading->addWidget(m_modeButton);
     inputHeading->addStretch();
     composeLayout->addLayout(inputHeading);
-    m_definitionLabel = new QLabel(composer);
-    m_definitionLabel->setObjectName(QStringLiteral("currentCustomDefinition"));
-    m_definitionLabel->setTextFormat(Qt::PlainText);
-    m_definitionLabel->setWordWrap(true);
-    m_definitionLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    m_definitionLabel->hide();
-    composeLayout->addWidget(m_definitionLabel);
+    m_definitionHint = new QLabel(QStringLiteral("公式定义 · Enter 应用 · @ 补全函数 · Esc 还原"), composer);
+    m_definitionHint->setObjectName(QStringLiteral("customDefinitionHint"));
+    m_definitionHint->setWordWrap(true);
+    composeLayout->addWidget(m_definitionHint);
+    m_definitionInput = new QPlainTextEdit(composer);
+    m_definitionInput->setObjectName(QStringLiteral("currentCustomDefinition"));
+    m_definitionInput->setAccessibleName(QStringLiteral("自定义公式定义"));
+    m_definitionInput->setPlaceholderText(QStringLiteral("例如 A=x+y；按 Enter 应用公式"));
+    m_definitionInput->setTabChangesFocus(true);
+    m_definitionInput->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_definitionInput->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_definitionInput->installEventFilter(this);
+    composeLayout->addWidget(m_definitionInput);
+    m_definitionError = new QLabel(composer);
+    m_definitionError->setObjectName(QStringLiteral("customDefinitionError"));
+    m_definitionError->setTextFormat(Qt::PlainText);
+    m_definitionError->setWordWrap(true);
+    composeLayout->addWidget(m_definitionError);
     m_input = new QPlainTextEdit(composer);
     m_input->setObjectName(QStringLiteral("formulaInput"));
     m_input->setAccessibleName(QStringLiteral("输入公式"));
@@ -198,12 +210,14 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mono.setPointSizeF(qMax(11.0, font().pointSizeF() + 1));
     m_input->setFont(mono);
+    m_definitionInput->setFont(mono);
     m_input->installEventFilter(this);
     m_inputLabel->setBuddy(m_input);
     m_editTarget = m_input;
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
         if (!now || !isAncestorOf(now)) return;
-        if (now == m_input || m_input->isAncestorOf(now)) m_editTarget = m_input;
+        if (now == m_definitionInput || m_definitionInput->isAncestorOf(now)) m_editTarget = m_definitionInput;
+        else if (now == m_input || m_input->isAncestorOf(now)) m_editTarget = m_input;
         else if (auto *result = qobject_cast<RecordText *>(now)) m_editTarget = result;
         else if (auto *label = qobject_cast<QLabel *>(now))
         {
@@ -235,6 +249,15 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_completion = new FormulaCompletion(m_input);
     connect(m_completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
     connect(m_completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
+    m_definitionCompletion = new FormulaCompletion(m_definitionInput, true);
+    connect(m_definitionCompletion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::applyDefinition);
+    connect(m_definitionCompletion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
+    connect(m_definitionInput, &QPlainTextEdit::textChanged, this, [this]() {
+        m_definitionError->clear();
+        m_definitionError->hide();
+        if (hasPendingDefinition())
+            m_status->setText(QStringLiteral("公式尚未应用 · 按 Enter 确认，或 Esc 还原；本地保存仍使用已确认定义"));
+    });
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
     m_saveTimer->setInterval(200);
@@ -249,13 +272,19 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 
 void CalculatorPage::focusInput()
 {
-    if (m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
-    m_input->setFocus(Qt::OtherFocusReason);
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    (hasPendingDefinition() ? m_definitionInput : m_input)->setFocus(Qt::OtherFocusReason);
 }
 
 void CalculatorPage::submit()
 {
-    if (m_composing || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (hasPendingDefinition())
+    {
+        m_status->setText(QStringLiteral("请先在公式定义栏按 Enter 应用修改，再计算参数"));
+        focusInput();
+        return;
+    }
     const QString inputText = m_input->toPlainText();
     const QString expression = inputText.trimmed();
     if (!customMode() && expression.isEmpty())
@@ -366,7 +395,7 @@ void CalculatorPage::applyErrorHighlight()
 
 void CalculatorPage::requestExport(CalculationExport::Format format)
 {
-    if (m_composing || m_history.count() == 0 || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const bool markdown = format == CalculationExport::Format::Markdown;
     const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
     auto *dialog = new QFileDialog(this);
@@ -475,7 +504,7 @@ void CalculatorPage::writeExport(const QString &path, const QByteArray &contents
 
 void CalculatorPage::requestClearSession()
 {
-    if (m_composing || m_history.count() == 0 || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     // 使用与帮助窗口一致的 Qt 控件对话框，避免 Qt 5.15.2 QMessageBox
     // 在 Windows offscreen 平台的原生系统菜单访问。
     auto *dialog = new QDialog(this);
@@ -643,12 +672,15 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
 CalculatorPage::InputState CalculatorPage::captureInput() const
 {
     const QTextCursor cursor = m_input->textCursor();
-    return {m_input->toPlainText(), cursor.position(), cursor.anchor(), m_definition};
+    return {m_input->toPlainText(), cursor.position(), cursor.anchor(), m_definition,
+            customMode() ? m_definitionInput->toPlainText() : QString()};
 }
 
 void CalculatorPage::restoreInput(const InputState &state)
 {
     m_definition = state.customDefinition;
+    m_defining = false;
+    resetDefinitionEditor(state.definitionDraft.isNull() ? m_definition : state.definitionDraft);
     updateModeUi();
     m_input->setPlainText(state.text);
     QTextCursor cursor = m_input->textCursor();
@@ -692,7 +724,7 @@ void CalculatorPage::restoreDraft()
 
 void CalculatorPage::recallHistory(bool older)
 {
-    if (m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     if (m_history.count() == 0 || (!older && m_historyPosition < 0)) return;
     const int position = m_historyPosition < 0 ? m_history.count() - 1
                                                : m_historyPosition + (older ? -1 : 1);
@@ -707,7 +739,7 @@ void CalculatorPage::recallHistory(bool older)
 
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    if (m_composing || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const auto &records = m_history.records();
     for (int index = 0; index < records.size(); ++index)
     {
@@ -721,7 +753,7 @@ void CalculatorPage::reuseFormula(quint64 id)
 
 void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 {
-    if (m_definitionDialog || m_exportDialog || m_sessionDialog) return;
+    if (m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || (valueOnly && !entry->result.ok)) return;
     QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
@@ -732,7 +764,7 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 
 void CalculatorPage::insertResult(quint64 id)
 {
-    if (m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
     if (m_composing)
@@ -758,8 +790,7 @@ void CalculatorPage::routeEdit(const QString &command)
     // Host menu proxies remain active while a modeless help window is focused.
     QWidget *focused = QApplication::focusWidget();
     if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
-                    focused->window()->objectName() == QStringLiteral("calctabddAboutDialog") ||
-                    focused->window() == m_definitionDialog))
+                    focused->window()->objectName() == QStringLiteral("calctabddAboutDialog")))
     {
         if (auto *line = qobject_cast<QLineEdit *>(focused))
         {
@@ -777,7 +808,6 @@ void CalculatorPage::routeEdit(const QString &command)
         }
         return;
     }
-    if (m_definitionDialog) return;
     if (auto *result = qobject_cast<RecordText *>(m_editTarget.data()))
     {
         if (command == QStringLiteral("actioncopy")) result->copy();
@@ -799,17 +829,18 @@ void CalculatorPage::routeEdit(const QString &command)
         }
         return;
     }
-    if (command == QStringLiteral("actioncopy")) m_input->copy();
-    else if (command == QStringLiteral("actioncut")) m_input->cut();
-    else if (command == QStringLiteral("actionpaste")) m_input->paste();
-    else if (command == QStringLiteral("actionundo")) m_input->undo();
-    else if (command == QStringLiteral("actionredo")) m_input->redo();
-    else if (command == QStringLiteral("actionselect_All")) m_input->selectAll();
+    auto *editor = m_editTarget == m_definitionInput ? m_definitionInput : m_input;
+    if (command == QStringLiteral("actioncopy")) editor->copy();
+    else if (command == QStringLiteral("actioncut")) editor->cut();
+    else if (command == QStringLiteral("actionpaste")) editor->paste();
+    else if (command == QStringLiteral("actionundo")) editor->undo();
+    else if (command == QStringLiteral("actionredo")) editor->redo();
+    else if (command == QStringLiteral("actionselect_All")) editor->selectAll();
 }
 
 bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
 {
-    if (object == m_input)
+    if (object == m_input || object == m_definitionInput)
     {
         if (event->type() == QEvent::InputMethod)
         {
@@ -827,6 +858,30 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
         {
             auto *key = static_cast<QKeyEvent *>(event);
             const Qt::KeyboardModifiers modifiers = key->modifiers() & ~Qt::KeypadModifier;
+            if (object == m_definitionInput)
+            {
+                const bool enter = key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter;
+                const bool cancel = key->key() == Qt::Key_Escape && modifiers == Qt::NoModifier;
+                if (enter || cancel)
+                {
+                    if (m_composing) return QWidget::eventFilter(object, event);
+                    key->accept();
+                    if (event->type() == QEvent::KeyPress)
+                    {
+                        if (cancel)
+                        {
+                            m_defining = false;
+                            resetDefinitionEditor(m_definition);
+                            updateModeUi();
+                            focusInput();
+                            m_status->setText(QStringLiteral("已取消未确认的公式修改"));
+                        }
+                        else if (modifiers == Qt::NoModifier || modifiers == Qt::ControlModifier) applyDefinition();
+                    }
+                    return true;
+                }
+                return QWidget::eventFilter(object, event);
+            }
             const bool historyKey = modifiers == Qt::AltModifier &&
                 (key->key() == Qt::Key_Up || key->key() == Qt::Key_Down);
             if (historyKey)
@@ -862,7 +917,6 @@ void CalculatorPage::hideEvent(QHideEvent *event)
     if (m_clearConfirmation) m_clearConfirmation->reject();
     if (m_exportDialog) m_exportDialog->reject();
     if (m_sessionDialog) m_sessionDialog->reject();
-    if (m_definitionDialog) m_definitionDialog->reject();
     if (m_sessionDirty) saveSession();
     QWidget::hideEvent(event);
 }
@@ -884,7 +938,6 @@ void CalculatorPage::applyTheme()
     applyErrorHighlight();
     CalculatorStyle::applyDialog(m_exportDialog, colors);
     CalculatorStyle::applyDialog(m_sessionDialog, colors);
-    CalculatorStyle::applyDialog(m_definitionDialog, colors);
     CalculatorStyle::applyDialog(m_clearConfirmation, colors);
 }
 
@@ -973,7 +1026,7 @@ bool CalculatorPage::saveSession()
 
 void CalculatorPage::stopSaving()
 {
-    if (m_composing || m_sessionDialog || m_exportDialog || m_definitionDialog || m_clearConfirmation || !m_sessionFile) return;
+    if (m_composing || m_sessionDialog || m_exportDialog || m_clearConfirmation || !m_sessionFile) return;
     // 失败时继续持有文件与可见会话，用户可以重试或另存。
     if (!saveSession()) return;
     m_sessionFile.reset();
@@ -982,9 +1035,9 @@ void CalculatorPage::stopSaving()
 
 void CalculatorPage::requestSessionFile(bool restore)
 {
-    if (m_composing || m_sessionDialog || m_definitionDialog || m_clearConfirmation || m_exportDialog) return;
+    if (m_composing || m_sessionDialog || m_clearConfirmation || m_exportDialog) return;
     if (restore && (m_history.count() > 0 || !m_input->toPlainText().isEmpty() || m_sessionFile
-        || !m_customInput.customDefinition.isEmpty() || customMode() || !m_normalInput.text.isEmpty()))
+        || !m_customInput.customDefinition.isEmpty() || customMode() || hasPendingDefinition() || !m_normalInput.text.isEmpty()))
     {
         updateSessionStatus(QStringLiteral("请在没有记录、没有草稿且未开启保存的空白计算器中恢复会话。"));
         return;
@@ -1045,15 +1098,20 @@ void CalculatorPage::storeModeDraft()
 
 void CalculatorPage::updateModeUi()
 {
-    const bool custom = customMode();
+    const bool custom = customMode() || m_defining;
     m_modeButton->setText(custom ? QStringLiteral("自定义公式") : QStringLiteral("普通计算"));
     m_normalModeAction->setChecked(!custom);
     m_customModeAction->setChecked(custom);
-    m_inputLabel->setText(custom ? QStringLiteral("填写参数") : QStringLiteral("输入公式"));
+    m_inputLabel->setText(m_defining ? QStringLiteral("定义公式")
+        : custom ? QStringLiteral("填写参数") : QStringLiteral("输入公式"));
     m_input->setAccessibleName(m_inputLabel->text());
     m_input->setPlaceholderText(custom ? QStringLiteral("每行填写 名称=数字；无参数时可直接确认计算") : QStringLiteral("例如 (128 + 256) / 3"));
-    m_definitionLabel->setText(m_definition);
-    m_definitionLabel->setVisible(custom);
+    m_definitionInput->setVisible(custom);
+    m_definitionHint->setVisible(custom);
+    m_definitionError->setVisible(custom && !m_definitionError->text().isEmpty());
+    m_definitionInput->setFixedHeight(QFontMetrics(m_definitionInput->font()).lineSpacing() + 28);
+    m_input->setVisible(!m_defining || customMode());
+    m_definitionCompletion->setEnabled(custom);
     m_completion->setEnabled(!custom);
     CustomFormula formula;
     const int rows = custom && CustomFormula::parse(m_definition, formula).isEmpty()
@@ -1067,7 +1125,8 @@ void CalculatorPage::updateModeUi()
 
 void CalculatorPage::switchMode(bool custom)
 {
-    if (m_composing || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (!custom) m_defining = false;
     if (custom == customMode() && m_historyPosition < 0)
     {
         updateModeUi();
@@ -1089,71 +1148,54 @@ void CalculatorPage::switchMode(bool custom)
     scheduleSave();
 }
 
+bool CalculatorPage::hasPendingDefinition() const
+{
+    return (customMode() || m_defining) &&
+        (m_defining || m_definitionInput->toPlainText() != m_definition);
+}
+
+void CalculatorPage::resetDefinitionEditor(const QString &text)
+{
+    const QSignalBlocker blocker(m_definitionInput);
+    m_definitionInput->setPlainText(text);
+    m_definitionError->clear();
+    m_definitionError->hide();
+}
+
 void CalculatorPage::requestDefinition()
 {
-    if (m_composing || m_definitionDialog || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
-    auto *dialog = new QDialog(this);
-    m_definitionDialog = dialog;
-    dialog->setObjectName(QStringLiteral("customDefinitionDialog"));
-    dialog->setWindowTitle(QStringLiteral("定义／修改公式"));
-    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setAttribute(Qt::WA_WindowPropagation, true);
-    auto *layout = new QVBoxLayout(dialog);
-    layout->setContentsMargins(24, 20, 24, 20);
-    layout->setSpacing(16);
-    auto *description = new QLabel(QStringLiteral("例如 A=x+y 或 S=pi*r^2\n支持现有全部函数；名称区分大小写。确认后自动生成参数输入行。"), dialog);
-    description->setWordWrap(true);
-    layout->addWidget(description);
-    auto *edit = new QLineEdit(dialog);
-    edit->setObjectName(QStringLiteral("customDefinitionInput"));
-    edit->setAccessibleName(QStringLiteral("自定义公式定义"));
-    edit->setFont(m_input->font());
-    edit->setPlaceholderText(QStringLiteral("A=x+y"));
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (!customMode() && !m_customInput.customDefinition.isEmpty()) switchMode(true);
+    if (!customMode()) m_defining = true;
+    updateModeUi();
+    m_definitionInput->setFocus(Qt::OtherFocusReason);
+    m_editTarget = m_definitionInput;
+    m_status->setText(QStringLiteral("输入或修改公式，按 Enter 应用 · @ 补全函数"));
+}
+
+void CalculatorPage::applyDefinition()
+{
+    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    const QString definition = m_definitionInput->toPlainText();
+    CustomFormula formula;
+    const QString problem = definition.contains(QLatin1Char('@'))
+        ? QStringLiteral("请先完成 @ 函数或常量补全，或删除 @ 查询")
+        : CustomFormula::parse(definition, formula);
+    if (!problem.isEmpty())
+    {
+        m_definitionError->setText(problem);
+        m_definitionError->show();
+        m_definitionInput->setFocus(Qt::OtherFocusReason);
+        return;
+    }
+    // 仅确认后替换定义；同名参数保留原文，无效编辑不能触发旧公式计算。
     const InputState previous = customMode() ? captureInput() : m_customInput;
-    edit->setText(previous.customDefinition);
-    edit->selectAll();
-    layout->addWidget(edit);
-    auto *error = new QLabel(dialog);
-    error->setObjectName(QStringLiteral("customDefinitionError"));
-    error->setTextFormat(Qt::PlainText);
-    error->setWordWrap(true);
-    layout->addWidget(error);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("使用公式"));
-    buttons->button(QDialogButtonBox::Ok)->setProperty("role", QStringLiteral("primary"));
-    buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, edit, error, previous]() {
-        CustomFormula formula;
-        const QString problem = CustomFormula::parse(edit->text(), formula);
-        if (!problem.isEmpty())
-        {
-            error->setText(problem);
-            edit->setFocus();
-            return;
-        }
-        if (m_historyPosition >= 0) restoreDraft();
-        storeModeDraft();
-        const QString input = formula.parameterTemplate(previous.text);
-        const int position = input.isEmpty() ? 0 : input.indexOf(QLatin1Char('=')) + 1;
-        m_customInput = {input, position, position, formula.definition()};
-        restoreInput(m_customInput);
-        m_status->setText(QStringLiteral("定义已保存 · 填写参数后按 Ctrl+Enter 计算"));
-        scheduleSave();
-        dialog->accept();
-    });
-    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-    connect(dialog, &QDialog::finished, this, [this](int) {
-        m_definitionDialog.clear();
-        if (isVisible())
-        {
-            window()->activateWindow();
-            focusInput();
-        }
-    });
-    dialog->resize(520, dialog->sizeHint().height());
-    dialog->open();
-    CalculatorStyle::applyDialog(dialog, palette());
-    edit->setFocus();
+    if (m_historyPosition >= 0) restoreDraft();
+    storeModeDraft();
+    const QString input = formula.parameterTemplate(previous.text);
+    const int position = input.isEmpty() ? 0 : input.indexOf(QLatin1Char('=')) + 1;
+    m_customInput = {input, position, position, formula.definition()};
+    restoreInput(m_customInput);
+    m_status->setText(QStringLiteral("公式已应用 · 填写参数后按 Ctrl+Enter 或点击“计算”"));
+    scheduleSave();
 }

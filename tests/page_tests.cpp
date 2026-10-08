@@ -33,7 +33,7 @@ class PageTests : public QObject
     Q_OBJECT
     QAbstractItemView *completion(CalculatorPage &page)
     {
-        return page.findChild<QCompleter *>()->popup();
+        return page.input()->findChild<QCompleter *>()->popup();
     }
     bool chooseRecordAction(QToolButton *button, QAction *action)
     {
@@ -88,12 +88,11 @@ class PageTests : public QObject
     bool defineFormula(CalculatorPage &page, const QString &definition)
     {
         page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-        auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        if (!dialog || !dialog->isVisible()) return false;
-        dialog->findChild<QLineEdit *>(QStringLiteral("customDefinitionInput"))->setText(definition);
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        return !page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        if (!edit || !edit->isVisible()) return false;
+        edit->setPlainText(definition);
+        QTest::keyClick(edit, Qt::Key_Return);
+        return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
     void typedResultsCopyInsertAndSourceRows()
@@ -245,7 +244,7 @@ private slots:
         page.input()->setTextCursor(cursor);
         QVERIFY(defineFormula(page, QStringLiteral("A=x+y")));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=\ny="));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("A=x+y"));
+        QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("A=x+y"));
         page.input()->setPlainText(QStringLiteral("x=1\ny=2"));
         QTest::qWait(250);
         QCOMPARE(page.recordCount(), 0);
@@ -294,6 +293,132 @@ private slots:
         page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).last()->click();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=1\ny=2"));
     }
+    void inlineDefinitionCompletion_data()
+    {
+        QTest::addColumn<QString>("before");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<QString>("after");
+        QTest::addColumn<int>("cursor");
+        QTest::newRow("assignment") << QStringLiteral("A=@sq") << 5 << QStringLiteral("A=sqrt()") << 7;
+        QTest::newRow("operator") << QStringLiteral("A=x+@sq") << 7 << QStringLiteral("A=x+sqrt()") << 9;
+        QTest::newRow("existing-arguments") << QStringLiteral("A=@sq(x)+1") << 5 << QStringLiteral("A=sqrt(x)+1") << 7;
+        QTest::newRow("chinese") << QStringLiteral("A=@平方根") << 6 << QStringLiteral("A=sqrt()") << 7;
+        QTest::newRow("constant") << QStringLiteral("A=@pi*r^2") << 5 << QStringLiteral("A=pi*r^2") << 4;
+    }
+    void inlineDefinitionCompletion()
+    {
+        QFETCH(QString, before);
+        QFETCH(int, position);
+        QFETCH(QString, after);
+        QFETCH(int, cursor);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("normal draft"));
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        edit->setPlainText(before);
+        auto textCursor = edit->textCursor();
+        textCursor.setPosition(position);
+        edit->setTextCursor(textCursor);
+        auto *popup = edit->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(edit->toPlainText(), after);
+        QCOMPARE(edit->textCursor().position(), cursor);
+        QVERIFY(!page.input()->isVisible());
+        QCOMPARE(page.recordCount(), 0);
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(edit->toPlainText(), before);
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(edit->toPlainText(), after);
+        QTest::keyClick(edit, Qt::Key_Escape);
+        QVERIFY(!edit->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("normal draft"));
+    }
+    void inlineDefinitionEnterAppliesWithoutCalculation()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QTest::keyClicks(edit, "A=@sq");
+        auto *popup = edit->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(popup, Qt::Key_Return, Qt::ControlModifier);
+        QVERIFY(!page.input()->isVisible());
+        page.findChild<QAction *>(QStringLiteral("restoreSession"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().contains(QLatin1Char('@')));
+        QTest::keyClick(popup, Qt::Key_Return);
+        QTest::keyClicks(edit, "x");
+        QTest::keyClick(edit, Qt::Key_Enter, Qt::KeypadModifier);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x="));
+        QVERIFY(page.input()->hasFocus());
+        QCOMPARE(page.recordCount(), 0);
+        page.input()->setPlainText(QStringLiteral("x=9"));
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(asDouble(page.history().answer()), 3.0);
+        edit->setFocus();
+        edit->setPlainText(QStringLiteral("B=x+y"));
+        page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(page.recordCount(), 1);
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=9\ny="));
+        QCOMPARE(page.recordCount(), 1);
+    }
+    void inlineDefinitionDraftAndConfirmedSession()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("inline.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("ordinary draft"));
+        QVERIFY(defineFormula(page, QStringLiteral("A=x")));
+        page.input()->setPlainText(QStringLiteral("x=2"));
+        page.submit();
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        edit->setPlainText(QStringLiteral("B=x+y"));
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ordinary draft"));
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QCOMPARE(edit->toPlainText(), QStringLiteral("B=x+y"));
+        page.submit();
+        QCOMPARE(page.recordCount(), 1);
+        QVERIFY(selectSession(page, path, false));
+        const auto session = readSession(path);
+        QCOMPARE(session.input.customDefinition, QStringLiteral("A=x"));
+        QVERIFY(session.input.definitionDraft.isNull());
+        QCOMPARE(session.input.text, QStringLiteral("x=2"));
+        QCOMPARE(edit->toPlainText(), QStringLiteral("B=x+y"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->trigger();
+        QTRY_COMPARE(readSession(path).input.customDefinition, QStringLiteral("B=x+y"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=2\ny="));
+    }
+    void inlineDefinitionImeDoesNotApply()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(defineFormula(page, QStringLiteral("A=x")));
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        edit->setFocus();
+        edit->setPlainText(QStringLiteral("B=@"));
+        edit->moveCursor(QTextCursor::End);
+        auto *popup = edit->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QInputMethodEvent preedit(QStringLiteral("平方"), {});
+        QApplication::sendEvent(edit, &preedit);
+        QVERIFY(!popup->isVisible());
+        QTest::keyClick(edit, Qt::Key_Return);
+        page.submit();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x="));
+        QCOMPARE(page.recordCount(), 0);
+        QInputMethodEvent end;
+        QApplication::sendEvent(edit, &end);
+        edit->setPlainText(QStringLiteral("B=@平方根"));
+        edit->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(popup, Qt::Key_Tab);
+        QCOMPARE(edit->toPlainText(), QStringLiteral("B=sqrt()"));
+    }
     void customRedefinitionKeepsValuesAndRejectsInvalidDefinition()
     {
         CalculatorPage page;
@@ -303,16 +428,16 @@ private slots:
         QVERIFY(defineFormula(page, QStringLiteral("B=y+x+z")));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("y=2\nx=1e-\nz="));
         page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-        auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        QVERIFY(dialog);
-        dialog->findChild<QLineEdit *>()->setText(QStringLiteral("B=sqrt(x,y)"));
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
-        QVERIFY(dialog->isVisible());
-        QVERIFY(!dialog->findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty());
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=y+x+z"));
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        edit->setPlainText(QStringLiteral("B=sqrt(x,y)"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        QVERIFY(!page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty());
+        QCOMPARE(edit->toPlainText(), QStringLiteral("B=sqrt(x,y)"));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("y=2\nx=1e-\nz="));
-        dialog->reject();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        page.submit();
+        QCOMPARE(page.recordCount(), 0);
+        QTest::keyClick(edit, Qt::Key_Escape);
+        QCOMPARE(edit->toPlainText(), QStringLiteral("B=y+x+z"));
         QVERIFY(defineFormula(page, QStringLiteral("C=y")));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("y=2"));
         page.submit();
@@ -364,17 +489,17 @@ private slots:
         page.input()->setPlainText(QStringLiteral("z=8"));
         QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=1\ny=2"));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("A=x+y"));
+        QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("A=x+y"));
         page.input()->setPlainText(QStringLiteral("x=4\ny=5"));
         QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("10"));
-        QVERIFY(!page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(!page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->isVisible());
         QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=4\ny=5"));
         page.submit();
         QCOMPARE(asDouble(page.history().answer()), 9.0);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("z=8"));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=z*2"));
+        QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("B=z*2"));
         page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("normal draft"));
         page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(1)->click();
@@ -420,13 +545,13 @@ private slots:
         if (browsing)
         {
             QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=5\ny=6"));
-            QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("A=x+y"));
+            QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("A=x+y"));
             QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
         }
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("12+"));
         page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("z=8"));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=z*2"));
+        QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("B=z*2"));
         page.submit();
         QCOMPARE(asDouble(readSession(path).history.answer()), 16.0);
         page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
@@ -470,25 +595,27 @@ private slots:
         QCOMPARE(asDouble(restored.history().answer()), 9.0);
         QCOMPARE(restored.recordCount(), 1);
         QCOMPARE(restored.input()->toPlainText(), QStringLiteral("x=4\ny=1e-"));
-        QVERIFY(restored.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(restored.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->isVisible());
         restored.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
         QCOMPARE(restored.input()->toPlainText(), QStringLiteral("normal draft"));
     }
-    void customEnterImeAndDialogIsolation()
+    void customEnterImeAndInlineIsolation()
     {
         CalculatorPage page;
         prepare(page, QStringLiteral("draft"));
         page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
-        auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(edit && edit->isVisible());
+        QVERIFY(!page.input()->isVisible());
+        edit->setPlainText(QStringLiteral("A=x+y"));
         page.submit();
-        page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
-        QVERIFY(!page.findChild<QFileDialog *>());
         QCOMPARE(page.recordCount(), 0);
         page.hide();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog")));
-        prepare(page, QStringLiteral("draft"));
+        page.show();
+        QCOMPARE(edit->toPlainText(), QStringLiteral("A=x+y"));
+        QTest::keyClick(edit, Qt::Key_Escape);
+        QVERIFY(!edit->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("draft"));
         QVERIFY(defineFormula(page, QStringLiteral("A=x+y")));
         page.input()->setPlainText(QStringLiteral("x=1"));
         page.input()->moveCursor(QTextCursor::End);
@@ -531,17 +658,15 @@ private slots:
             colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
             page.setPalette(colors);
             QTest::qWait(20);
-            auto *definition = page.findChild<QLabel *>(QStringLiteral("currentCustomDefinition"));
+            auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
             QVERIFY(definition->isVisible());
             QVERIFY(page.input()->viewport()->height() >= 3 * page.input()->fontMetrics().lineSpacing());
             QVERIFY(page.rect().contains(QRect(definition->mapTo(&page, QPoint()), definition->size())));
             if (!screenshots.isEmpty()) QVERIFY(page.grab().save(screenshots + (dark ? "/custom-dark.png" : "/custom-light.png")));
             page.findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-            auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-            QCOMPARE(dialog->palette().color(QPalette::Window), page.palette().color(QPalette::Window));
-            if (!screenshots.isEmpty()) QVERIFY(dialog->grab().save(screenshots + (dark ? "/custom-dialog-dark.png" : "/custom-dialog-light.png")));
-            dialog->reject();
-            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QVERIFY(definition->hasFocus());
+            QCOMPARE(definition->palette().color(QPalette::Base), colors.color(QPalette::Base));
+            QTest::keyClick(definition, Qt::Key_Escape);
         }
         CalculatorPage unused;
         prepare(unused, QString());
@@ -2488,12 +2613,10 @@ private slots:
         CalculatorPage page;
         prepare(page, QStringLiteral("2+3"));
         auto *mode = page.findChild<QToolButton *>(QStringLiteral("calculationModeButton"));
-        // 点整个模式按钮进入菜单，并用实际菜单项打开定义窗口。
+        // 通过实际菜单进入内嵌定义栏，取消后普通草稿保持。
         QVERIFY(chooseRecordAction(mode, mode->menu()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))));
-        auto *dialog = page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
-        auto *edit = dialog->findChild<QLineEdit *>(QStringLiteral("customDefinitionInput"));
-        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(edit && edit->isVisible());
         for (bool dark : {true, false})
         {
             QPalette colors = page.palette();
@@ -2504,14 +2627,12 @@ private slots:
             QCoreApplication::processEvents();
             QCOMPARE(edit->palette().color(QPalette::Base), colors.color(QPalette::Base));
             QCOMPARE(edit->palette().color(QPalette::Text), colors.color(QPalette::Text));
-            const QColor cancelText = buttons->button(QDialogButtonBox::Cancel)->palette().color(QPalette::ButtonText);
-            QCOMPARE(cancelText, colors.color(QPalette::Text));
             const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
             if (!directory.isEmpty())
             {
                 QVERIFY(QDir().mkpath(directory));
-                edit->setText(QStringLiteral("A=sqrt(x^2+y^2)"));
-                QVERIFY(dialog->grab().save(directory + (dark ? QStringLiteral("/definition-dark.png") : QStringLiteral("/definition-light.png"))));
+                edit->setPlainText(QStringLiteral("A=sqrt(x^2+y^2)"));
+                QVERIFY(page.grab().save(directory + (dark ? QStringLiteral("/definition-dark.png") : QStringLiteral("/definition-light.png"))));
             }
         }
         QTest::keyClick(edit, Qt::Key_Escape);

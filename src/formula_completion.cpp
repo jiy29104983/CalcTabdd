@@ -18,8 +18,8 @@ constexpr int EntryRole = Qt::UserRole + 1;
 bool isQueryCharacter(QChar ch) { return ch.isLetterOrNumber() || ch == QLatin1Char('_'); }
 }
 
-FormulaCompletion::FormulaCompletion(QPlainTextEdit *input)
-    : QObject(input), m_input(input), m_completer(new QCompleter(this)), m_model(new QStandardItemModel(this))
+FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
+    : QObject(input), m_input(input), m_completer(new QCompleter(this)), m_model(new QStandardItemModel(this)), m_definition(definition)
 {
     m_completer->setModel(m_model);
     m_completer->setCompletionMode(QCompleter::UnfilteredPopupCompletion);
@@ -55,7 +55,8 @@ FormulaCompletion::Token FormulaCompletion::tokenAtCursor() const
     --start;
     int previous = start - 1;
     while (previous >= 0 && text.at(previous).isSpace()) --previous;
-    if (previous >= 0 && !QStringLiteral("(,+-*/%^×÷−").contains(text.at(previous))) return {};
+    if (previous >= 0 && !QStringLiteral("(,+-*/%^×÷−").contains(text.at(previous))
+        && !(m_definition && text.at(previous) == QLatin1Char('='))) return {};
     int end = cursor.position();
     while (end < text.size() && isQueryCharacter(text.at(end))) ++end;
     return {start, end, text.mid(start + 1, cursor.position() - start - 1)};

@@ -140,12 +140,11 @@ class PluginTests : public QObject
     bool defineFormula(Host &host, const QString &definition)
     {
         host.page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-        auto *dialog = host.page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        if (!dialog || !dialog->isVisible()) return false;
-        dialog->findChild<QLineEdit *>(QStringLiteral("customDefinitionInput"))->setText(definition);
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        return !host.page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
+        auto *edit = host.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        if (!edit || !edit->isVisible()) return false;
+        edit->setPlainText(definition);
+        QTest::keyClick(edit, Qt::Key_Return);
+        return host.input()->isVisible() && host.page()->findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
     void typedResultsSurviveNativeHostCloseAndRestore()
@@ -225,7 +224,7 @@ private slots:
         QCOMPARE(readSession(path).customInput.text, QStringLiteral("x=4\ny=5"));
         first.openAction()->trigger();
         QVERIFY(first.input()->toPlainText().isEmpty());
-        QVERIFY(!first.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(!first.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->isVisible());
         QVERIFY(selectSession(first, path, true));
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("99+"));
         first.page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
@@ -240,7 +239,7 @@ private slots:
         QTest::keyClick(first.input(), Qt::Key_Return);
         QTest::keyClick(first.input(), Qt::Key_Return, Qt::ControlModifier);
         QCOMPARE(asDouble(readSession(path).history.answer()), 21.0);
-        QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->text(), QStringLiteral("B=t*3"));
+        QCOMPARE(second.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(), QStringLiteral("B=t*3"));
         QCOMPARE(second.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 30"));
         for (Host *host : {&first, &second})
         {
@@ -253,18 +252,59 @@ private slots:
         }
         second.closeCurrent();
         second.openAction()->trigger();
-        QVERIFY(!second.page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+        QVERIFY(!second.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->isVisible());
         QVERIFY(second.input()->toPlainText().isEmpty());
         QVERIFY(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
     }
-    void customDefinitionDialogLifetime_data()
+    void inlineDefinitionCompletionAndHostEditRouting()
+    {
+        Host host;
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        int hostEnterCalls = 0;
+        auto *hostEnter = new QAction(&host);
+        hostEnter->setShortcut(QKeySequence(Qt::Key_Return));
+        host.addAction(hostEnter);
+        connect(hostEnter, &QAction::triggered, &host, [&]() { ++hostEnterCalls; });
+        auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
+        host.page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        auto *edit = host.page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(edit && edit->isVisible());
+        edit->window()->activateWindow();
+        edit->setFocus();
+        QCoreApplication::processEvents();
+        QVERIFY(edit->hasFocus());
+        QTest::keyClicks(edit, "A=@sq");
+        auto *popup = edit->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(edit->toPlainText(), QStringLiteral("A=sqrt()"));
+        QTest::keyClicks(edit, "x");
+        host.page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
+        host.findChild<QAction *>(QStringLiteral("calctabddRoute_actionselect_All"))->trigger();
+        host.findChild<QAction *>(QStringLiteral("calctabddRoute_actioncopy"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("A=sqrt(x)"));
+        QCOMPARE(host.input()->toPlainText(), QString());
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("x="));
+        QVERIFY(host.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
+        host.input()->setPlainText(QStringLiteral("x=9"));
+        QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(host.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 3"));
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(native->isReadOnly() && !native->isModified());
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(host.hostEditCalls, 0);
+        QCOMPARE(hostEnterCalls, 0);
+    }
+    void customDefinitionInlineLifetime_data()
     {
         QTest::addColumn<int>("closeMode");
         QTest::newRow("switch") << 0;
         QTest::newRow("close-tab") << 1;
         QTest::newRow("close-window") << 2;
     }
-    void customDefinitionDialogLifetime()
+    void customDefinitionInlineLifetime()
     {
         QFETCH(int, closeMode);
         auto *host = new Host;
@@ -273,26 +313,42 @@ private slots:
         host->input()->setPlainText(QStringLiteral("old draft"));
         auto *native = host->tabs->currentWidget();
         host->page()->findChild<QAction *>(QStringLiteral("defineCustomFormula"))->trigger();
-        QPointer<QDialog> dialog = host->page()->findChild<QDialog *>(QStringLiteral("customDefinitionDialog"));
-        QVERIFY(dialog && dialog->isVisible());
-        dialog->findChild<QLineEdit *>()->setText(QStringLiteral("A=x+y"));
+        QPointer<QPlainTextEdit> edit = host->page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(edit && edit->isVisible());
+        edit->window()->activateWindow();
+        edit->setFocus();
+        QCoreApplication::processEvents();
+        QVERIFY(edit->hasFocus());
+        edit->setPlainText(QStringLiteral("A=@sq"));
+        edit->moveCursor(QTextCursor::End);
+        auto *popup = edit->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QPointer<QAbstractItemView> guardedPopup = popup;
         if (closeMode == 0) host->tabs->setCurrentWidget(host->ordinary);
         else if (closeMode == 1) host->closeCurrent();
         else { delete host; host = nullptr; }
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(dialog.isNull());
-        if (host)
+        if (closeMode == 0)
         {
-            if (closeMode == 0)
-            {
-                host->tabs->setCurrentWidget(native);
-                QCOMPARE(host->input()->toPlainText(), QStringLiteral("old draft"));
-            }
-            else host->openAction()->trigger();
-            QVERIFY(!host->page()->findChild<QLabel *>(QStringLiteral("currentCustomDefinition"))->isVisible());
-            delete host;
+            QVERIFY(edit && !edit->isVisible());
+            QVERIFY(!guardedPopup->isVisible());
+            host->tabs->setCurrentWidget(native);
+            QCOMPARE(edit->toPlainText(), QStringLiteral("A=@sq"));
+            QCOMPARE(host->input()->toPlainText(), QStringLiteral("old draft"));
         }
+        else
+        {
+            QVERIFY(edit.isNull());
+            QVERIFY(guardedPopup.isNull());
+            if (host)
+            {
+                host->openAction()->trigger();
+                QVERIFY(!host->page()->findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->isVisible());
+            }
+        }
+        delete host;
     }
+
     void savedSessionsSurviveTabAndWindowLifetimeIndependently()
     {
         QTemporaryDir directory;
@@ -476,7 +532,7 @@ private slots:
         QTRY_VERIFY(host.input()->hasFocus());
         auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
         QTest::keyClicks(host.input(), "2+@sq");
-        auto *popup = host.page()->findChild<QCompleter *>()->popup();
+        auto *popup = host.input()->findChild<QCompleter *>()->popup();
         QTRY_VERIFY(popup->isVisible());
         QTest::keyClick(host.input(), Qt::Key_Tab);
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("2+sqrt()"));
@@ -853,7 +909,7 @@ private slots:
         QCOMPARE(host.input()->toPlainText(), QStringLiteral("draft"));
         host.input()->setPlainText(QStringLiteral("@p"));
         host.input()->moveCursor(QTextCursor::End);
-        auto *popup = host.page()->findChild<QCompleter *>()->popup();
+        auto *popup = host.input()->findChild<QCompleter *>()->popup();
         QTRY_VERIFY(popup->isVisible());
         QTest::keyClick(popup, Qt::Key_Up, Qt::AltModifier);
         QCOMPARE(host.hostEditCalls, 0);
