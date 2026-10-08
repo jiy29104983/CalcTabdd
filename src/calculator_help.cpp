@@ -143,25 +143,20 @@ void showCalculatorAbout(QWidget *owner)
     dialog->setWindowTitle(QStringLiteral("关于 CalcTabdd"));
     dialog->setModal(false);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->resize(580, 380);
+    dialog->resize(440, 260);
     auto *layout = new QVBoxLayout(dialog);
     layout->setContentsMargins(24, 20, 24, 20);
     layout->setSpacing(12);
     auto *text = new QTextBrowser(dialog);
     text->setObjectName(QStringLiteral("aboutDetails"));
+    text->setStyleSheet(QStringLiteral(
+        "QTextBrowser#aboutDetails { background: transparent; border: none; padding: 0; }"));
     text->setHtml(QStringLiteral(
-        "<h2>CalcTabdd %1 测试版</h2>"
-        "<p>notepad-- 标签页计算器 · GNU GPL v3.0 or later</p>"
-        "<p><b>目标宿主：</b>Windows x64 版 notepad--，Qt 5.15.2 / MSVC v142。</p>"
-        "<p><b>源码兼容参考：</b>notepad-- v3.8.3 / v3.9.0，固定源码提交 "
-        "<code>91105f68b74382128f3313ac5af8accdc77de918</code>。</p>"
-        "<p>上述版本对应源码接口参考，不代表两个发布二进制都已实机验收；"
-        "真实宿主 DLL 加载、输入法、关闭退出与 DPI 仍需手动确认。其他宿主版本未验证。</p>"
-        "<p><b>本次构建：</b>Qt %2；当前 Qt 运行库 %3；%4 位。</p>"
-        "<p>有界精确十进制计算，最多50位有效数字；科学函数使用近似路径，最多17位可往返显示。详细能力见“运算与精度帮助”。"
-        "本地保存默认关闭；可通过“本地会话”开启保存，关闭后在空白计算器中从文件恢复。</p>")
-        .arg(QStringLiteral(CALCTABDD_VERSION), QStringLiteral(QT_VERSION_STR), QString::fromLatin1(qVersion()))
-        .arg(sizeof(void *) * 8));
+        "<h2 style=\"margin-top: 0; margin-bottom: 8px;\">CalcTabdd</h2>"
+        "<p style=\"margin-top: 0; margin-bottom: 16px;\">notepad-- 标签页计算器</p>"
+        "<p>版本 %1 · 测试版</p>"
+        "<p>开源许可：GNU GPL v3.0 or later</p>")
+        .arg(QStringLiteral(CALCTABDD_VERSION)));
     layout->addWidget(text);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
     buttons->button(QDialogButtonBox::Close)->setText(QStringLiteral("关闭"));

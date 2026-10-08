@@ -36,7 +36,9 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 {
     setObjectName(QStringLiteral("calctabddPage"));
     if (parent) setFont(parent->font());
-    setAutoFillBackground(true);
+    // 页面覆盖宿主原生编辑器；样式表会关闭 autoFillBackground。
+    // 显式绘制页面背景，避免行号栏和当前行高亮透过透明子控件。
+    setAttribute(Qt::WA_StyledBackground, true);
     setFocusPolicy(Qt::StrongFocus);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);

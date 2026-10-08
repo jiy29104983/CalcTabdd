@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(CalcTabdd VERSION 0.2.17 LANGUAGES CXX)
+project(CalcTabdd VERSION 0.2.18 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

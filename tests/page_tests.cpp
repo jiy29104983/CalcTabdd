@@ -2374,7 +2374,7 @@ private slots:
         search->setText(QStringLiteral("草稿"));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("Alt+↑ / Alt+↓")));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("光标和选区")));
-        QVERIFY(operations->toPlainText().contains(QStringLiteral("重置输入框撤销栈")));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("切换历史记录后不能通过撤销恢复上一条输入")));
         search->setText(QStringLiteral("清空会话"));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("ans 重置为 0")));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("不可撤销")));
@@ -2397,9 +2397,14 @@ private slots:
         QVERIFY(about);
         const QString text = about->findChild<QTextBrowser *>()->toPlainText();
         QVERIFY(text.contains(QStringLiteral(CALCTABDD_VERSION)));
-        QVERIFY(text.contains(QStringLiteral("v3.8.3 / v3.9.0")));
-        QVERIFY(text.contains(QStringLiteral("源码接口参考")));
-        QVERIFY(text.contains(QStringLiteral("手动确认")));
+        QVERIFY(text.contains(QStringLiteral("notepad-- 标签页计算器")));
+        QVERIFY(text.contains(QStringLiteral("GNU GPL v3.0 or later")));
+        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QVERIFY(about->grab().save(directory + QStringLiteral("/about-light.png")));
+        }
     }
     void responsiveActionsAndKeyboardSubmission_data()
     {

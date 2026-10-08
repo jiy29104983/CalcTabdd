@@ -9,6 +9,8 @@
 #include <QDialog>
 #include <QFileDialog>
 #include <QFile>
+#include <QDir>
+#include <QImage>
 #include <QTemporaryDir>
 #include <QLineEdit>
 #include <QInputMethodEvent>
@@ -522,6 +524,73 @@ private slots:
         QTRY_COMPARE(host.page()->geometry(), native->rect());
         host.openAction()->trigger();
         QCOMPARE(host.creations, 1);
+    }
+    void pageBackgroundCoversNativeEditor()
+    {
+        QTemporaryDir directory;
+        Host host;
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
+        QVERIFY(native);
+        // 鲜明的底层颜色让行号栏、当前行和正文的任何透出都可被像素检查发现。
+        native->setMarginLineNumbers(0, true);
+        native->setMarginWidth(0, 68);
+        native->setMarginsBackgroundColor(QColor("#fd0099"));
+        native->setPaper(QColor("#00a8fc"));
+        native->setCaretLineVisible(true);
+        native->setCaretLineBackgroundColor(QColor("#e800e8"));
+        native->SendScintilla(QsciScintillaBase::SCI_SETCARETLINEVISIBLEALWAYS, 1);
+        for (const auto &formula : {QStringLiteral("1+2"), QStringLiteral("2+3")})
+        {
+            host.input()->setPlainText(formula);
+            host.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        }
+        QCOMPARE(host.page()->findChild<QLabel *>(QStringLiteral("recordCount"))->text(), QStringLiteral("2 条记录"));
+        QVERIFY(selectSession(host, directory.filePath(QStringLiteral("background.calctabdd")), false));
+        QWidget *page = host.page();
+        auto *header = page->findChild<QWidget *>(QStringLiteral("calculatorHeader"));
+        auto *composer = page->findChild<QWidget *>(QStringLiteral("formulaComposer"));
+        auto *status = page->findChild<QLabel *>(QStringLiteral("sessionSaveStatus"));
+        QVERIFY(header && composer && status && status->isVisible());
+        const QString screenshots = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!screenshots.isEmpty()) QVERIFY(QDir().mkpath(screenshots));
+        for (bool dark : {false, true, false})
+        {
+            QPalette colors = host.palette();
+            const QColor background(dark ? "#202329" : "#f0f0f0");
+            const QColor base(dark ? "#292d34" : "#ffffff");
+            colors.setColor(QPalette::Window, background);
+            colors.setColor(QPalette::Base, base);
+            colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+            page->setPalette(colors);
+            for (int width : {960, 560})
+            {
+                host.resize(width, 740);
+                host.tabs->setCurrentWidget(host.ordinary);
+                host.tabs->setCurrentWidget(native);
+                QCoreApplication::processEvents();
+                QTRY_COMPARE(page->geometry(), native->rect());
+                const QImage image = native->grab().toImage();
+                const auto colorAt = [&image, native](QWidget *widget, const QPoint &point) {
+                    const QPoint position = widget->mapTo(native, point);
+                    return image.pixelColor(qRound(position.x() * image.devicePixelRatio()),
+                                            qRound(position.y() * image.devicePixelRatio()));
+                };
+                if (!screenshots.isEmpty())
+                    QVERIFY(image.save(screenshots + QStringLiteral("/native-background-%1-%2.png")
+                        .arg(dark ? QStringLiteral("dark") : QStringLiteral("light")).arg(width)));
+                // 标题与输入区覆盖整行；透明状态标签下必须由页面绘制连续背景。
+                QCOMPARE(colorAt(header, QPoint(8, 8)), base);
+                QCOMPARE(colorAt(composer, QPoint(8, 8)), base);
+                QCOMPARE(colorAt(status, QPoint(8, 4)), background);
+                QCOMPARE(colorAt(status, QPoint(status->width() - 8, 4)), background);
+            }
+        }
+        QVERIFY(native->isReadOnly());
+        QCOMPARE(native->text(), QString());
+        QVERIFY(!native->isModified());
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
     }
     void switchingAndMenuRouting()
     {
