@@ -154,7 +154,7 @@ void showCalculatorAbout(QWidget *owner)
     text->setHtml(QStringLiteral(
         "<h2 style=\"margin-top: 0; margin-bottom: 8px;\">CalcTabdd</h2>"
         "<p style=\"margin-top: 0; margin-bottom: 16px;\">notepad-- 标签页计算器</p>"
-        "<p>版本 %1 · 测试版</p>"
+        "<p>版本 %1</p>"
         "<p>开源许可：GNU GPL v3.0 or later</p>")
         .arg(QStringLiteral(CALCTABDD_VERSION)));
     layout->addWidget(text);

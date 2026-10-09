@@ -3,6 +3,7 @@ name: Windows plugin build and tests
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -27,6 +28,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = [regex]::Match((Get-Content -Raw CMakeLists.txt), 'project\(CalcTabdd VERSION (\d+\.\d+\.\d+)').Groups[1].Value
+          if ($env:RELEASE_TAG -cne "v$version") { throw 'Release tag must match the project version' }
+          if (-not (Test-Path "docs/releases/v$version.md")) { throw 'Formal release notes are required' }
       - name: Check out pinned host test dependency
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,7 +88,7 @@ jobs:
               throw "Incomplete, failed or skipped tests in $($log.Name)"
             }
           }
-      - name: Package and verify Windows candidate
+      - name: Package and verify Windows build
         id: package
         shell: pwsh
         run: |
@@ -108,9 +118,9 @@ jobs:
           compression-level: 0
           retention-days: 30
 
-  candidate:
-    name: Publish manual-test download
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+  publish:
+    name: Publish download
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: windows
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -126,7 +136,7 @@ jobs:
           path: dist
       - name: Verify downloaded package
         run: python3 scripts/verify-package.py dist/*.zip --commit "$GITHUB_SHA"
-      - name: Publish versioned prerelease
+      - name: Publish versioned release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -134,9 +144,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="test-v${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-          cp "docs/releases/v${VERSION}-preview.md" build-candidate-notes.md
+          notes="docs/releases/v${VERSION}.md"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$tag" == "v${VERSION}" ]]
+            test -s "$notes"
+          else
+            [[ "$GITHUB_REF" == refs/heads/main ]]
+            tag="test-v${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+            if [[ ! -f "$notes" ]]; then notes="docs/releases/v${VERSION}-preview.md"; fi
+            test -s "$notes"
+          fi
+          cp "$notes" build-release-notes.md
           printf '\n源码提交：`%s`\n\n[Windows 编译与测试记录](%s/%s/actions/runs/%s)\n' \
-            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> build-candidate-notes.md
-          gh release create "$tag" dist/*.zip dist/*.sha256 --prerelease --target "$GITHUB_SHA" \
-            --title "CalcTabdd v${VERSION} 测试版 · ${GITHUB_SHA:0:7}" --notes-file build-candidate-notes.md
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> build-release-notes.md
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            gh release create "$tag" dist/*.zip dist/*.sha256 --verify-tag --draft \
+              --title "CalcTabdd v${VERSION}" --notes-file build-release-notes.md
+            gh release edit "$tag" --draft=false --prerelease=false --latest
+          else
+            gh release create "$tag" dist/*.zip dist/*.sha256 --prerelease --target "$GITHUB_SHA" \
+              --title "CalcTabdd v${VERSION} 测试版 · ${GITHUB_SHA:0:7}" --notes-file build-release-notes.md
+          fi

@@ -10,7 +10,10 @@ Copy-Item build/windows/plugin/calctabdd.dll "$stage/plugin/calctabdd.dll"
 Copy-Item packaging/README.zh-CN.md "$stage/README.md"
 Copy-Item LICENSE "$stage/LICENSE"
 Copy-Item packaging/TESTING.zh-CN.md "$stage/TESTING.md"
-Copy-Item "docs/releases/v$version-preview.md" "$stage/CHANGELOG.md"
+$releaseNotes = "docs/releases/v$version.md"
+if (-not (Test-Path -LiteralPath $releaseNotes)) { $releaseNotes = "docs/releases/v$version-preview.md" }
+if (-not (Test-Path -LiteralPath $releaseNotes)) { throw "Release notes missing for $version" }
+Copy-Item $releaseNotes "$stage/CHANGELOG.md"
 $tests = @{}
 foreach ($suite in @('engine_tests', 'page_tests', 'plugin_tests')) {
     $text = Get-Content -Raw "build/windows/$suite.txt"
