@@ -96,7 +96,9 @@ jobs:
           $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
           $env:QT_QPA_FONTDIR = "$env:SystemRoot/Fonts"
           & ./build/windows/Debug/page_tests.exe -platform offscreen -o "build/windows/page_tests-debug.txt,txt" -o "-,txt"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $testExitCode = $LASTEXITCODE
+          Select-String -Path build/windows/page_tests-debug.txt -Pattern 'FAIL!|QFATAL|ASSERT|Totals:' -Context 2,3
+          if ($testExitCode -ne 0) { exit $testExitCode }
           if ((Get-Content -Raw build/windows/page_tests-debug.txt) -notmatch 'Totals: \d+ passed, 0 failed, 0 skipped') {
             throw 'Debug UI regression did not complete successfully'
           }

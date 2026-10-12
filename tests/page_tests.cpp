@@ -2171,12 +2171,13 @@ private slots:
             page.input()->setPlainText(QStringLiteral("%1*2").arg(index));
             page.submit();
         }
-        QTest::qWait(50);
         const auto *formula = page.findChild<QLabel *>(QStringLiteral("recordFormula"));
         const auto *result = page.findChild<RecordText *>(QStringLiteral("recordResult"));
-        QVERIFY(result->mapTo(&page, QPoint()).y() > formula->mapTo(&page, QPoint()).y());
+        QVERIFY(formula && result);
+        // 25 条记录的布局通过事件队列更新；Debug/Windows 不保证在固定 50ms 内完成。
+        QTRY_VERIFY(result->mapTo(&page, QPoint()).y() > formula->mapTo(&page, QPoint()).y());
         auto *scroll = page.findChild<QScrollArea *>();
-        QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+        QTRY_VERIFY(scroll->verticalScrollBar()->maximum() > 0);
         QTRY_COMPARE(scroll->verticalScrollBar()->value(), scroll->verticalScrollBar()->maximum());
         page.resize(480, 520);
         QTest::qWait(30);
