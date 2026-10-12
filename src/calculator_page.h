@@ -82,6 +82,7 @@ private:
     void reuseFormula(quint64 id);
     void copyRecord(quint64 id, bool valueOnly);
     void insertResult(quint64 id);
+    void pasteIntoInput();
     void showInputError(const CalculationResult &result, int offset, bool moveCursor = true);
     void clearInputError();
     void applyErrorHighlight();

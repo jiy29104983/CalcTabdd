@@ -780,6 +780,15 @@ void CalculatorPage::insertResult(quint64 id)
         : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
 }
 
+void CalculatorPage::pasteIntoInput()
+{
+    // 先选定写入目标，再转移焦点；待确认定义期间不能改动隐藏草稿或参数。
+    auto *target = hasPendingDefinition() ? m_definitionInput : m_input;
+    target->setFocus(Qt::OtherFocusReason);
+    m_editTarget = target;
+    target->paste();
+}
+
 void CalculatorPage::routeEdit(const QString &command)
 {
     if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
@@ -808,7 +817,7 @@ void CalculatorPage::routeEdit(const QString &command)
     {
         if (command == QStringLiteral("actioncopy")) result->copy();
         else if (command == QStringLiteral("actionselect_All")) result->selectAll();
-        else if (command == QStringLiteral("actionpaste")) { focusInput(); m_input->paste(); }
+        else if (command == QStringLiteral("actionpaste")) pasteIntoInput();
         return;
     }
     auto *selectedLabel = qobject_cast<QLabel *>(m_editTarget.data());
@@ -818,11 +827,7 @@ void CalculatorPage::routeEdit(const QString &command)
             QApplication::clipboard()->setText(selectedLabel->selectedText());
         else if (command == QStringLiteral("actionselect_All"))
             selectedLabel->setSelection(0, selectedLabel->text().size());
-        else if (command == QStringLiteral("actionpaste"))
-        {
-            focusInput();
-            m_input->paste();
-        }
+        else if (command == QStringLiteral("actionpaste")) pasteIntoInput();
         return;
     }
     auto *editor = m_editTarget == m_definitionInput ? m_definitionInput : m_input;

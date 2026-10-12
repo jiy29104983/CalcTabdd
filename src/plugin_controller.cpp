@@ -7,6 +7,12 @@
 #include <QApplication>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QContextMenuEvent>
+#include <QMouseEvent>
+#include <QTabBar>
+#include <QToolBar>
+#include <QToolButton>
+#include <QWidgetAction>
 #include <QMainWindow>
 #include <QPlainTextEdit>
 #include <QSet>
@@ -21,15 +27,20 @@ PluginController::PluginController(QWidget *host, NddHostCallback callback)
     setObjectName(QStringLiteral("calctabddController"));
     m_tabs = host->findChild<QTabWidget *>(QStringLiteral("editTabWidget"));
     if (m_tabs)
+    {
+        m_tabBar = m_tabs->tabBar();
+        m_tabBar->installEventFilter(this);
         connect(m_tabs, &QTabWidget::currentChanged, this, [this]() {
             syncActivePage();
             QTimer::singleShot(0, this, &PluginController::syncActivePage);
         });
+    }
 }
 
 PluginController::~PluginController()
 {
     restoreRoutes();
+    if (m_tabBar) m_tabBar->removeEventFilter(this);
     if (m_editor)
     {
         m_editor->removeEventFilter(this);
@@ -120,6 +131,7 @@ void PluginController::syncActivePage()
 {
     if (!m_tabs || !m_page || !m_editor || m_tabs->currentWidget() != m_editor)
     {
+        if (m_tabMenu) m_tabMenu->hide();
         restoreRoutes();
         return;
     }
@@ -130,7 +142,7 @@ void PluginController::syncActivePage()
 
 void PluginController::installRoutes()
 {
-    if (!m_routes.isEmpty() || !m_host || !m_page) return;
+    if (!m_routes.isEmpty() || !m_toolbarRoutes.isEmpty() || !m_host || !m_page) return;
     const QSet<QString> editCommands = {
         QStringLiteral("actioncopy"), QStringLiteral("actioncut"), QStringLiteral("actionpaste"),
         QStringLiteral("actionundo"), QStringLiteral("actionredo"), QStringLiteral("actionselect_All")};
@@ -179,12 +191,97 @@ void PluginController::installRoutes()
         });
     }
     m_routing = false;
+    installToolbarRoutes();
+}
+
+void PluginController::installToolbarRoutes()
+{
+    // 固定宿主的主工具栏使用 addWidget + clicked 直连槽函数，没有 action 名称。
+    // 只识别该工具栏内的已知按钮，支持宿主加载的翻译；不改动原有信号连接。
+    auto *toolbar = m_host->findChild<QToolBar *>(QStringLiteral("mainToolBar"));
+    if (!toolbar) return;
+    struct Command { const char *tooltip; const char *name; bool editable; };
+    static const Command commands[] = {
+        {"Cut", "actioncut", true}, {"Copy", "actioncopy", true},
+        {"Paste", "actionpaste", true}, {"Undo", "actionundo", true}, {"Redo", "actionredo", true},
+        {"Save File", "actionSave", false}, {"Save All File", "actionSaveAll", false},
+        {"Cycle Auto Save", "actionAutoSave", false}, {"Find", "actionFind", false},
+        {"Replace", "actionReplace", false}, {"Mark", "actionMark", false}
+    };
+    const auto actions = toolbar->actions();
+    for (QAction *action : actions)
+    {
+        auto *widgetAction = qobject_cast<QWidgetAction *>(action);
+        auto *button = widgetAction ? qobject_cast<QToolButton *>(widgetAction->defaultWidget()) : nullptr;
+        if (!button || button->defaultAction()) continue;
+        for (const auto &command : commands)
+        {
+            if (button->toolTip() != QLatin1String(command.tooltip)
+                && button->toolTip() != QCoreApplication::translate("CCNotePad", command.tooltip)) continue;
+            auto *proxy = new QAction(button->icon(), button->text(), this);
+            const QString name = QString::fromLatin1(command.name);
+            proxy->setObjectName(QStringLiteral("calctabddToolbar_") + name);
+            proxy->setToolTip(command.editable ? button->toolTip() : QStringLiteral("计算器标签不使用此文档命令；保存请使用“本地会话”"));
+            proxy->setEnabled(command.editable);
+            connect(proxy, &QAction::triggered, this, [this, name]() { if (m_page) m_page->routeEdit(name); });
+            toolbar->insertAction(action, proxy);
+            if (auto *replacement = qobject_cast<QToolButton *>(toolbar->widgetForAction(proxy)))
+            {
+                replacement->setIconSize(button->iconSize());
+                replacement->setMinimumSize(button->minimumSize());
+                replacement->setMaximumSize(button->maximumSize());
+                replacement->setToolButtonStyle(button->toolButtonStyle());
+                replacement->setFocusPolicy(button->focusPolicy());
+            }
+            // QWidgetAction 保留默认按钮；隐藏期间宿主仍可更新它的状态，切回时原样恢复。
+            toolbar->removeAction(action);
+            m_toolbarRoutes.append({toolbar, action, proxy});
+            break;
+        }
+    }
+}
+
+void PluginController::showTabMenu(const QPoint &position)
+{
+    if (!m_tabs || !m_editor || !m_page || !m_tabBar) return;
+    if (!m_tabMenu)
+    {
+        m_tabMenu = new QMenu(m_page);
+        m_tabMenu->setObjectName(QStringLiteral("calctabddTabMenu"));
+        auto *hint = m_tabMenu->addAction(QStringLiteral("保存：请使用“本地会话”或“导出记录”"));
+        hint->setEnabled(false);
+        m_tabMenu->addSeparator();
+        auto *close = m_tabMenu->addAction(QStringLiteral("关闭计算器"));
+        close->setObjectName(QStringLiteral("calctabddCloseTab"));
+        connect(close, &QAction::triggered, this, [this]() {
+            if (!m_tabs || !m_editor || !m_tabBar) return;
+            const int index = m_tabs->indexOf(m_editor);
+            // 沿用宿主已连接的关闭信号，保留其文档登记与生命周期处理。
+            if (index >= 0) emit m_tabBar->tabCloseRequested(index);
+        });
+    }
+    m_tabs->setCurrentWidget(m_editor);
+    m_tabMenu->popup(position);
 }
 
 void PluginController::restoreRoutes()
 {
-    if (m_routes.isEmpty()) return;
+    if (m_routes.isEmpty() && m_toolbarRoutes.isEmpty()) return;
     m_routing = true;
+    for (const auto &route : m_toolbarRoutes)
+    {
+        if (route.toolbar)
+        {
+            if (route.original) route.toolbar->insertAction(route.proxy, route.original);
+            if (route.proxy) route.toolbar->removeAction(route.proxy);
+        }
+        if (route.proxy)
+        {
+            route.proxy->setObjectName(QString());
+            route.proxy->deleteLater();
+        }
+    }
+    m_toolbarRoutes.clear();
     for (const ActionRoute &route : m_routes)
     {
         if (route.original)
@@ -207,6 +304,34 @@ void PluginController::restoreRoutes()
 bool PluginController::eventFilter(QObject *object, QEvent *event)
 {
     if (!m_editor || !m_page) return QObject::eventFilter(object, event);
+    if (object == m_tabBar && m_tabs && m_tabs->indexOf(m_editor) >= 0)
+    {
+        // 宿主在 tabBarClicked 中临时创建匿名“另存为”等文档命令。
+        // 只替换计算器标签的右键入口，普通标签继续完整交给宿主。
+        if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease
+            || event->type() == QEvent::MouseButtonDblClick)
+        {
+            auto *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::RightButton && m_tabBar->tabAt(mouse->pos()) == m_tabs->indexOf(m_editor))
+            {
+                if (event->type() == QEvent::MouseButtonPress) showTabMenu(mouse->globalPos());
+                event->accept();
+                return true;
+            }
+        }
+        if (event->type() == QEvent::ContextMenu)
+        {
+            auto *context = static_cast<QContextMenuEvent *>(event);
+            const int index = context->reason() == QContextMenuEvent::Keyboard
+                ? m_tabs->currentIndex() : m_tabBar->tabAt(context->pos());
+            if (index == m_tabs->indexOf(m_editor))
+            {
+                if (!m_tabMenu || !m_tabMenu->isVisible()) showTabMenu(context->globalPos());
+                event->accept();
+                return true;
+            }
+        }
+    }
     if (object == m_editor && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
     {
         m_page->setGeometry(m_editor->rect());

@@ -47,9 +47,10 @@ FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
 FormulaCompletion::Token FormulaCompletion::tokenAtCursor() const
 {
     const QTextCursor cursor = m_input->textCursor();
-    if (cursor.hasSelection()) return {};
+    if (cursor.isNull() || cursor.hasSelection()) return {};
     const QString text = m_input->toPlainText();
     int start = cursor.position();
+    if (start < 0 || start > text.size()) return {};
     while (start > 0 && isQueryCharacter(text.at(start - 1))) --start;
     if (start == 0 || text.at(start - 1) != QLatin1Char('@')) return {};
     --start;
@@ -81,8 +82,13 @@ void FormulaCompletion::setEnabled(bool enabled)
 void FormulaCompletion::refresh()
 {
     if (m_inserting) return;
+    if (!m_enabled || m_composing || !m_input->hasFocus() || !m_input->isVisible())
+    {
+        hide();
+        return;
+    }
     const Token token = tokenAtCursor();
-    if (!m_enabled || m_composing || !m_input->hasFocus() || !m_input->isVisible() || token.start < 0 ||
+    if (token.start < 0 ||
         (m_dismissedPosition == m_input->textCursor().position() && m_dismissedText == m_input->toPlainText()))
     {
         hide();

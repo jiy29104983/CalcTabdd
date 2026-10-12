@@ -98,6 +98,74 @@ class PageTests : public QObject
         return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
+    void pasteFromHistoryTargetsVisibleEditor_data()
+    {
+        QTest::addColumn<bool>("formulaLabel");
+        QTest::addColumn<int>("mode");
+        for (bool label : {false, true})
+            for (int mode = 0; mode < 3; ++mode)
+                QTest::newRow(qPrintable(QStringLiteral("%1-mode-%2").arg(label ? "formula" : "result").arg(mode))) << label << mode;
+    }
+    void pasteFromHistoryTargetsVisibleEditor()
+    {
+        QFETCH(bool, formulaLabel);
+        QFETCH(int, mode);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("100+"));
+        page.input()->moveCursor(QTextCursor::End);
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        if (mode == 1)
+            page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        else if (mode == 2)
+        {
+            QVERIFY(defineFormula(page, QStringLiteral("A=x")));
+            page.input()->setPlainText(QStringLiteral("x=7"));
+            page.input()->moveCursor(QTextCursor::End);
+        }
+        if (mode) { definition->setPlainText(QStringLiteral("B=")); definition->moveCursor(QTextCursor::End); }
+        const QString inputBefore = page.input()->toPlainText();
+        QWidget *record = formulaLabel
+            ? static_cast<QWidget *>(page.findChild<QLabel *>(QStringLiteral("recordFormula")))
+            : static_cast<QWidget *>(page.findChild<RecordText *>(QStringLiteral("recordResult")));
+        record->setFocus();
+        QTRY_VERIFY(record->hasFocus());
+        QApplication::clipboard()->setText(QStringLiteral("99"));
+        page.routeEdit(QStringLiteral("actionpaste"));
+        auto *target = mode ? definition : page.input();
+        QTRY_VERIFY(target->hasFocus());
+        QCOMPARE(target->toPlainText(), mode ? QStringLiteral("B=99") : QStringLiteral("100+99"));
+        if (mode) QCOMPARE(page.input()->toPlainText(), inputBefore);
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(target->toPlainText(), mode ? QStringLiteral("B=") : inputBefore);
+        QCOMPARE(page.recordCount(), 1);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("42"));
+    }
+    void completionSurvivesDocumentReset()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("@sq"));
+        QTRY_VERIFY(completion(page)->isVisible());
+        // setPlainText 发出的同步信号可能临时带空光标；Debug 与 Release 都需覆盖。
+        for (const QString &text : {QStringLiteral("2*(3+4)"), QString(), QStringLiteral("@sq")})
+        {
+            page.input()->setPlainText(text);
+            page.input()->moveCursor(QTextCursor::End);
+        }
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt()"));
+        QVERIFY(defineFormula(page, QStringLiteral("A=x+y")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=\ny="));
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("sqrt()"));
+        page.input()->setPlainText(QStringLiteral("@pi"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("pi"));
+    }
     void typedResultsCopyInsertAndSourceRows()
     {
         CalculatorPage page;

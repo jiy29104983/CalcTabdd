@@ -88,6 +88,18 @@ jobs:
               throw "Incomplete, failed or skipped tests in $($log.Name)"
             }
           }
+      - name: Test Debug UI with Qt assertions enabled
+        shell: pwsh
+        run: |
+          cmake --build build/windows --config Debug --target page_tests --parallel 4 2>&1 | Tee-Object -FilePath build/compile-debug.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
+          $env:QT_QPA_FONTDIR = "$env:SystemRoot/Fonts"
+          & ./build/windows/Debug/page_tests.exe -platform offscreen -o "build/windows/page_tests-debug.txt,txt" -o "-,txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-Content -Raw build/windows/page_tests-debug.txt) -notmatch 'Totals: \d+ passed, 0 failed, 0 skipped') {
+            throw 'Debug UI regression did not complete successfully'
+          }
       - name: Package and verify Windows build
         id: package
         shell: pwsh
@@ -102,6 +114,8 @@ jobs:
           path: |
             build/configure.log
             build/compile.log
+            build/compile-debug.log
+            build/windows/page_tests-debug.txt
             build/windows/*_tests.txt
             build/windows/Testing/Temporary/*.log
             build/screenshots/*.png

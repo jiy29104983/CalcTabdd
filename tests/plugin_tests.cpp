@@ -27,6 +27,10 @@
 #include <QPushButton>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTabBar>
+#include <QToolBar>
+#include <QContextMenuEvent>
+#include <QTranslator>
 #include <QtTest>
 #include <cstddef>
 #include <type_traits>
@@ -150,6 +154,170 @@ class PluginTests : public QObject
         return host.input()->isVisible() && host.page()->findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
+    void nativeToolbarRoutingAndRestoration_data()
+    {
+        QTest::addColumn<bool>("translated");
+        QTest::newRow("english") << false;
+        QTest::newRow("translated") << true;
+    }
+    void nativeToolbarRoutingAndRestoration()
+    {
+        QFETCH(bool, translated);
+        class HostTranslation : public QTranslator
+        {
+        public:
+            bool isEmpty() const override { return false; }
+            QString translate(const char *context, const char *source, const char *, int) const override
+            {
+                return qstrcmp(context, "CCNotePad") == 0 ? QStringLiteral("宿主：") + QString::fromUtf8(source) : QString();
+            }
+        } translation;
+        if (translated) QVERIFY(qApp->installTranslator(&translation));
+        Host host, other;
+        auto *toolbar = host.addToolBar(QStringLiteral("main"));
+        toolbar->setObjectName(QStringLiteral("mainToolBar"));
+        QMap<QString, QToolButton *> buttons;
+        QMap<QString, QAction *> originals;
+        for (const char *tip : {"New File", "Cut", "Copy", "Paste", "Undo", "Redo", "Save File", "Save All File", "Cycle Auto Save", "Find", "Replace", "Mark"})
+        {
+            auto *button = new QToolButton(toolbar);
+            button->setFixedSize(24, 24);
+            button->setToolTip(translated ? QCoreApplication::translate("CCNotePad", tip) : QString::fromUtf8(tip));
+            connect(button, &QToolButton::clicked, &host, [&host]() { ++host.hostEditCalls; });
+            const QString key = QString::fromUtf8(tip);
+            buttons.insert(key, button);
+            originals.insert(key, toolbar->addWidget(button));
+        }
+        buttons.value(QStringLiteral("Copy"))->setEnabled(false);
+        const auto originalOrder = toolbar->actions();
+        auto *otherToolbar = other.addToolBar(QStringLiteral("other"));
+        otherToolbar->setObjectName(QStringLiteral("mainToolBar"));
+        auto *otherPaste = new QToolButton(otherToolbar);
+        otherPaste->setToolTip(translated ? QCoreApplication::translate("CCNotePad", "Paste") : QStringLiteral("Paste"));
+        connect(otherPaste, &QToolButton::clicked, &other, [&other]() { ++other.hostEditCalls; });
+        otherToolbar->addWidget(otherPaste);
+        QCOMPARE(initialize(host), 0);
+        QCOMPARE(initialize(other), 0);
+        host.openAction()->trigger();
+        auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
+        QTRY_VERIFY(!buttons.value(QStringLiteral("Paste"))->isVisible());
+        QVERIFY(!toolbar->actions().contains(originals.value(QStringLiteral("Paste"))));
+        QVERIFY(toolbar->actions().contains(originals.value(QStringLiteral("New File"))));
+        auto *paste = host.findChild<QAction *>(QStringLiteral("calctabddToolbar_actionpaste"));
+        QVERIFY(paste && paste->isEnabled());
+        host.activateWindow();
+        host.input()->setPlainText(QStringLiteral("12+"));
+        host.input()->moveCursor(QTextCursor::End);
+        host.input()->setFocus();
+        QTRY_VERIFY(host.input()->hasFocus());
+        QApplication::clipboard()->setText(QStringLiteral("30"));
+        QTest::mouseClick(toolbar->widgetForAction(paste), Qt::LeftButton);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("12+30"));
+        host.findChild<QAction *>(QStringLiteral("calctabddToolbar_actionundo"))->trigger();
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("12+"));
+        host.findChild<QAction *>(QStringLiteral("calctabddToolbar_actionredo"))->trigger();
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("12+30"));
+        host.input()->selectAll();
+        host.findChild<QAction *>(QStringLiteral("calctabddToolbar_actioncopy"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("12+30"));
+        host.findChild<QAction *>(QStringLiteral("calctabddToolbar_actioncut"))->trigger();
+        QVERIFY(host.input()->toPlainText().isEmpty());
+        for (const char *name : {"actionSave", "actionSaveAll", "actionAutoSave", "actionFind", "actionReplace", "actionMark"})
+        {
+            auto *proxy = host.findChild<QAction *>(QStringLiteral("calctabddToolbar_") + QString::fromLatin1(name));
+            QVERIFY(proxy && !proxy->isEnabled());
+            proxy->trigger();
+        }
+        QCOMPARE(host.hostEditCalls, 0);
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(native->isReadOnly());
+        otherPaste->click();
+        QCOMPARE(other.hostEditCalls, 1);
+        // 隐藏按钮仍接收宿主状态更新，恢复时不能用旧快照覆盖。
+        buttons.value(QStringLiteral("Copy"))->setEnabled(true);
+        buttons.value(QStringLiteral("Save File"))->setEnabled(false);
+        host.tabs->setCurrentWidget(host.ordinary);
+        QCOMPARE(toolbar->actions(), originalOrder);
+        QVERIFY(buttons.value(QStringLiteral("Copy"))->isEnabled());
+        QVERIFY(!buttons.value(QStringLiteral("Save File"))->isEnabled());
+        buttons.value(QStringLiteral("Paste"))->click();
+        QCOMPARE(host.hostEditCalls, 1);
+        host.tabs->setCurrentWidget(native);
+        QCOMPARE(toolbar->actions().size(), originalOrder.size());
+        host.closeCurrent();
+        QCOMPARE(toolbar->actions(), originalOrder);
+        for (auto *button : buttons) QVERIFY(button);
+        if (translated) qApp->removeTranslator(&translation);
+    }
+    void calculatorTabContextMenuStaysIsolated_data()
+    {
+        QTest::addColumn<bool>("keyboard");
+        QTest::newRow("mouse") << false;
+        QTest::newRow("keyboard") << true;
+    }
+    void calculatorTabContextMenuStaysIsolated()
+    {
+        QFETCH(bool, keyboard);
+        Host host;
+        int nativeMenuCalls = 0;
+        connect(host.tabs->tabBar(), &QTabBar::tabBarClicked, &host, [&host, &nativeMenuCalls](int index) {
+            if (QGuiApplication::mouseButtons() != Qt::RightButton) return;
+            ++nativeMenuCalls;
+            host.tabs->setCurrentIndex(index);
+            // 与固定宿主一致：右击时才创建没有 objectName 的文档另存为动作。
+            auto *menu = new QMenu(&host);
+            menu->setObjectName(QStringLiteral("nativeDocumentMenu"));
+            menu->addAction(QStringLiteral("Current Document Sava as..."), &host, [&host]() { ++host.hostEditCalls; });
+        });
+        connect(host.tabs->tabBar(), &QTabBar::tabCloseRequested, &host, [&host](int index) {
+            QWidget *widget = host.tabs->widget(index);
+            host.tabs->removeTab(index);
+            widget->deleteLater();
+        });
+        QCOMPARE(initialize(host), 0);
+        host.openAction()->trigger();
+        auto *bar = host.tabs->tabBar();
+        const int calculatorIndex = host.tabs->currentIndex();
+        if (keyboard)
+        {
+            const QPoint point = bar->tabRect(calculatorIndex).center();
+            QContextMenuEvent event(QContextMenuEvent::Keyboard, point, bar->mapToGlobal(point));
+            QApplication::sendEvent(bar, &event);
+        }
+        else
+        {
+            // 不活动的计算器标签右击也必须先被拦截，再选中计算器。
+            host.tabs->setCurrentWidget(host.ordinary);
+            QTest::mouseClick(bar, Qt::RightButton, Qt::NoModifier, bar->tabRect(calculatorIndex).center());
+        }
+        auto *menu = host.findChild<QMenu *>(QStringLiteral("calctabddTabMenu"));
+        QVERIFY(menu && menu->isVisible());
+        QCOMPARE(nativeMenuCalls, 0);
+        QVERIFY(!host.findChild<QMenu *>(QStringLiteral("nativeDocumentMenu")));
+        QVERIFY(menu->actions().first()->text().contains(QStringLiteral("本地会话")));
+        menu->hide();
+        // 普通标签仍保留宿主菜单，不受计算器入口影响。
+        QTest::mouseClick(bar, Qt::RightButton, Qt::NoModifier, bar->tabRect(0).center());
+        QCOMPARE(nativeMenuCalls, 1);
+        auto *nativeMenu = host.findChild<QMenu *>(QStringLiteral("nativeDocumentMenu"));
+        QVERIFY(nativeMenu);
+        nativeMenu->actions().first()->trigger();
+        QCOMPARE(host.hostEditCalls, 1);
+        host.openAction()->trigger();
+        QTest::mouseClick(bar, Qt::RightButton, Qt::NoModifier, bar->tabRect(calculatorIndex).center());
+        QTRY_VERIFY(menu->isVisible());
+        menu->findChild<QAction *>(QStringLiteral("calctabddCloseTab"))->trigger();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(!host.page());
+        QCOMPARE(host.tabs->currentWidget(), static_cast<QWidget *>(host.ordinary));
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        host.openAction()->trigger();
+        QTest::mouseClick(bar, Qt::RightButton, Qt::NoModifier, bar->tabRect(host.tabs->currentIndex()).center());
+        auto *reopened = host.findChild<QMenu *>(QStringLiteral("calctabddTabMenu"));
+        QVERIFY(reopened && reopened->isVisible());
+        host.tabs->setCurrentWidget(host.ordinary);
+        QVERIFY(!reopened->isVisible());
+    }
     void typedResultsSurviveNativeHostCloseAndRestore()
     {
         QTemporaryDir directory;
