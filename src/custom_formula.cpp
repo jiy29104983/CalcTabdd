@@ -65,24 +65,6 @@ QString CustomFormula::parameterTemplate(const QString &previousInput) const
 
 QString CustomFormula::substitute(const QString &input, QString &expression) const
 {
-    return substituteImpl(input, expression);
-}
-
-QString CustomFormula::substituteNumeric(const QString &input, QString &expression) const
-{
-    return substitute(input, expression);
-}
-
-NumericCalculationResult CustomFormula::evaluateNumeric(const QString &input, const NumericValue &answer, QString &parameterError) const
-{
-    QString expression;
-    parameterError = substituteNumeric(input, expression);
-    if (!parameterError.isEmpty()) return {};
-    return ExpressionEngine::evaluateNumeric(expression, answer);
-}
-
-QString CustomFormula::substituteImpl(const QString &input, QString &expression) const
-{
     QString error;
     const auto items = assignments(input, error);
     if (!error.isEmpty()) return error;

@@ -22,14 +22,6 @@ RecordText::RecordText(const QString &text, QWidget *parent) : QTextBrowser(pare
     setPlainText(text);
 }
 
-void RecordText::setSelection(int start, int length)
-{
-    QTextCursor cursor(document());
-    cursor.setPosition(qBound(0, start, toPlainText().size()));
-    cursor.setPosition(qBound(0, start + length, toPlainText().size()), QTextCursor::KeepAnchor);
-    setTextCursor(cursor);
-}
-
 void RecordText::resizeEvent(QResizeEvent *event)
 {
     QTextBrowser::resizeEvent(event);

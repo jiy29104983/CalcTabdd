@@ -1,6 +1,5 @@
 #include "decimal_value.h"
 
-#include <algorithm>
 #include <utility>
 
 constexpr int DecimalValue::maximumDigits;
@@ -161,7 +160,7 @@ DecimalError DecimalValue::add(const DecimalValue &left, const DecimalValue &rig
     QByteArray b = right.m_coefficient + QByteArray(right.m_exponent - exponent, '0');
     if (left.m_negative == right.m_negative)
         return finish(addMagnitude(a, b), exponent, left.m_negative, output);
-    const int comparison = a.size() == b.size() ? a.compare(b) : (a.size() > b.size() ? 1 : -1);
+    const int comparison = compareMagnitude(a, b);
     if (comparison == 0) return finish("0", 0, false, output);
     return comparison > 0
         ? finish(subtractMagnitude(a, b), exponent, left.m_negative, output)

@@ -27,9 +27,6 @@ struct CalculationResult
     CalculationError error = CalculationError::None;
 };
 
-// 内部入口与生产入口使用同一结果类型和格式。
-using NumericCalculationResult = CalculationResult;
-
 struct ExpressionParameter
 {
     QString name;
@@ -43,6 +40,5 @@ public:
     // 只校验语法／函数元数并提取参数，不执行数学运算或读取 ans。
     static CalculationResult inspect(const QString &expression, QVector<ExpressionParameter> &parameters);
     static bool isReservedName(const QString &name);
-    static NumericCalculationResult evaluateNumeric(const QString &expression, const NumericValue &answer = NumericValue());
     static CalculationResult evaluate(const QString &expression, const NumericValue &answer = NumericValue());
 };

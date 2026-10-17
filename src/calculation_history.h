@@ -5,7 +5,7 @@
 
 struct CalculationRecord
 {
-    // 编号仅在当前会话内有效，从 1 开始；清空开始新会话，追加不改已有编号。
+    // 编号等于记录下标 + 1；只追加或整批清空，恢复时验证连续性。
     quint64 id = 0;
     QString expression;
     CalculationResult result;
@@ -19,7 +19,6 @@ struct CalculationRecord
     QString insertionText() const;
 };
 
-// 计算会话的数据源，不依赖页面或控件；每个页面独立持有一个实例。
 class CalculationHistory
 {
 public:
@@ -39,6 +38,5 @@ public:
 
 private:
     QVector<CalculationRecord> m_records;
-    quint64 m_nextId = 1;
     NumericValue m_answer;
 };

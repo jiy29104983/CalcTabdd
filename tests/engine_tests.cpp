@@ -370,9 +370,14 @@ private slots:
         QTest::addColumn<bool>("binary");
         QTest::addColumn<uint>("sources");
         const auto row = [](const char *formula, const QString &value, bool binary = false, unsigned sources = 0) {
-            QTest::newRow(formula) << QString::fromLatin1(formula) << value << binary << sources;
+            QTest::newRow(formula) << QString::fromUtf8(formula) << value << binary << sources;
         };
         const unsigned R = NumericValue::Rounded, A = NumericValue::Approximate, C = NumericValue::ConversionLoss;
+        row("1+2*3", "7"); row("(1+2)*3", "9"); row("8/4/2", "1");
+        row("--2", "2"); row("1+-2", "-1"); row(".5+1.", "1.5");
+        row("1e3 + 2.5e-2", "1000.025"); row("1E+2", "100");
+        row("2 × 3 ÷ 2 − 1", "2"); row("\n 1 +\t2 ", "3");
+        row("ans * 2", "84"); row("SQRT(16)", "4");
         row("0.1+0.2", "0.3"); row("(0.1+0.2)-0.3", "0"); row("0.1*0.2", "0.02");
         row("19.9*3", "59.7"); row("0.3%0.1", "0"); row("-5.5%2", "-1.5"); row("5.5%-2", "1.5");
         row("1e999%3", "1"); row("abs(-0.3)", "0.3"); row("floor(-1.2)", "-2"); row("ceil(-1.2)", "-1");
@@ -414,7 +419,7 @@ private slots:
         QFETCH(QString, expected);
         QFETCH(bool, binary);
         QFETCH(uint, sources);
-        const auto result = ExpressionEngine::evaluateNumeric(formula);
+        const auto result = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("42")));
         QVERIFY2(result.ok, qPrintable(result.text));
         QCOMPARE(result.text, result.value.text());
         QCOMPARE(result.value.isBinary(), binary);
@@ -475,102 +480,39 @@ private slots:
         QFETCH(int, error);
         QFETCH(int, position);
         QFETCH(int, length);
-        const auto answer = ExpressionEngine::evaluateNumeric(QStringLiteral("sin(1/3)"));
+        const auto answer = ExpressionEngine::evaluate(QStringLiteral("sin(1/3)"));
         QVERIFY(answer.ok);
-        const auto result = ExpressionEngine::evaluateNumeric(formula, answer.value);
+        const auto result = ExpressionEngine::evaluate(formula, answer.value);
         QVERIFY(!result.ok);
         QCOMPARE(int(result.error), error);
         QCOMPARE(result.errorPosition, position);
         QCOMPARE(result.errorLength, length);
         QCOMPARE(answer.value.sources(), unsigned(NumericValue::Rounded | NumericValue::Approximate | NumericValue::ConversionLoss));
-        const auto reuse = ExpressionEngine::evaluateNumeric(QStringLiteral("ans"), answer.value);
+        const auto reuse = ExpressionEngine::evaluate(QStringLiteral("ans"), answer.value);
         QVERIFY(reuse.ok);
         QCOMPARE(bits(reuse.value.binary()), bits(answer.value.binary()));
         QCOMPARE(reuse.value.sources(), answer.value.sources());
     }
-    void numericContextAndCustom()
+    void numericFailuresPreserveOutputs()
     {
-        NumericValue answer;
-        auto first = ExpressionEngine::evaluateNumeric(QStringLiteral("0.1+0.2"), answer);
-        QVERIFY(first.ok);
-        answer = first.value;
-        const auto zero = ExpressionEngine::evaluateNumeric(QStringLiteral("ans-0.3"), answer);
-        QVERIFY(zero.ok && zero.value.isZero() && zero.value.sources() == 0);
-        QVERIFY(ExpressionEngine::evaluateNumeric(QStringLiteral("ans")).value.isZero());
-        for (const auto &entry : QVector<QPair<QString,QString>>{
-             {QStringLiteral("A=x+y"), QStringLiteral("x=0.1\ny=0.2")},
-             {QStringLiteral("A=sqrt(x)"), QStringLiteral("x=1e400")},
-             {QStringLiteral("A=sin(x)+ans"), QStringLiteral("x=0.1")},
-             {QStringLiteral("A=pow(x,y)"), QStringLiteral("x=2\ny=-3")},
-             {QStringLiteral("A=ln(x)"), QStringLiteral("x=1e400")},
-             {QStringLiteral("A=x^y"), QStringLiteral("x=2\ny=-200")}})
-        {
-            CustomFormula custom;
-            QVERIFY(CustomFormula::parse(entry.first, custom).isEmpty());
-            QString expression, parameterError;
-            QVERIFY(custom.substituteNumeric(entry.second, expression).isEmpty());
-            const auto ordinary = ExpressionEngine::evaluateNumeric(expression, answer);
-            const auto calculated = custom.evaluateNumeric(entry.second, answer, parameterError);
-            QVERIFY(parameterError.isEmpty());
-            QCOMPARE(calculated.ok, ordinary.ok);
-            QCOMPARE(calculated.error, ordinary.error);
-            QCOMPARE(calculated.errorPosition, ordinary.errorPosition);
-            QCOMPARE(calculated.errorLength, ordinary.errorLength);
-            if (!calculated.ok) continue;
-            QCOMPARE(calculated.value.isBinary(), ordinary.value.isBinary());
-            QCOMPARE(calculated.value.sources(), ordinary.value.sources());
-            if (ordinary.value.isBinary()) QCOMPARE(bits(calculated.value.binary()), bits(ordinary.value.binary()));
-            else QCOMPARE(DecimalValue::compare(calculated.value.decimal(), ordinary.value.decimal()), 0);
-        }
-        CustomFormula custom;
-        QVERIFY(CustomFormula::parse(QStringLiteral("A=sqrt(x)"), custom).isEmpty());
-        QString expression = QStringLiteral("sentinel");
-        QVERIFY(custom.substitute(QStringLiteral("x=1e400"), expression).isEmpty());
-        QCOMPARE(expression, QStringLiteral("sqrt(1e400)"));
-        QVERIFY(!custom.substituteNumeric(QStringLiteral("x=1e1000"), expression).isEmpty());
-        QCOMPARE(expression, QStringLiteral("sqrt(1e400)"));
-        const auto approximate = ExpressionEngine::evaluateNumeric(QStringLiteral("sin(1/3)"));
-        QVERIFY(approximate.ok);
-        const auto copied = approximate.value;
-        const auto canceled = ExpressionEngine::evaluateNumeric(QStringLiteral("ans-ans"), copied);
-        QVERIFY(canceled.ok && canceled.value.isZero());
-        QCOMPARE(canceled.value.sources(), copied.sources());
-    }
-    void numericSyntaxAndOutputProtection()
-    {
-        for (const auto &text : {QStringLiteral("1+"), QStringLiteral("sqrt()"), QStringLiteral("min(1)"),
-             QStringLiteral("max(1,2,3)"), QStringLiteral("unknown(2)"), QStringLiteral("(1+2"),
-             QStringLiteral("2pi"), QStringLiteral("1e+"), QStringLiteral("1+😀"), QString(4097, '1'),
-             QString(129, '-') + QLatin1Char('1')})
-        {
-            const auto ordinary = ExpressionEngine::evaluate(text);
-            const auto numeric = ExpressionEngine::evaluateNumeric(text);
-            QVERIFY(!ordinary.ok && !numeric.ok);
-            QCOMPARE(numeric.error, ordinary.error);
-            QCOMPARE(numeric.errorPosition, ordinary.errorPosition);
-            QCOMPARE(numeric.errorLength, ordinary.errorLength);
-        }
-        const auto sentinel = ExpressionEngine::evaluateNumeric(QStringLiteral("sin(1/3)")).value;
+        const auto sentinel = ExpressionEngine::evaluate(QStringLiteral("sin(1/3)")).value;
         NumericValue zero, one;
         QVERIFY(NumericValue::parse(QStringLiteral("1"), one).ok());
         for (const auto &bad : {QStringLiteral("1e1000"), QStringLiteral("no"), QString(51, '1')})
         {
             NumericValue output = sentinel;
             QVERIFY(!NumericValue::parse(bad, output).ok());
-            QCOMPARE(bits(output.binary()), bits(sentinel.binary()));
-            QCOMPARE(output.sources(), sentinel.sources());
+            QCOMPARE(output, sentinel);
         }
         for (double bad : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
         {
             NumericValue output = sentinel;
             QVERIFY(!NumericValue::fromBinary(bad, output).ok());
-            QCOMPARE(bits(output.binary()), bits(sentinel.binary()));
-            QCOMPARE(output.sources(), sentinel.sources());
+            QCOMPARE(output, sentinel);
         }
         NumericValue output = sentinel;
         QVERIFY(!NumericValue::operate('/', output, zero, output).ok());
-        QCOMPARE(bits(output.binary()), bits(sentinel.binary()));
-        QCOMPARE(output.sources(), sentinel.sources());
+        QCOMPARE(output, sentinel);
         QVERIFY(!NumericValue::function(QStringLiteral("pow"), {one}, output).ok());
         QVERIFY(!NumericValue::constant(QStringLiteral("unknown"), output).ok());
         QCOMPARE(output.sources(), sentinel.sources());
@@ -591,7 +533,7 @@ private slots:
     }
     void numericSignedZeroAndAliases()
     {
-        const auto evaluate = [](const QString &text) { return ExpressionEngine::evaluateNumeric(text); };
+        const auto evaluate = [](const QString &text) { return ExpressionEngine::evaluate(text); };
         for (const QString &text : {QStringLiteral("-4%2"), QStringLiteral("sqrt(-0)"), QStringLiteral("round(-0.1)"),
              QStringLiteral("min(-0,0)"), QStringLiteral("max(-0,0)")})
         {
@@ -651,7 +593,7 @@ private slots:
         std::feclearexcept(FE_ALL_EXCEPT);
         std::feraiseexcept(FE_DIVBYZERO);
         errno = EDOM;
-        const auto result = ExpressionEngine::evaluateNumeric(QStringLiteral("exp(-1000)"));
+        const auto result = ExpressionEngine::evaluate(QStringLiteral("exp(-1000)"));
         const int flags = std::fetestexcept(FE_ALL_EXCEPT);
         const int errorNumber = errno;
         std::fesetenv(&environment);
@@ -1093,6 +1035,9 @@ private slots:
         QTest::newRow("unary-power") << QStringLiteral("-x^2") << QStringLiteral("x=-2") << QStringLiteral("-(-2)^2") << -4.0;
         QTest::newRow("scientific") << QStringLiteral("x+x1+_x+X+e2") << QStringLiteral("x=1e2\nx1=.5\n_x=2.\nX=+3\ne2=4") << QStringLiteral("1e2+.5+2.+(+3)+4") << 109.5;
         QTest::newRow("sqrt") << QStringLiteral("sqrt(x)") << QStringLiteral("x=9") << QStringLiteral("sqrt(9)") << 3.0;
+        QTest::newRow("sqrt-large-decimal") << QStringLiteral("sqrt(x)") << QStringLiteral("x=1e400") << QStringLiteral("sqrt(1e400)") << 1e200;
+        QTest::newRow("scientific-with-answer") << QStringLiteral("sin(x)+ans") << QStringLiteral("x=0.1") << QStringLiteral("sin(0.1)+ans") << std::sin(0.1) + 10;
+        QTest::newRow("negative-power") << QStringLiteral("pow(x,y)") << QStringLiteral("x=2\ny=-3") << QStringLiteral("pow(2,(-3))") << 0.125;
         QTest::newRow("abs") << QStringLiteral("abs(x)") << QStringLiteral("x=-2") << QStringLiteral("abs((-2))") << 2.0;
         QTest::newRow("sin") << QStringLiteral("sin(x)") << QStringLiteral("x=0") << QStringLiteral("sin(0)") << 0.0;
         QTest::newRow("cos") << QStringLiteral("cos(x)") << QStringLiteral("x=0") << QStringLiteral("cos(0)") << 1.0;
@@ -1168,6 +1113,11 @@ private slots:
     void customInvalidParameters()
     {
         QFETCH(QString, input);
+        CustomFormula formula;
+        QVERIFY(CustomFormula::parse(QStringLiteral("A=x+y"), formula).isEmpty());
+        QString expression = QStringLiteral("unchanged");
+        QVERIFY(!formula.substitute(input, expression).isEmpty());
+        QCOMPARE(expression, QStringLiteral("unchanged"));
         CalculationHistory history;
         history.calculate(QStringLiteral("42"));
         QString error;
@@ -1765,28 +1715,14 @@ private slots:
         QCOMPARE(bits(history.answer()), bits(0.0));
         QCOMPARE(asDouble(other.calculate(QStringLiteral("ans+1")).result.value), 101.0);
     }
-    void clearingEmptyHistoryIsSafe()
-    {
-        CalculationHistory history;
-        history.clear();
-        history.clear();
-        QCOMPARE(history.count(), 0);
-        QVERIFY(!history.record(1));
-        QCOMPARE(asDouble(history.answer()), 0.0);
-        QCOMPARE(history.calculate(QStringLiteral("ans")).id, quint64(1));
-    }
-    void historyStartsEmpty()
-    {
-        const CalculationHistory history;
-        QCOMPARE(history.count(), 0);
-        QVERIFY(history.records().isEmpty());
-        QCOMPARE(asDouble(history.answer()), 0.0);
-        QVERIFY(!history.record(0));
-        QVERIFY(!history.record(1));
-    }
     void historyPreservesSuccessFailureAndAnswer()
     {
         CalculationHistory history;
+        QVERIFY(history.records().isEmpty());
+        QCOMPARE(history.count(), 0);
+        QCOMPARE(history.answer(), NumericValue());
+        QVERIFY(!history.record(0));
+        QVERIFY(!history.record(1));
         const auto first = history.calculate(QStringLiteral("6*7"));
         const auto error = history.calculate(QStringLiteral("12/(3-3)"));
         const auto next = history.calculate(QStringLiteral("ans+1"));
@@ -1993,52 +1929,11 @@ private slots:
         QCOMPARE(negative.insertionText(), QStringLiteral("(-2)"));
         QCOMPARE(asDouble(ExpressionEngine::evaluate(negative.insertionText() + QStringLiteral("^2")).value), 4.0);
     }
-    void arithmetic_data()
-    {
-        QTest::addColumn<QString>("formula");
-        QTest::addColumn<double>("expected");
-        const QVector<QPair<QString, double>> cases = {
-            {QStringLiteral("128 + 256"), 384}, {QStringLiteral("(1299+899)*0.85"), 1868.3},
-            {QStringLiteral("(384-128)/2"), 128}, {QStringLiteral("1+2*3"), 7},
-            {QStringLiteral("(1+2)*3"), 9}, {QStringLiteral("8/4/2"), 1},
-            {QStringLiteral("-2^2"), -4}, {QStringLiteral("(-2)^2"), 4},
-            {QStringLiteral("2^-3"), .125}, {QStringLiteral("2^3^2"), 512},
-            {QStringLiteral("--2"), 2}, {QStringLiteral("1+-2"), -1},
-            {QStringLiteral(".5+1."), 1.5}, {QStringLiteral("1e3 + 2.5e-2"), 1000.025},
-            {QStringLiteral("1E+2"), 100}, {QStringLiteral("2 × 3 ÷ 2 − 1"), 2},
-            {QStringLiteral("\n 1 +\t2 "), 3}, {QStringLiteral("10%3"), 1},
-            {QStringLiteral("0.1+0.2"), .3}, {QStringLiteral("sqrt(9)"), 3},
-            {QStringLiteral("abs(-2)"), 2}, {QStringLiteral("sin(pi/2)"), 1},
-            {QStringLiteral("cos(0)"), 1}, {QStringLiteral("tan(0)"), 0},
-            {QStringLiteral("ln(e)"), 1}, {QStringLiteral("log(1000)"), 3},
-            {QStringLiteral("exp(0)"), 1}, {QStringLiteral("floor(1.9)"), 1},
-            {QStringLiteral("ceil(1.1)"), 2}, {QStringLiteral("round(-1.5)"), -2},
-            {QStringLiteral("min(2,3)"), 2}, {QStringLiteral("max(-2,-3)"), -2},
-            {QStringLiteral("pow(2,10)"), 1024}, {QStringLiteral("max(sqrt(9), pow(2,3))"), 8},
-            {QStringLiteral("ans * 2"), 84}, {QStringLiteral("SQRT(16)"), 4},
-            {QStringLiteral("-0"), 0}
-        };
-        for (const auto &entry : cases)
-            QTest::newRow(entry.first.toUtf8().constData()) << entry.first << entry.second;
-    }
-    void arithmetic()
-    {
-        QFETCH(QString, formula);
-        QFETCH(double, expected);
-        const auto result = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("42")));
-        QVERIFY2(result.ok, qPrintable(result.text));
-        QVERIFY(std::abs(asDouble(result.value) - expected) <= 1e-12 * qMax(1.0, std::abs(expected)));
-    }
     void errors_data()
     {
         QTest::addColumn<QString>("formula");
-        const QStringList cases = {QString(), QStringLiteral("1/0"), QStringLiteral("1%0"),
-            QStringLiteral("1+"), QStringLiteral("(2+3"), QStringLiteral("2+3)"),
-            QStringLiteral("2(3)"), QStringLiteral("1..2"), QStringLiteral("1e"),
-            QStringLiteral("nan"), QStringLiteral("inf"), QStringLiteral("sqrt(-1)"),
-            QStringLiteral("ln(0)"), QStringLiteral("1e1000"), QStringLiteral("1e999*10"),
-            QStringLiteral("2^1024"), QStringLiteral("unknown(2)"), QStringLiteral("sqrt(1,2)"),
-            QStringLiteral("min(1)"), QStringLiteral("max(1,2,3)"), QStringLiteral("sqrt()"),
+        const QStringList cases = {QString(), QStringLiteral("2(3)"), QStringLiteral("1..2"), QStringLiteral("1e"),
+            QStringLiteral("nan"), QStringLiteral("inf"), QStringLiteral("1e999*10"), QStringLiteral("2^1024"),
             QStringLiteral("<b>1</b>"), QStringLiteral("1,234"), QStringLiteral("１２+１"),
             QString(200, QLatin1Char('(')) + QStringLiteral("1") + QString(200, QLatin1Char(')')),
             QString(5000, QLatin1Char('1'))};
@@ -2178,17 +2073,6 @@ private slots:
         QCOMPARE(parsed.value, value);
         QCOMPARE(inserted.value, value);
     }
-    void rejectsNonfiniteAnswer()
-    {
-        const auto before = decimalNumber(QStringLiteral("42"));
-        for (double value : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
-        {
-            auto answer = before;
-            QVERIFY(!NumericValue::fromBinary(value, answer).ok());
-            QCOMPARE(answer, before);
-        }
-    }
-
     void advertisedCapabilitiesAreExecutable()
     {
         QSet<QString> functions, constants;
@@ -2208,14 +2092,6 @@ private slots:
         }
         QCOMPARE(functions.size(), 14);
         QCOMPARE(constants, QSet<QString>({QStringLiteral("pi"), QStringLiteral("e"), QStringLiteral("ans")}));
-    }
-    void displayPrecision()
-    {
-        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("0.1+0.2")).text, QStringLiteral("0.3"));
-        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("-0")).text, QStringLiteral("-0"));
-        QLocale::setDefault(QLocale(QLocale::German));
-        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("1.5+2.5")).text, QStringLiteral("4"));
-        QLocale::setDefault(QLocale::c());
     }
 };
 int main(int argc, char **argv)

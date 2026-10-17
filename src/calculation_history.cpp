@@ -1,8 +1,6 @@
 #include "calculation_history.h"
 #include "custom_formula.h"
 
-#include <algorithm>
-
 QString CalculationRecord::valueText() const
 {
     if (!result.ok) return {};
@@ -26,12 +24,11 @@ QString CalculationRecord::insertionText() const
 CalculationRecord CalculationHistory::calculate(const QString &expression)
 {
     CalculationRecord record;
-    record.id = m_nextId;
+    record.id = quint64(m_records.size()) + 1;
     record.expression = expression;
     record.answerBefore = m_answer;
     record.result = ExpressionEngine::evaluate(expression, record.answerBefore);
     m_records.append(record);
-    ++m_nextId;
     if (record.result.ok) m_answer = record.result.value;
     return record;
 }
@@ -43,16 +40,13 @@ CalculationRecord CalculationHistory::calculateCustom(const QString &definition,
     QString expression;
     if (error.isEmpty()) error = formula.substitute(input, expression);
     if (!error.isEmpty()) return {};
-    CalculationRecord entry;
-    entry.id = m_nextId++;
+    const QString parameterInput = input;
+    calculate(expression);
+    auto &entry = m_records.last();
     entry.customDefinition = formula.definition();
-    entry.parameterInput = input;
-    entry.expression = formula.name() + QLatin1Char('=') + expression;
-    entry.answerBefore = m_answer;
-    entry.result = ExpressionEngine::evaluate(expression, m_answer);
-    if (entry.result.ok) m_answer = entry.result.value;
-    else entry.result.errorPosition += formula.name().size() + 1;
-    m_records.append(entry);
+    entry.parameterInput = parameterInput;
+    entry.expression.prepend(formula.name() + QLatin1Char('='));
+    if (!entry.result.ok) entry.result.errorPosition += formula.name().size() + 1;
     return entry;
 }
 
@@ -60,14 +54,11 @@ void CalculationHistory::clear()
 {
     m_records.clear();
     m_answer = NumericValue();
-    m_nextId = 1;
 }
 
 const CalculationRecord *CalculationHistory::record(quint64 id) const
 {
-    const auto found = std::lower_bound(m_records.cbegin(), m_records.cend(), id,
-        [](const CalculationRecord &record, quint64 target) { return record.id < target; });
-    return found != m_records.cend() && found->id == id ? &*found : nullptr;
+    return id > 0 && id <= quint64(m_records.size()) ? &m_records.at(int(id - 1)) : nullptr;
 }
 
 bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &records)
@@ -103,7 +94,6 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
     m_records = records;
     for (auto &entry : m_records)
         if (entry.result.ok) entry.result.text = entry.result.value.text();
-    m_nextId = nextId;
     m_answer = answer;
     return true;
 }

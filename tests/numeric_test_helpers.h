@@ -2,7 +2,6 @@
 #include "numeric_value.h"
 #include <QtTest>
 
-// 旧交互用例只比较小数值的大小；新数值契约用例另外验证类型、来源与规范文本。
 inline double asDouble(const NumericValue &value)
 {
     double result = 0;

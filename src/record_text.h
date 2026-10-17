@@ -8,12 +8,6 @@ class RecordText : public QTextBrowser
     Q_OBJECT
 public:
     explicit RecordText(const QString &text, QWidget *parent = nullptr);
-    QString text() const { return toPlainText(); }
-    void setText(const QString &text) { setPlainText(text); }
-    QString selectedText() const { return textCursor().selectedText(); }
-    bool hasSelectedText() const { return textCursor().hasSelection(); }
-    void setSelection(int start, int length);
-    Qt::TextFormat textFormat() const { return Qt::PlainText; }
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

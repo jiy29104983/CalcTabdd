@@ -6,15 +6,12 @@
 #include <QAction>
 #include <QApplication>
 #include <QEvent>
-#include <QKeyEvent>
 #include <QContextMenuEvent>
 #include <QMouseEvent>
 #include <QTabBar>
 #include <QToolBar>
 #include <QToolButton>
 #include <QWidgetAction>
-#include <QMainWindow>
-#include <QPlainTextEdit>
 #include <QSet>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -72,7 +69,6 @@ void PluginController::showStatus(const QString &message)
 {
     if (!m_host) return;
     if (auto *status = m_host->findChild<QStatusBar *>()) status->showMessage(message, 12000);
-    else m_host->setProperty("calctabddStatus", message);
 }
 
 void PluginController::openCalculator()
@@ -111,7 +107,6 @@ void PluginController::openCalculator()
     m_page->setGeometry(editor->rect());
     editor->installEventFilter(this);
     editor->viewport()->installEventFilter(this);
-    editor->setProperty("calctabddNativeTab", true);
     const int index = m_tabs->indexOf(editor);
     m_tabs->setTabText(index, QStringLiteral("计算器"));
     m_tabs->setTabToolTip(index, QStringLiteral("CalcTabdd · 可在“本地会话”中开启保存或恢复历史"));

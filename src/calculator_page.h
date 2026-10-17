@@ -42,7 +42,6 @@ protected:
 private:
     using InputState = CalculationInputState;
     bool customMode() const { return !m_definition.isEmpty(); }
-    void requestDefinition();
     void applyDefinition();
     void resetDefinitionEditor(const QString &text);
     bool hasPendingDefinition() const;

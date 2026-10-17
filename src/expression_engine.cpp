@@ -17,11 +17,9 @@ struct ParseError
     SourceRange range;
 };
 
-using Value = NumericValue;
-
 struct Argument
 {
-    Value value;
+    NumericValue value;
     SourceRange range;
 };
 
@@ -37,25 +35,18 @@ public:
         m_text.replace(QChar(0x2212), QLatin1Char('-'));
     }
 
-    Value parse()
+    NumericValue parse()
     {
         if (m_text.size() > 4096)
             fail(QStringLiteral("公式过长（最多 4096 个 UTF-16 代码单元）"), CalculationError::Limit, {4096, m_text.size() - 4096});
         skipSpace();
         if (m_position == m_text.size())
             failHere(QStringLiteral("请输入公式"));
-        const Value value = expression();
+        const NumericValue value = expression();
         skipSpace();
         if (m_position != m_text.size())
             failHere(QStringLiteral("此处需要运算符，或存在多余字符"));
         return value;
-    }
-
-    static bool reserved(const QString &name)
-    {
-        const QString lower = name.toLower();
-        return argumentCount(lower) != 0 || lower == QStringLiteral("pi")
-            || lower == QStringLiteral("e") || lower == QStringLiteral("ans");
     }
 
 private:
@@ -97,8 +88,8 @@ private:
         }
         return false;
     }
-    Value binary(char operation, const Value &left, const Value &right,
-                 SourceRange leftRange, SourceRange rightRange, SourceRange operationRange) const
+    NumericValue binary(char operation, const NumericValue &left, const NumericValue &right,
+                        SourceRange leftRange, SourceRange rightRange, SourceRange operationRange) const
     {
         if (m_parameters) return {};
         NumericValue result;
@@ -129,11 +120,11 @@ private:
         case NumericError::ArgumentCount: fail(QStringLiteral("函数参数数量不正确"), CalculationError::ArgumentCount, range);
         }
     }
-    Value expression()
+    NumericValue expression()
     {
         skipSpace();
         const int start = m_position;
-        Value value = term();
+        NumericValue value = term();
         for (;;)
         {
             const SourceRange leftRange = rangeFrom(start);
@@ -145,15 +136,15 @@ private:
             else return value;
             skipSpace();
             const int rightStart = m_position;
-            const Value right = term();
+            const NumericValue right = term();
             value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
         }
     }
-    Value term()
+    NumericValue term()
     {
         skipSpace();
         const int start = m_position;
-        Value value = unary();
+        NumericValue value = unary();
         for (;;)
         {
             const SourceRange leftRange = rangeFrom(start);
@@ -166,15 +157,15 @@ private:
             else return value;
             skipSpace();
             const int rightStart = m_position;
-            const Value right = unary();
+            const NumericValue right = unary();
             value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
         }
     }
-    Value unary()
+    NumericValue unary()
     {
         skipSpace();
         if (++m_depth > 128) failHere(QStringLiteral("公式嵌套过深"), CalculationError::Limit);
-        Value value;
+        NumericValue value;
         if (take(QLatin1Char('+'))) value = unary();
         else if (take(QLatin1Char('-')))
         {
@@ -185,24 +176,24 @@ private:
         --m_depth;
         return value;
     }
-    Value power()
+    NumericValue power()
     {
         skipSpace();
         const int baseStart = m_position;
-        const Value value = primary();
+        const NumericValue value = primary();
         const SourceRange baseRange = rangeFrom(baseStart);
         if (!take(QLatin1Char('^'))) return value;
         const SourceRange operation{m_position - 1, 1};
         skipSpace();
         const int start = m_position;
-        const Value exponent = unary();
+        const NumericValue exponent = unary();
         return binary('^', value, exponent, baseRange, rangeFrom(start), operation);
     }
-    Value primary()
+    NumericValue primary()
     {
         if (take(QLatin1Char('(')))
         {
-            const Value value = expression();
+            const NumericValue value = expression();
             if (!take(QLatin1Char(')'))) failHere(QStringLiteral("缺少右括号 )"));
             return value;
         }
@@ -220,10 +211,10 @@ private:
                 if (m_parameters) return {};
                 NumericValue result;
                 numericCheck(NumericValue::constant(name, result), nameRange);
-                return Value(result);
+                return result;
             }
             if (name == QStringLiteral("ans")) return m_answer;
-            const int count = argumentCount(name);
+            const int count = NumericValue::argumentCount(name);
             if (count == 0 && m_parameters)
             {
                 skipSpace();
@@ -246,7 +237,7 @@ private:
                     if (m_position == m_text.size() || m_text.at(m_position) == QLatin1Char(',') || m_text.at(m_position) == QLatin1Char(')'))
                         failHere(QStringLiteral("%1 缺少第 %2 个参数").arg(name).arg(arguments.size() + 1), CalculationError::ArgumentCount);
                     const int argumentStart = m_position;
-                    const Value value = expression();
+                    const NumericValue value = expression();
                     arguments.append({value, rangeFrom(argumentStart)});
                 } while (take(QLatin1Char(',')));
                 if (!take(QLatin1Char(')'))) failHere(QStringLiteral("%1 函数缺少右括号 )").arg(name));
@@ -286,8 +277,7 @@ private:
         return result;
     }
     static bool isDigit(QChar ch) { return ch >= QLatin1Char('0') && ch <= QLatin1Char('9'); }
-    static int argumentCount(const QString &name) { return NumericValue::argumentCount(name); }
-    Value function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
+    NumericValue function(const QString &name, const QVector<Argument> &args, SourceRange nameRange) const
     {
         if (m_parameters) return {};
         if (name == QStringLiteral("pow")) return binary('^', args[0].value, args[1].value, args[0].range, args[1].range, nameRange);
@@ -304,7 +294,7 @@ private:
     }
 
     QString m_text;
-    Value m_answer;
+    NumericValue m_answer;
     QVector<ExpressionParameter> *m_parameters;
     int m_position = 0;
     int m_depth = 0;
@@ -354,10 +344,7 @@ CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<E
 
 bool ExpressionEngine::isReservedName(const QString &name)
 {
-    return Parser::reserved(name);
-}
-
-NumericCalculationResult ExpressionEngine::evaluateNumeric(const QString &expression, const NumericValue &answer)
-{
-    return evaluate(expression, answer);
+    const QString lower = name.toLower();
+    return NumericValue::argumentCount(lower) != 0 || lower == QStringLiteral("pi")
+        || lower == QStringLiteral("e") || lower == QStringLiteral("ans");
 }

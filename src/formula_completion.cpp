@@ -8,7 +8,6 @@
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QPlainTextEdit>
-#include <QScrollBar>
 #include <QStandardItemModel>
 #include <QTextCursor>
 #include <QTimer>

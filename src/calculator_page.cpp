@@ -585,7 +585,6 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     m_empty->hide();
     auto *record = new QFrame;
     record->setObjectName(QStringLiteral("calculationRecord"));
-    record->setProperty("error", !result.ok);
     auto *row = new QHBoxLayout(record);
     row->setContentsMargins(16, 14, 16, 14);
     row->setSpacing(14);
@@ -605,7 +604,6 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     values->addWidget(formula);
     auto *value = new RecordText(result.ok ? QStringLiteral("= %1").arg(result.text) : QStringLiteral("无法计算：%1").arg(result.text), record);
     value->setObjectName(QStringLiteral("recordResult"));
-    value->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     value->setProperty("error", !result.ok);
     QFont resultFont = result.ok ? m_input->font() : font();
     if (result.ok) resultFont.setPointSizeF(m_input->font().pointSizeF() + 4);
@@ -736,15 +734,7 @@ void CalculatorPage::recallHistory(bool older)
 void CalculatorPage::reuseFormula(quint64 id)
 {
     if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
-    const auto &records = m_history.records();
-    for (int index = 0; index < records.size(); ++index)
-    {
-        if (records.at(index).id == id)
-        {
-            showHistory(index);
-            return;
-        }
-    }
+    if (m_history.record(id)) showHistory(int(id - 1));
 }
 
 void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
@@ -1136,8 +1126,11 @@ void CalculatorPage::switchMode(bool custom)
     }
     if (custom && m_customInput.customDefinition.isEmpty() && !customMode())
     {
+        m_defining = true;
         updateModeUi();
-        requestDefinition();
+        m_definitionInput->setFocus(Qt::OtherFocusReason);
+        m_editTarget = m_definitionInput;
+        m_status->setText(QStringLiteral("输入或修改公式，按 Enter 应用 · @ 补全函数"));
         return;
     }
     // 手动切换结束历史浏览，先恢复其原草稿，再切换到另一份模式草稿。
@@ -1151,8 +1144,7 @@ void CalculatorPage::switchMode(bool custom)
 
 bool CalculatorPage::hasPendingDefinition() const
 {
-    return (customMode() || m_defining) &&
-        (m_defining || m_definitionInput->toPlainText() != m_definition);
+    return m_defining || (customMode() && m_definitionInput->toPlainText() != m_definition);
 }
 
 void CalculatorPage::resetDefinitionEditor(const QString &text)
@@ -1161,17 +1153,6 @@ void CalculatorPage::resetDefinitionEditor(const QString &text)
     m_definitionInput->setPlainText(text);
     m_definitionError->clear();
     m_definitionError->hide();
-}
-
-void CalculatorPage::requestDefinition()
-{
-    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
-    if (!customMode() && !m_customInput.customDefinition.isEmpty()) switchMode(true);
-    if (!customMode()) m_defining = true;
-    updateModeUi();
-    m_definitionInput->setFocus(Qt::OtherFocusReason);
-    m_editTarget = m_definitionInput;
-    m_status->setText(QStringLiteral("输入或修改公式，按 Enter 应用 · @ 补全函数"));
 }
 
 void CalculatorPage::applyDefinition()
