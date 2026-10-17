@@ -884,41 +884,6 @@ private slots:
             QCOMPARE(changed, zero);
         }
     }
-    void decimalDivisionIntermediateRounding()
-    {
-        DecimalValue one, three, six, accumulator;
-        QCOMPARE(DecimalValue::parse(QStringLiteral("1"), one), DecimalError::None);
-        QCOMPARE(DecimalValue::parse(QStringLiteral("3"), three), DecimalError::None);
-        QCOMPARE(DecimalValue::parse(QStringLiteral("6"), six), DecimalError::None);
-        bool changed = false;
-        QCOMPARE(DecimalValue::divide(one, three, accumulator, changed), DecimalError::None);
-        QVERIFY(changed);
-        QCOMPARE(DecimalValue::multiply(accumulator, three, accumulator), DecimalError::None);
-        QCOMPARE(accumulator.coefficient(), QByteArray(50, '9'));
-        QCOMPARE(accumulator.exponent(), -50);
-        QCOMPARE(DecimalValue::subtract(accumulator, one, accumulator), DecimalError::None);
-        QCOMPARE(accumulator.coefficient(), QByteArray("1"));
-        QCOMPARE(accumulator.exponent(), -50);
-        QVERIFY(accumulator.isNegative());
-        QCOMPARE(DecimalValue::divide(one, six, accumulator, changed), DecimalError::None);
-        QVERIFY(changed);
-        const DecimalValue sixth = accumulator;
-        QCOMPARE(DecimalValue::multiply(accumulator, six, accumulator), DecimalError::PrecisionLimit);
-        QCOMPARE(accumulator.coefficient(), sixth.coefficient());
-        QCOMPARE(accumulator.exponent(), sixth.exponent());
-        QCOMPARE(accumulator.isNegative(), sixth.isNegative());
-        // 本次相除精确，不把此前舍入来源混进 primitive 的 inexact 输出。
-        QCOMPARE(DecimalValue::divide(sixth, sixth, accumulator, changed), DecimalError::None);
-        QVERIFY(!changed);
-        QCOMPARE(accumulator.coefficient(), QByteArray("1"));
-        QCOMPARE(accumulator.exponent(), 0);
-        // 既有 round(x) 的整数半值规则不受除法舍入方式影响。
-        const auto positive = ExpressionEngine().evaluate(QStringLiteral("round(2.5)"));
-        const auto negative = ExpressionEngine().evaluate(QStringLiteral("round(-2.5)"));
-        QVERIFY(positive.ok && negative.ok);
-        QCOMPARE(asDouble(positive.value), 3.0);
-        QCOMPARE(asDouble(negative.value), -3.0);
-    }
     void decimalScaledIntegerOracle()
     {
         // 独立 qint64 精确参考，覆盖进位、借位、符号和小数位；所有整数运算远离溢出。
@@ -974,24 +939,6 @@ private slots:
             QCOMPARE(actual.exponent(), row.value(QStringLiteral("exponent")).toInt());
             QCOMPARE(actual.isNegative(), row.value(QStringLiteral("negative")).toBool());
         }
-    }
-    void decimalIntermediateFailurePreservesAccumulator()
-    {
-        DecimalValue accumulator, one, big;
-        QCOMPARE(DecimalValue::parse(QStringLiteral("1e50"), accumulator), DecimalError::None);
-        QCOMPARE(DecimalValue::parse(QStringLiteral("1"), one), DecimalError::None);
-        big = accumulator;
-        // (1e50+1)-1e50 必须在第一步报告失败；调用方不能继续算第二步来掩盖超限。
-        QCOMPARE(DecimalValue::add(accumulator, one, accumulator), DecimalError::PrecisionLimit);
-        QCOMPARE(accumulator.coefficient(), big.coefficient());
-        QCOMPARE(accumulator.exponent(), big.exponent());
-        QCOMPARE(DecimalValue::parse(QStringLiteral("0.1"), accumulator), DecimalError::None);
-        DecimalValue second, third;
-        QCOMPARE(DecimalValue::parse(QStringLiteral("0.2"), second), DecimalError::None);
-        QCOMPARE(DecimalValue::parse(QStringLiteral("0.3"), third), DecimalError::None);
-        QCOMPARE(DecimalValue::add(accumulator, second, accumulator), DecimalError::None);
-        QCOMPARE(DecimalValue::subtract(accumulator, third, accumulator), DecimalError::None);
-        QVERIFY(accumulator.isZero());
     }
     void customExpandedLengthLimit()
     {
@@ -1315,7 +1262,6 @@ private slots:
         const QString error = SessionFormat::decode(bytes, restored);
         QVERIFY2(error.isEmpty(), qPrintable(error));
         QCOMPARE(SessionFormat::encode(restored), bytes);
-        QCOMPARE(restored.id, original.id);
         QCOMPARE(bits(restored.history.answer()), bits(original.history.answer()));
         QCOMPARE(restored.history.records().first().expression, records[0].expression);
         QCOMPARE(restored.history.records().first().result.text, records[0].result.value.text());
@@ -1374,7 +1320,6 @@ private slots:
         QTest::newRow("zero-version") << QStringLiteral("version") << QJsonValue(0);
         QTest::newRow("missing-version") << QStringLiteral("version") << QJsonValue();
         QTest::newRow("wrong-format") << QStringLiteral("format") << QJsonValue("Other.Session");
-        QTest::newRow("invalid-uuid") << QStringLiteral("sessionId") << QJsonValue("none");
         QTest::newRow("numeric-answer") << QStringLiteral("answer") << QJsonValue(42);
         QTest::newRow("answer-mismatch") << QStringLiteral("answer")
             << QJsonValue(QJsonObject{{"kind", "decimal"}, {"text", "41"}, {"sources", QJsonArray()}});

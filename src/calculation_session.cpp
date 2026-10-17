@@ -119,7 +119,7 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
         recalled.insert(QString::number(it.key()), inputJson(it.value()));
     return QJsonDocument(QJsonObject{
         {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 3},
-        {QStringLiteral("sessionId"), session.id}, {QStringLiteral("records"), records},
+        {QStringLiteral("records"), records},
         {QStringLiteral("answer"), number(session.history.answer())},
         {QStringLiteral("normalInput"), inputJson(session.normalInput)}, {QStringLiteral("customInput"), inputJson(session.customInput)},
         {QStringLiteral("input"), inputJson(session.input)}, {QStringLiteral("draft"), inputJson(session.draft)},
@@ -139,8 +139,7 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     if (root.value(QStringLiteral("version")) != QJsonValue(3))
         return QStringLiteral("不支持此会话格式版本，原文件未修改。");
     CalculationSession restored;
-    restored.id = root.value(QStringLiteral("sessionId")).toString();
-    if (QUuid(restored.id).isNull() || !root.value(QStringLiteral("records")).isArray()) return invalid;
+    if (!root.value(QStringLiteral("records")).isArray()) return invalid;
     const auto array = root.value(QStringLiteral("records")).toArray();
     if (array.size() > maximumRecords) return QStringLiteral("会话超过 10000 条记录，未载入。");
     QVector<CalculationRecord> records;

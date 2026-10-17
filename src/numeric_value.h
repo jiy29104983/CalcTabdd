@@ -50,10 +50,10 @@ public:
     bool operator!=(const NumericValue &other) const { return !(*this == other); }
     bool isZero() const;
     bool isNegative() const;
-    bool isInteger() const;
     NumericValue negated() const;
 
 private:
+    bool isInteger() const;
     static NumericStatus finishBinary(double value, unsigned sources, bool zeroUnderflow, NumericValue &output);
     DecimalValue m_decimal;
     double m_binary = 0;

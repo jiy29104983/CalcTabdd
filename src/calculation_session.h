@@ -3,7 +3,6 @@
 #include "calculation_history.h"
 #include <QByteArray>
 #include <QMap>
-#include <QUuid>
 #include <memory>
 
 class QLockFile;
@@ -21,7 +20,6 @@ struct CalculationInputState
 
 struct CalculationSession
 {
-    QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     CalculationHistory history;
     CalculationInputState input;
     CalculationInputState draft;

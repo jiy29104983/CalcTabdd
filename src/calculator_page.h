@@ -41,6 +41,10 @@ protected:
 private:
     using InputState = CalculationInputState;
     bool customMode() const { return !m_definition.isEmpty(); }
+    // 窗口级模态框打开期间挂起会改写会话或历史的操作。
+    bool dialogOpen() const;
+    // 模态框或输入法组词期间挂起提交、模式切换与对话框入口。
+    bool busy() const;
     void applyDefinition();
     void resetDefinitionEditor(const QString &text);
     bool hasPendingDefinition() const;
@@ -90,7 +94,6 @@ private:
     QPointer<QDialog> m_sessionDialog;
     QTimer *m_saveTimer = nullptr;
     std::unique_ptr<CalculationSessionFile> m_sessionFile;
-    QString m_sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     bool m_sessionDirty = false;
     bool m_restoringSession = false;
     QPlainTextEdit *m_input = nullptr;

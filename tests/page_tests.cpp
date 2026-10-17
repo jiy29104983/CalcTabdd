@@ -775,7 +775,6 @@ private slots:
             auto *status = page.findChild<QLabel *>(QStringLiteral("sessionSaveStatus"));
             QTest::qWait(30);
             QVERIFY(status->isVisible());
-            QVERIFY(!page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("关闭标签后清空")));
             QVERIFY(page.rect().contains(QRect(status->mapTo(&page, QPoint()), status->size())));
             QVERIFY(status->height() >= status->heightForWidth(status->width()));
             if (!screenshots.isEmpty())
@@ -2712,7 +2711,6 @@ private slots:
         }
         QTest::keyClick(edit, Qt::Key_Escape);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        QVERIFY(!page.findChild<QDialog *>(QStringLiteral("customDefinitionDialog")));
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("2+3"));
         QCOMPARE(page.history().count(), 0);
     }

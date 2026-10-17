@@ -31,7 +31,40 @@
 #include <QScrollBar>
 #include <QScopedValueRollback>
 #include <QTimer>
+#include <QUuid>
 #include <QVBoxLayout>
+
+namespace {
+// 求值使用去空白后的公式，诊断位置需换算回输入框偏移。
+int skippedWhitespace(const QString &text)
+{
+    int offset = 0;
+    while (offset < text.size() && text.at(offset).isSpace()) ++offset;
+    return offset;
+}
+
+// 导出与会话对话框共用同一套 Qt 控件设置，保证随页面关闭并沿用页面配色。
+QFileDialog *createFileDialog(QWidget *owner, const QString &objectName, const QString &title,
+                              const QString &acceptText, const QString &nameFilter, const QString &suffix)
+{
+    auto *dialog = new QFileDialog(owner);
+    dialog->setObjectName(objectName);
+    dialog->setWindowTitle(title);
+    dialog->setOption(QFileDialog::DontUseNativeDialog);
+    dialog->setOption(QFileDialog::DontConfirmOverwrite);
+    dialog->setAttribute(Qt::WA_WindowPropagation, true);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    dialog->setNameFilter(nameFilter);
+    dialog->setDefaultSuffix(suffix);
+    dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
+    dialog->setLabelText(QFileDialog::FileName, QStringLiteral("文件名："));
+    dialog->setLabelText(QFileDialog::FileType, QStringLiteral("文件类型："));
+    dialog->setLabelText(QFileDialog::Accept, acceptText);
+    dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
+    return dialog;
+}
+}
 
 CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 {
@@ -98,9 +131,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_saveNowAction = sessionMenu->addAction(QStringLiteral("立即保存／重试"));
     m_saveNowAction->setObjectName(QStringLiteral("saveSessionNow"));
     m_saveNowAction->setEnabled(false);
-    connect(m_saveNowAction, &QAction::triggered, this, [this]() {
-        if (!m_composing && !m_sessionDialog && !m_exportDialog && !m_clearConfirmation) saveSession();
-    });
+    connect(m_saveNowAction, &QAction::triggered, this, [this]() { if (!busy()) saveSession(); });
     m_stopSavingAction = sessionMenu->addAction(QStringLiteral("停止保存（保留文件）"));
     m_stopSavingAction->setObjectName(QStringLiteral("stopSavingSession"));
     m_stopSavingAction->setEnabled(false);
@@ -267,13 +298,23 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
 
 void CalculatorPage::focusInput()
 {
-    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (dialogOpen()) return;
     (hasPendingDefinition() ? m_definitionInput : m_input)->setFocus(Qt::OtherFocusReason);
+}
+
+bool CalculatorPage::dialogOpen() const
+{
+    return m_clearConfirmation || m_exportDialog || m_sessionDialog;
+}
+
+bool CalculatorPage::busy() const
+{
+    return m_composing || dialogOpen();
 }
 
 void CalculatorPage::submit()
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy()) return;
     if (hasPendingDefinition())
     {
         m_status->setText(QStringLiteral("请先在公式定义栏按 Enter 应用修改，再计算参数"));
@@ -326,9 +367,7 @@ void CalculatorPage::submit()
     }
     else
     {
-        int offset = 0;
-        while (offset < inputText.size() && inputText.at(offset).isSpace()) ++offset;
-        showInputError(result, offset);
+        showInputError(result, skippedWhitespace(inputText));
     }
     if (m_sessionFile) saveSession();
     focusInput();
@@ -390,28 +429,17 @@ void CalculatorPage::applyErrorHighlight()
 
 void CalculatorPage::requestExport(CalculationExport::Format format)
 {
-    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy() || m_history.count() == 0) return;
     const bool markdown = format == CalculationExport::Format::Markdown;
     const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
-    auto *dialog = new QFileDialog(this);
-    m_exportDialog = dialog;
     // 使用可随页面关闭的异步 Qt 对话框。覆盖确认也使用 Qt 控件，保持相同生命周期。
-    dialog->setOption(QFileDialog::DontUseNativeDialog);
-    dialog->setAttribute(Qt::WA_WindowPropagation, true);
-    dialog->setOption(QFileDialog::DontConfirmOverwrite);
-    dialog->setObjectName(QStringLiteral("exportHistoryDialog"));
-    dialog->setWindowTitle(markdown ? QStringLiteral("导出 Markdown 计算记录") : QStringLiteral("导出 TXT 计算记录"));
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    auto *dialog = createFileDialog(this, QStringLiteral("exportHistoryDialog"),
+        markdown ? QStringLiteral("导出 Markdown 计算记录") : QStringLiteral("导出 TXT 计算记录"),
+        QStringLiteral("导出"), markdown ? QStringLiteral("Markdown (*.md)") : QStringLiteral("文本文件 (*.txt)"),
+        markdown ? QStringLiteral("md") : QStringLiteral("txt"));
+    m_exportDialog = dialog;
     dialog->setAcceptMode(QFileDialog::AcceptSave);
     dialog->setFileMode(QFileDialog::AnyFile);
-    dialog->setNameFilter(markdown ? QStringLiteral("Markdown (*.md)") : QStringLiteral("文本文件 (*.txt)"));
-    dialog->setDefaultSuffix(markdown ? QStringLiteral("md") : QStringLiteral("txt"));
-    dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
-    dialog->setLabelText(QFileDialog::FileName, QStringLiteral("文件名："));
-    dialog->setLabelText(QFileDialog::FileType, QStringLiteral("文件类型："));
-    dialog->setLabelText(QFileDialog::Accept, QStringLiteral("导出"));
-    dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
     const QString previous = markdown ? m_markdownExportPath : m_textExportPath;
     if (previous.isEmpty())
     {
@@ -499,7 +527,7 @@ void CalculatorPage::writeExport(const QString &path, const QByteArray &contents
 
 void CalculatorPage::requestClearSession()
 {
-    if (m_composing || m_history.count() == 0 || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy() || m_history.count() == 0) return;
     // 使用与帮助窗口一致的 Qt 控件对话框，避免 Qt 5.15.2 QMessageBox
     // 在 Windows offscreen 平台的原生系统菜单访问。
     auto *dialog = new QDialog(this);
@@ -716,7 +744,7 @@ void CalculatorPage::restoreDraft()
 
 void CalculatorPage::recallHistory(bool older)
 {
-    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (dialogOpen()) return;
     if (m_history.count() == 0 || (!older && m_historyPosition < 0)) return;
     const int position = m_historyPosition < 0 ? m_history.count() - 1
                                                : m_historyPosition + (older ? -1 : 1);
@@ -731,7 +759,7 @@ void CalculatorPage::recallHistory(bool older)
 
 void CalculatorPage::reuseFormula(quint64 id)
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy()) return;
     if (m_history.record(id)) showHistory(int(id - 1));
 }
 
@@ -748,7 +776,7 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 
 void CalculatorPage::insertResult(quint64 id)
 {
-    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (dialogOpen()) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
     if (m_composing)
@@ -770,7 +798,7 @@ void CalculatorPage::insertResult(quint64 id)
 
 void CalculatorPage::routeEdit(const QString &command)
 {
-    if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (dialogOpen()) return;
     const auto edit = [&command](auto *editor) {
         if (command == QStringLiteral("actioncopy")) editor->copy();
         else if (command == QStringLiteral("actioncut")) editor->cut();
@@ -934,7 +962,6 @@ CalculatorPage::~CalculatorPage()
 CalculationSession CalculatorPage::captureSession() const
 {
     CalculationSession session;
-    session.id = m_sessionId;
     session.history = m_history;
     session.input = captureInput();
     session.normalInput = m_normalInput;
@@ -958,7 +985,6 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
     m_normalInput = session.normalInput;
     m_customInput = session.customInput;
     m_history = session.history;
-    m_sessionId = session.id;
     for (const auto &entry : m_history.records()) appendRecord(entry);
     m_historyPosition = session.historyPosition;
     m_draft = session.draft;
@@ -968,11 +994,7 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
         ? &m_history.records().at(m_historyPosition)
         : (m_history.count() > 0 ? &m_history.records().last() : nullptr);
     if (!customMode() && entry && !entry->result.ok && session.input.text.trimmed() == entry->expression)
-    {
-        int offset = 0;
-        while (offset < session.input.text.size() && session.input.text.at(offset).isSpace()) ++offset;
-        showInputError(entry->result, offset, false);
-    }
+        showInputError(entry->result, skippedWhitespace(session.input.text), false);
     else m_status->setText(QStringLiteral("已恢复历史结果与草稿，未重新计算旧公式"));
 }
 
@@ -1010,7 +1032,7 @@ bool CalculatorPage::saveSession()
 
 void CalculatorPage::stopSaving()
 {
-    if (m_composing || m_sessionDialog || m_exportDialog || m_clearConfirmation || !m_sessionFile) return;
+    if (busy() || !m_sessionFile) return;
     // 失败时继续持有文件与可见会话，用户可以重试或另存。
     if (!saveSession()) return;
     m_sessionFile.reset();
@@ -1019,31 +1041,20 @@ void CalculatorPage::stopSaving()
 
 void CalculatorPage::requestSessionFile(bool restore)
 {
-    if (m_composing || m_sessionDialog || m_clearConfirmation || m_exportDialog) return;
+    if (busy()) return;
     if (restore && (m_history.count() > 0 || !m_input->toPlainText().isEmpty() || m_sessionFile
         || !m_customInput.customDefinition.isEmpty() || customMode() || hasPendingDefinition() || !m_normalInput.text.isEmpty()))
     {
         updateSessionStatus(QStringLiteral("请在没有记录、没有草稿且未开启保存的空白计算器中恢复会话。"));
         return;
     }
-    auto *dialog = new QFileDialog(this);
+    auto *dialog = createFileDialog(this, QStringLiteral("sessionFileDialog"),
+        restore ? QStringLiteral("恢复本地会话") : QStringLiteral("选择新文件并开启自动保存"),
+        restore ? QStringLiteral("恢复") : QStringLiteral("开启保存"),
+        QStringLiteral("CalcTabdd 会话 (*.calctabdd)"), QStringLiteral("calctabdd"));
     m_sessionDialog = dialog;
-    dialog->setObjectName(QStringLiteral("sessionFileDialog"));
-    dialog->setOption(QFileDialog::DontUseNativeDialog);
-    dialog->setOption(QFileDialog::DontConfirmOverwrite);
-    dialog->setAttribute(Qt::WA_WindowPropagation, true);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
-    dialog->setWindowTitle(restore ? QStringLiteral("恢复本地会话") : QStringLiteral("选择新文件并开启自动保存"));
     dialog->setAcceptMode(restore ? QFileDialog::AcceptOpen : QFileDialog::AcceptSave);
     dialog->setFileMode(restore ? QFileDialog::ExistingFile : QFileDialog::AnyFile);
-    dialog->setNameFilter(QStringLiteral("CalcTabdd 会话 (*.calctabdd)"));
-    dialog->setDefaultSuffix(QStringLiteral("calctabdd"));
-    dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
-    dialog->setLabelText(QFileDialog::FileName, QStringLiteral("文件名："));
-    dialog->setLabelText(QFileDialog::FileType, QStringLiteral("文件类型："));
-    dialog->setLabelText(QFileDialog::Accept, restore ? QStringLiteral("恢复") : QStringLiteral("开启保存"));
-    dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
     dialog->setDirectory(m_sessionFile ? QFileInfo(m_sessionFile->path()).absolutePath()
         : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
     if (!restore) dialog->selectFile(QStringLiteral("CalcTabdd-%1.calctabdd").arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8)));
@@ -1104,7 +1115,7 @@ void CalculatorPage::updateModeUi()
 
 void CalculatorPage::switchMode(bool custom)
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy()) return;
     if (!custom) m_defining = false;
     if (custom == customMode() && m_historyPosition < 0)
     {
@@ -1145,7 +1156,7 @@ void CalculatorPage::resetDefinitionEditor(const QString &text)
 
 void CalculatorPage::applyDefinition()
 {
-    if (m_composing || m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    if (busy()) return;
     const QString definition = m_definitionInput->toPlainText();
     CustomFormula formula;
     const QString problem = definition.contains(QLatin1Char('@'))
