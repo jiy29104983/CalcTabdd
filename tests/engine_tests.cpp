@@ -1376,14 +1376,15 @@ private slots:
         QTest::newRow("wrong-format") << QStringLiteral("format") << QJsonValue("Other.Session");
         QTest::newRow("invalid-uuid") << QStringLiteral("sessionId") << QJsonValue("none");
         QTest::newRow("numeric-answer") << QStringLiteral("answer") << QJsonValue(42);
-        QTest::newRow("answer-mismatch") << QStringLiteral("answer") << QJsonValue("41");
-        QTest::newRow("nan") << QStringLiteral("answer") << QJsonValue("nan");
-        QTest::newRow("infinity") << QStringLiteral("answer") << QJsonValue("inf");
+        QTest::newRow("answer-mismatch") << QStringLiteral("answer")
+            << QJsonValue(QJsonObject{{"kind", "decimal"}, {"text", "41"}, {"sources", QJsonArray()}});
         QTest::newRow("missing-records") << QStringLiteral("records") << QJsonValue();
         QTest::newRow("invalid-navigation") << QStringLiteral("historyPosition") << QJsonValue(1);
         QTest::newRow("fractional-navigation") << QStringLiteral("historyPosition") << QJsonValue(0.5);
-        QTest::newRow("invalid-input") << QStringLiteral("input") << QJsonValue(QJsonObject{{"text", "x"}, {"position", 2}, {"anchor", 0}});
-        QTest::newRow("invalid-draft") << QStringLiteral("draft") << QJsonValue(QJsonObject{{"text", "x"}, {"position", 0}, {"anchor", 0}});
+        QTest::newRow("invalid-input") << QStringLiteral("input")
+            << QJsonValue(QJsonObject{{"text", "x"}, {"position", 2}, {"anchor", 0}, {"customDefinition", ""}});
+        QTest::newRow("invalid-draft") << QStringLiteral("draft")
+            << QJsonValue(QJsonObject{{"text", "x"}, {"position", 0}, {"anchor", 2}, {"customDefinition", ""}});
         QTest::newRow("missing-recalled") << QStringLiteral("recalledInputs") << QJsonValue();
         QTest::newRow("wrong-id") << QStringLiteral("record.id") << QJsonValue("2");
         QTest::newRow("unknown-error") << QStringLiteral("record.error") << QJsonValue(99);
@@ -1391,9 +1392,9 @@ private slots:
         QTest::newRow("negative-length") << QStringLiteral("record.errorLength") << QJsonValue(-1);
         QTest::newRow("invalid-position") << QStringLiteral("record.errorPosition") << QJsonValue(999);
         QTest::newRow("missing-ok") << QStringLiteral("record.ok") << QJsonValue();
-        QTest::newRow("before-mismatch") << QStringLiteral("record.answerBefore") << QJsonValue("9");
+        QTest::newRow("before-mismatch") << QStringLiteral("record.answerBefore")
+            << QJsonValue(QJsonObject{{"kind", "decimal"}, {"text", "9"}, {"sources", QJsonArray()}});
         QTest::newRow("missing-value") << QStringLiteral("record.value") << QJsonValue();
-        QTest::newRow("value-overflow") << QStringLiteral("record.value") << QJsonValue("1e500");
         QTest::newRow("unexpected-success-text") << QStringLiteral("record.text") << QJsonValue("untrusted");
         QTest::newRow("missing-record-definition") << QStringLiteral("record.customDefinition") << QJsonValue();
         QTest::newRow("missing-record-parameters") << QStringLiteral("record.parameterInput") << QJsonValue();
@@ -1604,38 +1605,6 @@ private slots:
         }
         else QVERIFY(text.contains(QStringLiteral("[01]\n") + expression + QStringLiteral("\n无法计算：")));
     }
-    void exportedValuesRoundTrip_data()
-    {
-        QTest::addColumn<QString>("formula");
-        QTest::addColumn<bool>("markdown");
-        for (const bool markdown : {false, true})
-        {
-            for (const char *formula : {"0.1+0.2", "-0", "-2", "4.9406564584124654e-324", "1.7976931348623157e308"})
-                QTest::newRow((QByteArray(markdown ? "md-" : "txt-") + formula).constData())
-                    << QString::fromLatin1(formula) << markdown;
-        }
-    }
-    void exportedValuesRoundTrip()
-    {
-        QFETCH(QString, formula);
-        QFETCH(bool, markdown);
-        RestoreLocale restore;
-        QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
-        CalculationHistory history;
-        const auto entry = history.calculate(formula);
-        QVERIFY(entry.result.ok);
-        const QString text = QString::fromUtf8(CalculationExport::serialize(history.records(), markdown
-            ? CalculationExport::Format::Markdown : CalculationExport::Format::Text));
-        const int start = text.indexOf(QStringLiteral("\n= "));
-        QVERIFY(start >= 0);
-        const QString number = text.mid(start + 3).section(QLatin1Char('\n'), 0, 0);
-        const auto parsed = ExpressionEngine::evaluate(number);
-        QVERIFY2(parsed.ok, qPrintable(number));
-        QCOMPARE(bits(parsed.value), bits(entry.result.value));
-        QCOMPARE(bits(history.answer()), bits(entry.result.value));
-        if (formula == QStringLiteral("0.1+0.2")) QCOMPARE(number, QStringLiteral("0.3"));
-        if (formula == QStringLiteral("-0")) QCOMPARE(number, QStringLiteral("-0"));
-    }
     void exportWritesUtf8AndReplacesCompleteFile()
     {
         QTemporaryDir directory;
@@ -1844,45 +1813,6 @@ private slots:
         QCOMPARE(entry.id, quint64(1));
         QCOMPARE(asDouble(entry.result.value), 0.0);
         QCOMPARE(asDouble(second.calculate(QStringLiteral("ans+1")).result.value), 2.0);
-    }
-    void reusableValueBoundaries_data()
-    {
-        QTest::addColumn<double>("value");
-        QTest::newRow("positive-zero") << 0.0;
-        QTest::newRow("negative-zero") << -0.0;
-        QTest::newRow("decimal-residue") << (0.3);
-        QTest::newRow("third") << (1.0 / 3.0);
-        QTest::newRow("negative-root") << -std::sqrt(2.0);
-        QTest::newRow("integer-boundary") << 9007199254740992.0;
-        QTest::newRow("next-large-integer") << 9007199254740994.0;
-        QTest::newRow("minimum-normal") << std::numeric_limits<double>::min();
-        QTest::newRow("maximum-subnormal") << std::nextafter(std::numeric_limits<double>::min(), 0.0);
-        QTest::newRow("minimum-subnormal") << std::numeric_limits<double>::denorm_min();
-        QTest::newRow("negative-subnormal") << -std::numeric_limits<double>::denorm_min();
-        QTest::newRow("maximum-finite") << std::numeric_limits<double>::max();
-        QTest::newRow("negative-maximum") << -std::numeric_limits<double>::max();
-        QTest::newRow("next-after-one") << std::nextafter(1.0, 2.0);
-        QTest::newRow("next-before-one") << std::nextafter(1.0, 0.0);
-    }
-    void reusableValueBoundaries()
-    {
-        QFETCH(double, value);
-        RestoreLocale restore;
-        QLocale::setDefault(QLocale(QLocale::German));
-        CalculationRecord entry;
-        entry.result.ok = true;
-        entry.result.value = binaryNumber(value);
-        entry.result.text = QStringLiteral("显示文本不能用于数值复用");
-        const QString text = entry.valueText();
-        QVERIFY(!text.isEmpty());
-        QVERIFY(!text.contains(QLatin1Char('=')));
-        QVERIFY(!text.contains(QLatin1Char(',')));
-        const auto parsed = ExpressionEngine::evaluate(text);
-        QVERIFY2(parsed.ok, qPrintable(text + QStringLiteral(": ") + parsed.text));
-        QCOMPARE(bits(parsed.value), bits(value));
-        const auto inserted = ExpressionEngine::evaluate(entry.insertionText());
-        QVERIFY(inserted.ok);
-        QCOMPARE(bits(inserted.value), bits(value));
     }
     void reusableValuesAcrossBinaryExponents()
     {

@@ -390,9 +390,7 @@ bool NumericValue::restoreBinary(const QString &hex, unsigned sources, NumericVa
     if (hex.size() != 16 || !(sources & Approximate) || (sources & ~unsigned(Rounded | Approximate | ConversionLoss))) return false;
     for (const auto c : hex)
         if (!(c >= QLatin1Char('0') && c <= QLatin1Char('9')) && !(c >= QLatin1Char('a') && c <= QLatin1Char('f'))) return false;
-    bool ok = false;
-    const quint64 bits = hex.toULongLong(&ok, 16);
-    if (!ok) return false;
+    const quint64 bits = hex.toULongLong(nullptr, 16);
     double value;
     std::memcpy(&value, &bits, sizeof(value));
     NumericValue restored;

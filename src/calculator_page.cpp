@@ -202,7 +202,6 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_input->setAccessibleName(QStringLiteral("输入公式"));
     m_input->setPlaceholderText(QStringLiteral("例如 (128 + 256) / 3"));
     m_input->setTabChangesFocus(true);
-    m_input->setFixedHeight(72);
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
     mono.setPointSizeF(qMax(11.0, font().pointSizeF() + 1));
     m_input->setFont(mono);
@@ -608,7 +607,6 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     QFont resultFont = result.ok ? m_input->font() : font();
     if (result.ok) resultFont.setPointSizeF(m_input->font().pointSizeF() + 4);
     value->setFont(resultFont);
-    value->setMinimumWidth(0);
     values->addWidget(value);
     if (result.ok && result.value.sources())
     {
@@ -691,8 +689,8 @@ void CalculatorPage::showHistory(int position)
     if (position < 0 || position >= records.size()) return;
     if (m_historyPosition < 0)
     {
-        storeModeDraft();
         m_draft = captureInput();
+        (customMode() ? m_customInput : m_normalInput) = m_draft;
     }
     else m_recalledInputs.insert(records.at(m_historyPosition).id, captureInput());
     m_historyPosition = position;
@@ -770,32 +768,24 @@ void CalculatorPage::insertResult(quint64 id)
         : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
 }
 
-void CalculatorPage::pasteIntoInput()
-{
-    // 先选定写入目标，再转移焦点；待确认定义期间不能改动隐藏草稿或参数。
-    auto *target = hasPendingDefinition() ? m_definitionInput : m_input;
-    target->setFocus(Qt::OtherFocusReason);
-    m_editTarget = target;
-    target->paste();
-}
-
 void CalculatorPage::routeEdit(const QString &command)
 {
     if (m_clearConfirmation || m_exportDialog || m_sessionDialog) return;
+    const auto edit = [&command](auto *editor) {
+        if (command == QStringLiteral("actioncopy")) editor->copy();
+        else if (command == QStringLiteral("actioncut")) editor->cut();
+        else if (command == QStringLiteral("actionpaste")) editor->paste();
+        else if (command == QStringLiteral("actionundo")) editor->undo();
+        else if (command == QStringLiteral("actionredo")) editor->redo();
+        else if (command == QStringLiteral("actionselect_All")) editor->selectAll();
+    };
     // Host menu proxies remain active while a modeless help window is focused.
     QWidget *focused = QApplication::focusWidget();
     if (focused && (focused->window()->objectName() == QStringLiteral("calctabddHelpDialog") ||
                     focused->window()->objectName() == QStringLiteral("calctabddAboutDialog")))
     {
         if (auto *line = qobject_cast<QLineEdit *>(focused))
-        {
-            if (command == QStringLiteral("actioncopy")) line->copy();
-            else if (command == QStringLiteral("actioncut")) line->cut();
-            else if (command == QStringLiteral("actionpaste")) line->paste();
-            else if (command == QStringLiteral("actionundo")) line->undo();
-            else if (command == QStringLiteral("actionredo")) line->redo();
-            else if (command == QStringLiteral("actionselect_All")) line->selectAll();
-        }
+            edit(line);
         else if (auto *text = qobject_cast<QTextEdit *>(focused))
         {
             if (command == QStringLiteral("actioncopy")) text->copy();
@@ -803,11 +793,20 @@ void CalculatorPage::routeEdit(const QString &command)
         }
         return;
     }
+    if (command == QStringLiteral("actionpaste") && (qobject_cast<RecordText *>(m_editTarget.data())
+        || qobject_cast<QLabel *>(m_editTarget.data())))
+    {
+        // 先选定写入目标，再转移焦点；待确认定义期间不能改动隐藏草稿或参数。
+        auto *target = hasPendingDefinition() ? m_definitionInput : m_input;
+        target->setFocus(Qt::OtherFocusReason);
+        m_editTarget = target;
+        target->paste();
+        return;
+    }
     if (auto *result = qobject_cast<RecordText *>(m_editTarget.data()))
     {
         if (command == QStringLiteral("actioncopy")) result->copy();
         else if (command == QStringLiteral("actionselect_All")) result->selectAll();
-        else if (command == QStringLiteral("actionpaste")) pasteIntoInput();
         return;
     }
     auto *selectedLabel = qobject_cast<QLabel *>(m_editTarget.data());
@@ -817,16 +816,9 @@ void CalculatorPage::routeEdit(const QString &command)
             QApplication::clipboard()->setText(selectedLabel->selectedText());
         else if (command == QStringLiteral("actionselect_All"))
             selectedLabel->setSelection(0, selectedLabel->text().size());
-        else if (command == QStringLiteral("actionpaste")) pasteIntoInput();
         return;
     }
-    auto *editor = m_editTarget == m_definitionInput ? m_definitionInput : m_input;
-    if (command == QStringLiteral("actioncopy")) editor->copy();
-    else if (command == QStringLiteral("actioncut")) editor->cut();
-    else if (command == QStringLiteral("actionpaste")) editor->paste();
-    else if (command == QStringLiteral("actionundo")) editor->undo();
-    else if (command == QStringLiteral("actionredo")) editor->redo();
-    else if (command == QStringLiteral("actionselect_All")) editor->selectAll();
+    edit(m_editTarget == m_definitionInput ? m_definitionInput : m_input);
 }
 
 bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
@@ -934,6 +926,7 @@ void CalculatorPage::applyTheme()
 
 CalculatorPage::~CalculatorPage()
 {
+    disconnect(qApp, &QApplication::focusChanged, this, nullptr);
     // QWidget 的子控件此时仍在；即使没有先收到 hideEvent 也提交最后的已上屏草稿。
     if (m_sessionDirty) saveSession();
 }
@@ -1082,11 +1075,6 @@ void CalculatorPage::requestSessionFile(bool restore)
     CalculatorStyle::applyDialog(dialog, palette());
 }
 
-void CalculatorPage::storeModeDraft()
-{
-    (customMode() ? m_customInput : m_normalInput) = captureInput();
-}
-
 void CalculatorPage::updateModeUi()
 {
     const bool custom = customMode() || m_defining;
@@ -1135,7 +1123,7 @@ void CalculatorPage::switchMode(bool custom)
     }
     // 手动切换结束历史浏览，先恢复其原草稿，再切换到另一份模式草稿。
     if (m_historyPosition >= 0) restoreDraft();
-    storeModeDraft();
+    (customMode() ? m_customInput : m_normalInput) = captureInput();
     restoreInput(custom ? m_customInput : m_normalInput);
     m_status->setText(custom ? QStringLiteral("自定义公式模式 · 填写参数后按 Ctrl+Enter 计算")
                              : QStringLiteral("普通计算模式 · Ctrl+Enter 计算"));
@@ -1173,7 +1161,7 @@ void CalculatorPage::applyDefinition()
     // 仅确认后替换定义；同名参数保留原文，无效编辑不能触发旧公式计算。
     const InputState previous = customMode() ? captureInput() : m_customInput;
     if (m_historyPosition >= 0) restoreDraft();
-    storeModeDraft();
+    (customMode() ? m_customInput : m_normalInput) = captureInput();
     const QString input = formula.parameterTemplate(previous.text);
     const int position = input.isEmpty() ? 0 : input.indexOf(QLatin1Char('=')) + 1;
     m_customInput = {input, position, position, formula.definition()};

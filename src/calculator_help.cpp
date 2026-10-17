@@ -47,13 +47,6 @@ void present(QDialog *dialog)
     dialog->raise();
     dialog->activateWindow();
 }
-
-QString section(const CalculationCatalog::Entry &entry)
-{
-    return QStringLiteral("<h3>%1 — %2</h3><p>%3</p><p><b>示例：</b>%4</p>")
-        .arg(entry.signature.toHtmlEscaped(), entry.title.toHtmlEscaped(),
-             entry.description.toHtmlEscaped(), entry.example.toHtmlEscaped());
-}
 }
 
 void showCalculatorHelp(QWidget *owner)
@@ -111,7 +104,9 @@ void showCalculatorHelp(QWidget *owner)
                 category[page] = entry.category;
                 html[page] += QStringLiteral("<h2>%1</h2>").arg(entry.category.toHtmlEscaped());
             }
-            html[page] += section(entry);
+            html[page] += QStringLiteral("<h3>%1 — %2</h3><p>%3</p><p><b>示例：</b>%4</p>")
+                .arg(entry.signature.toHtmlEscaped(), entry.title.toHtmlEscaped(),
+                     entry.description.toHtmlEscaped(), entry.example.toHtmlEscaped());
             ++matches[page];
         }
         const QString empty = QStringLiteral("<p>没有匹配项。可尝试英文函数名、中文关键词，或清空搜索查看全部内容。</p>");

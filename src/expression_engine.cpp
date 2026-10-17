@@ -35,18 +35,33 @@ public:
         m_text.replace(QChar(0x2212), QLatin1Char('-'));
     }
 
-    NumericValue parse()
+    CalculationResult parse()
     {
-        if (m_text.size() > 4096)
-            fail(QStringLiteral("公式过长（最多 4096 个 UTF-16 代码单元）"), CalculationError::Limit, {4096, m_text.size() - 4096});
-        skipSpace();
-        if (m_position == m_text.size())
-            failHere(QStringLiteral("请输入公式"));
-        const NumericValue value = expression();
-        skipSpace();
-        if (m_position != m_text.size())
-            failHere(QStringLiteral("此处需要运算符，或存在多余字符"));
-        return value;
+        CalculationResult result;
+        try
+        {
+            if (m_text.size() > 4096)
+                fail(QStringLiteral("公式过长（最多 4096 个 UTF-16 代码单元）"), CalculationError::Limit, {4096, m_text.size() - 4096});
+            skipSpace();
+            if (m_position == m_text.size()) failHere(QStringLiteral("请输入公式"));
+            const NumericValue value = expression();
+            skipSpace();
+            if (m_position != m_text.size()) failHere(QStringLiteral("此处需要运算符，或存在多余字符"));
+            if (!m_parameters)
+            {
+                result.value = value;
+                result.text = value.text();
+            }
+            result.ok = true;
+        }
+        catch (const ParseError &error)
+        {
+            result.text = error.text;
+            result.error = error.kind;
+            result.errorPosition = error.range.start;
+            result.errorLength = error.range.length;
+        }
+        return result;
     }
 
 private:
@@ -120,27 +135,7 @@ private:
         case NumericError::ArgumentCount: fail(QStringLiteral("函数参数数量不正确"), CalculationError::ArgumentCount, range);
         }
     }
-    NumericValue expression()
-    {
-        skipSpace();
-        const int start = m_position;
-        NumericValue value = term();
-        for (;;)
-        {
-            const SourceRange leftRange = rangeFrom(start);
-            skipSpace();
-            const SourceRange operation{m_position, 1};
-            char symbol;
-            if (take(QLatin1Char('+'))) symbol = '+';
-            else if (take(QLatin1Char('-'))) symbol = '-';
-            else return value;
-            skipSpace();
-            const int rightStart = m_position;
-            const NumericValue right = term();
-            value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
-        }
-    }
-    NumericValue term()
+    NumericValue expression(int minimumPrecedence = 1)
     {
         skipSpace();
         const int start = m_position;
@@ -150,14 +145,14 @@ private:
             const SourceRange leftRange = rangeFrom(start);
             skipSpace();
             const SourceRange operation{m_position, 1};
-            char symbol;
-            if (take(QLatin1Char('*'))) symbol = '*';
-            else if (take(QLatin1Char('/'))) symbol = '/';
-            else if (take(QLatin1Char('%'))) symbol = '%';
-            else return value;
+            const char symbol = m_position < m_text.size() ? m_text.at(m_position).toLatin1() : '\0';
+            const int precedence = symbol == '+' || symbol == '-' ? 1
+                : symbol == '*' || symbol == '/' || symbol == '%' ? 2 : 0;
+            if (precedence < minimumPrecedence) return value;
+            ++m_position;
             skipSpace();
             const int rightStart = m_position;
-            const NumericValue right = unary();
+            const NumericValue right = expression(precedence + 1);
             value = binary(symbol, value, right, leftRange, rangeFrom(rightStart), operation);
         }
     }
@@ -303,42 +298,14 @@ private:
 
 CalculationResult ExpressionEngine::evaluate(const QString &expression, const NumericValue &answer)
 {
-    CalculationResult result;
-    try
-    {
-        Parser parser(expression, answer);
-        result.value = parser.parse();
-        result.ok = true;
-        result.text = result.value.text();
-    }
-    catch (const ParseError &error)
-    {
-        result.text = error.text;
-        result.error = error.kind;
-        result.errorPosition = error.range.start;
-        result.errorLength = error.range.length;
-    }
-    return result;
+    return Parser(expression, answer).parse();
 }
 
 CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<ExpressionParameter> &parameters)
 {
-    CalculationResult result;
     QVector<ExpressionParameter> found;
-    try
-    {
-        Parser parser(expression, NumericValue(), &found);
-        parser.parse();
-        parameters = found;
-        result.ok = true;
-    }
-    catch (const ParseError &error)
-    {
-        result.text = error.text;
-        result.error = error.kind;
-        result.errorPosition = error.range.start;
-        result.errorLength = error.range.length;
-    }
+    const auto result = Parser(expression, NumericValue(), &found).parse();
+    if (result.ok) parameters = std::move(found);
     return result;
 }
 

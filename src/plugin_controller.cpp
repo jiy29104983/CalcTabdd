@@ -102,6 +102,7 @@ void PluginController::openCalculator()
         showStatus(QStringLiteral("无法保护计算器的底层文档。"));
         return;
     }
+    if (m_editor) disconnect(m_editor, &QObject::destroyed, this, nullptr);
     m_editor = editor;
     m_page = new CalculatorPage(editor);
     m_page->setGeometry(editor->rect());
@@ -110,8 +111,7 @@ void PluginController::openCalculator()
     const int index = m_tabs->indexOf(editor);
     m_tabs->setTabText(index, QStringLiteral("计算器"));
     m_tabs->setTabToolTip(index, QStringLiteral("CalcTabdd · 可在“本地会话”中开启保存或恢复历史"));
-    connect(editor, &QObject::destroyed, this, [this, editor]() {
-        if (m_editor && m_editor.data() != editor) return;
+    connect(editor, &QObject::destroyed, this, [this]() {
         m_page.clear();
         m_editor.clear();
         restoreRoutes();
