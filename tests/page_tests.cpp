@@ -1039,6 +1039,7 @@ private slots:
         QPointer<QFileDialog> dialog = page.findChild<QFileDialog *>(QStringLiteral("sessionFileDialog"));
         QVERIFY(dialog && dialog->isVisible());
         QCOMPARE(dialog->windowModality(), Qt::WindowModal);
+        QCOMPARE(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->text(), QStringLiteral("取消"));
         page.submit();
         page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
         page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
@@ -1111,6 +1112,7 @@ private slots:
         QVERIFY(dialog && dialog->isVisible());
         QCOMPARE(dialog->windowModality(), Qt::WindowModal);
         QCOMPARE(dialog->acceptMode(), QFileDialog::AcceptSave);
+        QCOMPARE(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->text(), QStringLiteral("取消"));
         QCOMPARE(dialog->defaultSuffix(), markdown ? QStringLiteral("md") : QStringLiteral("txt"));
         // 使用用户实际可达的文件名输入和导出按钮，验证扩展名自动补齐。
         dialog->setDirectory(directory.path());

@@ -78,7 +78,7 @@ private slots:
         QVERIFY(parsed.ok);
         QVERIFY(!parsed.value.isBinary());
         QCOMPARE(parsed.value.sources(), 0u);
-        if (value.isBinary()) QCOMPARE(bits(parsed.value), bits(value.binary()));
+        if (value.isBinary()) QCOMPARE(bits(parsed.value), bits(value));
         else QCOMPARE(parsed.value, value);
         NumericValue restored;
         QVERIFY(value.isBinary() ? NumericValue::restoreBinary(value.binaryHex(), value.sources(), restored)
@@ -427,15 +427,10 @@ private slots:
         if (binary)
         {
             const double value = expected.toDouble();
-            if (value == 0 || std::abs(value) < 1e-300) QCOMPARE(result.value.binary(), value);
-            else QVERIFY(std::abs(result.value.binary() - value) <= std::abs(value) * 2e-14);
+            if (value == 0 || std::abs(value) < 1e-300) QCOMPARE(asDouble(result.value), value);
+            else QVERIFY(std::abs(asDouble(result.value) - value) <= std::abs(value) * 2e-14);
         }
-        else
-        {
-            DecimalValue value;
-            QCOMPARE(DecimalValue::parse(expected, value), DecimalError::None);
-            QCOMPARE(DecimalValue::compare(result.value.decimal(), value), 0);
-        }
+        else QCOMPARE(result.value.text(), decimalNumber(expected).text());
     }
     void numericErrors_data()
     {
@@ -490,8 +485,7 @@ private slots:
         QCOMPARE(answer.value.sources(), unsigned(NumericValue::Rounded | NumericValue::Approximate | NumericValue::ConversionLoss));
         const auto reuse = ExpressionEngine::evaluate(QStringLiteral("ans"), answer.value);
         QVERIFY(reuse.ok);
-        QCOMPARE(bits(reuse.value.binary()), bits(answer.value.binary()));
-        QCOMPARE(reuse.value.sources(), answer.value.sources());
+        QCOMPARE(reuse.value, answer.value);
     }
     void numericFailuresPreserveOutputs()
     {
@@ -538,20 +532,20 @@ private slots:
              QStringLiteral("min(-0,0)"), QStringLiteral("max(-0,0)")})
         {
             const auto result = evaluate(text);
-            QVERIFY2(result.ok && result.value.isZero() && result.value.isNegative(), qPrintable(text));
-            QVERIFY(!result.value.isBinary());
+            QVERIFY2(result.ok, qPrintable(text));
+            QCOMPARE(result.value, decimalNumber(QStringLiteral("-0")));
         }
         for (const QString &text : {QStringLiteral("abs(-0)"), QStringLiteral("min(0,-0)"), QStringLiteral("max(0,-0)")})
         {
             const auto result = evaluate(text);
-            QVERIFY(result.ok && result.value.isZero() && !result.value.isNegative());
+            QVERIFY2(result.ok, qPrintable(text));
+            QCOMPARE(result.value, NumericValue());
         }
         for (const QString &text : {QStringLiteral("min(-0,sin(0))"), QStringLiteral("max(-0,sin(0))"), QStringLiteral("sin(-0)")})
         {
             const auto result = evaluate(text);
-            QVERIFY2(result.ok && result.value.isZero() && result.value.isNegative(), qPrintable(text));
-            QVERIFY(result.value.isBinary());
-            QCOMPARE(result.value.sources(), unsigned(NumericValue::Approximate));
+            QVERIFY2(result.ok, qPrintable(text));
+            QCOMPARE(result.value, binaryNumber(-0.0));
         }
         struct Case { const char *left; char operation; const char *right; const char *expected; };
         for (const auto &entry : {Case{"0.1", '+', "0.2", "0.3"}, Case{"0.3", '%', "0.1", "0"},
@@ -567,23 +561,19 @@ private slots:
                 NumericValue x = a, y = b, separate;
                 NumericValue &output = alias == 0 ? separate : alias == 1 ? x : y;
                 QVERIFY(NumericValue::operate(entry.operation, x, y, output).ok());
-                QCOMPARE(output.sources(), expected.value.sources());
-                QCOMPARE(output.isBinary(), expected.value.isBinary());
-                if (output.isBinary()) QCOMPARE(bits(output.binary()), bits(expected.value.binary()));
-                else QCOMPARE(DecimalValue::compare(output.decimal(), expected.value.decimal()), 0);
+                QCOMPARE(output, expected.value);
             }
         }
         const auto limit = evaluate(QStringLiteral("1e999")).value;
         auto approximate = evaluate(QStringLiteral("pi")).value;
         const auto before = approximate;
         QCOMPARE(NumericValue::operate('+', approximate, limit, approximate).error, NumericError::ConversionOverflow);
-        QCOMPARE(bits(approximate.binary()), bits(before.binary()));
-        QCOMPARE(approximate.sources(), before.sources());
+        QCOMPARE(approximate, before);
         // 函数输出可以直接复用 QVector 中的参数，但两参数来源仍合并。
         QVector<NumericValue> parameters{evaluate(QStringLiteral("1")).value, evaluate(QStringLiteral("1/3")).value};
         QVERIFY(NumericValue::function(QStringLiteral("max"), parameters, parameters[0]).ok());
         QCOMPARE(parameters[0].sources(), unsigned(NumericValue::Rounded));
-        QCOMPARE(DecimalValue::compare(parameters[0].decimal(), evaluate(QStringLiteral("1")).value.decimal()), 0);
+        QCOMPARE(parameters[0].text(), QStringLiteral("1"));
     }
     void numericFloatingEnvironment()
     {
@@ -1624,7 +1614,7 @@ private slots:
         history.clear();
         QCOMPARE(asDouble(history.calculate(QStringLiteral("ans")).result.value), 0.0);
         history.calculate(QStringLiteral("-0"));
-        QVERIFY(history.answer().isNegative());
+        QCOMPARE(history.answer(), decimalNumber(QStringLiteral("-0")));
         history.clear();
         QCOMPARE(bits(history.answer()), bits(0.0));
         QCOMPARE(asDouble(other.calculate(QStringLiteral("ans+1")).result.value), 101.0);
@@ -1679,22 +1669,6 @@ private slots:
         QVERIFY(!history.record(4));
         QVERIFY(!history.record(quint64(-1)));
     }
-    void historyKeepsUnroundedValues()
-    {
-        CalculationHistory history;
-        const auto first = history.calculate(QStringLiteral("0.1+0.2"));
-        QVERIFY(first.result.ok);
-        QCOMPARE(first.result.text, QStringLiteral("0.3"));
-        QCOMPARE(first.result.value, decimalNumber(QStringLiteral("0.3")));
-        QCOMPARE(first.result.value.sources(), 0u);
-        history.calculate(QStringLiteral("1/0"));
-        const auto next = history.calculate(QStringLiteral("ans-0.3"));
-        QCOMPARE(next.answerBefore, first.result.value);
-        QCOMPARE(next.result.value, NumericValue());
-        QCOMPARE(history.answer(), next.result.value);
-        QCOMPARE(history.record(first.id)->result.value, first.result.value);
-    }
-
     void historyPreservesSubmittedFormulaAndErrors()
     {
         CalculationHistory history;

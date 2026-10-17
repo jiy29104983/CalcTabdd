@@ -35,8 +35,6 @@ public:
     // 有限非零次正规数可接受；成功同时更新两输出，失败都保持。
     NumericStatus toBinary(double &output, bool &changed) const;
     bool isBinary() const { return m_isBinary; }
-    const DecimalValue &decimal() const { return m_decimal; }
-    double binary() const { return m_binary; }
     unsigned sources() const { return m_sources; }
     // 统一、区域无关的完整正文与独立来源说明。
     QString text() const;
@@ -49,10 +47,10 @@ public:
     bool operator==(const NumericValue &other) const;
     bool operator!=(const NumericValue &other) const { return !(*this == other); }
     bool isZero() const;
-    bool isNegative() const;
     NumericValue negated() const;
 
 private:
+    bool isNegative() const;
     bool isInteger() const;
     static NumericStatus finishBinary(double value, unsigned sources, bool zeroUnderflow, NumericValue &output);
     DecimalValue m_decimal;

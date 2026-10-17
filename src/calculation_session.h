@@ -54,6 +54,6 @@ private:
     void release();
     QString m_path;
     std::unique_ptr<QLockFile> m_lock;
+    // 仅成功读取或提交文件后保留摘要，同时用于检查外部修改。
     QByteArray m_digest;
-    bool m_exists = false;
 };

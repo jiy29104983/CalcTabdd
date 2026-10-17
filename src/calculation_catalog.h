@@ -17,7 +17,6 @@ struct Entry
     QString example;
     QString keywords;
     QString insertion;
-    int cursorOffset = 0;
 
     bool isCompletion() const;
     bool matches(const QString &query, bool completion = false) const;

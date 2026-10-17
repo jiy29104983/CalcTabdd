@@ -45,7 +45,8 @@ int skippedWhitespace(const QString &text)
 
 // 导出与会话对话框共用同一套 Qt 控件设置，保证随页面关闭并沿用页面配色。
 QFileDialog *createFileDialog(QWidget *owner, const QString &objectName, const QString &title,
-                              const QString &acceptText, const QString &nameFilter, const QString &suffix)
+                              QFileDialog::AcceptMode mode, const QString &acceptText,
+                              const QString &nameFilter, const QString &suffix)
 {
     auto *dialog = new QFileDialog(owner);
     dialog->setObjectName(objectName);
@@ -55,6 +56,9 @@ QFileDialog *createFileDialog(QWidget *owner, const QString &objectName, const Q
     dialog->setAttribute(Qt::WA_WindowPropagation, true);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowFlag(Qt::WindowContextHelpButtonHint, false);
+    // Qt 设置模式时会重建标准按钮，中文文案必须在此之后设置。
+    dialog->setAcceptMode(mode);
+    dialog->setFileMode(mode == QFileDialog::AcceptOpen ? QFileDialog::ExistingFile : QFileDialog::AnyFile);
     dialog->setNameFilter(nameFilter);
     dialog->setDefaultSuffix(suffix);
     dialog->setLabelText(QFileDialog::LookIn, QStringLiteral("位置："));
@@ -63,6 +67,20 @@ QFileDialog *createFileDialog(QWidget *owner, const QString &objectName, const Q
     dialog->setLabelText(QFileDialog::Accept, acceptText);
     dialog->setLabelText(QFileDialog::Reject, QStringLiteral("取消"));
     return dialog;
+}
+
+QDialogButtonBox *confirmationButtons(QDialog *dialog, const QString &acceptText)
+{
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(acceptText);
+    buttons->button(QDialogButtonBox::Ok)->setProperty("role", QStringLiteral("danger"));
+    auto *cancel = buttons->button(QDialogButtonBox::Cancel);
+    cancel->setText(QStringLiteral("取消"));
+    cancel->setDefault(true);
+    cancel->setFocus();
+    QObject::connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    return buttons;
 }
 }
 
@@ -435,11 +453,10 @@ void CalculatorPage::requestExport(CalculationExport::Format format)
     // 使用可随页面关闭的异步 Qt 对话框。覆盖确认也使用 Qt 控件，保持相同生命周期。
     auto *dialog = createFileDialog(this, QStringLiteral("exportHistoryDialog"),
         markdown ? QStringLiteral("导出 Markdown 计算记录") : QStringLiteral("导出 TXT 计算记录"),
-        QStringLiteral("导出"), markdown ? QStringLiteral("Markdown (*.md)") : QStringLiteral("文本文件 (*.txt)"),
+        QFileDialog::AcceptSave, QStringLiteral("导出"),
+        markdown ? QStringLiteral("Markdown (*.md)") : QStringLiteral("文本文件 (*.txt)"),
         markdown ? QStringLiteral("md") : QStringLiteral("txt"));
     m_exportDialog = dialog;
-    dialog->setAcceptMode(QFileDialog::AcceptSave);
-    dialog->setFileMode(QFileDialog::AnyFile);
     const QString previous = markdown ? m_markdownExportPath : m_textExportPath;
     if (previous.isEmpty())
     {
@@ -492,17 +509,8 @@ void CalculatorPage::confirmExport(const QString &path, const QByteArray &conten
     question->setTextFormat(Qt::PlainText);
     question->setWordWrap(true);
     layout->addWidget(question);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("覆盖"));
-    buttons->button(QDialogButtonBox::Ok)->setProperty("role", QStringLiteral("danger"));
-    auto *cancel = buttons->button(QDialogButtonBox::Cancel);
-    cancel->setText(QStringLiteral("取消"));
-    cancel->setDefault(true);
-    cancel->setFocus();
-    layout->addWidget(buttons);
+    layout->addWidget(confirmationButtons(dialog, QStringLiteral("覆盖")));
     dialog->resize(480, dialog->sizeHint().height());
-    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     connect(dialog, &QDialog::finished, this, [this, path, contents](int result) {
         m_exportDialog.clear();
         if (result == QDialog::Accepted) writeExport(path, contents);
@@ -553,16 +561,7 @@ void CalculatorPage::requestClearSession()
     details->setTextFormat(Qt::PlainText);
     details->setWordWrap(true);
     layout->addWidget(details);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("清空会话"));
-    buttons->button(QDialogButtonBox::Ok)->setProperty("role", QStringLiteral("danger"));
-    auto *cancel = buttons->button(QDialogButtonBox::Cancel);
-    cancel->setText(QStringLiteral("取消"));
-    cancel->setDefault(true);
-    cancel->setFocus();
-    connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-    layout->addWidget(buttons);
+    layout->addWidget(confirmationButtons(dialog, QStringLiteral("清空会话")));
     dialog->setMinimumWidth(380);
     applyTheme();
     connect(dialog, &QDialog::finished, this, [this](int result) {
@@ -1050,11 +1049,10 @@ void CalculatorPage::requestSessionFile(bool restore)
     }
     auto *dialog = createFileDialog(this, QStringLiteral("sessionFileDialog"),
         restore ? QStringLiteral("恢复本地会话") : QStringLiteral("选择新文件并开启自动保存"),
+        restore ? QFileDialog::AcceptOpen : QFileDialog::AcceptSave,
         restore ? QStringLiteral("恢复") : QStringLiteral("开启保存"),
         QStringLiteral("CalcTabdd 会话 (*.calctabdd)"), QStringLiteral("calctabdd"));
     m_sessionDialog = dialog;
-    dialog->setAcceptMode(restore ? QFileDialog::AcceptOpen : QFileDialog::AcceptSave);
-    dialog->setFileMode(restore ? QFileDialog::ExistingFile : QFileDialog::AnyFile);
     dialog->setDirectory(m_sessionFile ? QFileInfo(m_sessionFile->path()).absolutePath()
         : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
     if (!restore) dialog->selectFile(QStringLiteral("CalcTabdd-%1.calctabdd").arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8)));

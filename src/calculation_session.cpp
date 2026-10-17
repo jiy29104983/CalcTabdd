@@ -213,7 +213,6 @@ void CalculationSessionFile::release()
     m_lock.reset();
     m_path.clear();
     m_digest.clear();
-    m_exists = false;
 }
 
 QString CalculationSessionFile::acquire(const QString &path)
@@ -255,11 +254,7 @@ QString CalculationSessionFile::load(const QString &path, CalculationSession &se
     error = readFile(m_path, bytes);
     if (error.isEmpty()) error = SessionFormat::decode(bytes, session);
     if (!error.isEmpty()) release();
-    else
-    {
-        m_digest = digest(bytes);
-        m_exists = true;
-    }
+    else m_digest = digest(bytes);
     return error;
 }
 
@@ -270,7 +265,7 @@ QString CalculationSessionFile::save(const CalculationSession &session)
     CalculationSession checked;
     QString error = SessionFormat::decode(bytes, checked);
     if (!error.isEmpty()) return error;
-    if (m_exists)
+    if (!m_digest.isEmpty())
     {
         QByteArray current;
         error = readFile(m_path, current);
@@ -290,7 +285,6 @@ QString CalculationSessionFile::save(const CalculationSession &session)
         return error;
     }
     if (!file.commit()) return QStringLiteral("无法提交会话文件：%1").arg(file.errorString());
-    m_exists = true;
     m_digest = digest(bytes);
     return {};
 }
