@@ -50,6 +50,7 @@ private:
     bool hasPendingDefinition() const;
     void switchMode(bool custom);
     void updateModeUi();
+    void updateRecordUi();
     QString m_definition;
     InputState m_normalInput;
     InputState m_customInput;
@@ -95,7 +96,6 @@ private:
     QTimer *m_saveTimer = nullptr;
     std::unique_ptr<CalculationSessionFile> m_sessionFile;
     bool m_sessionDirty = false;
-    bool m_restoringSession = false;
     QPlainTextEdit *m_input = nullptr;
     FormulaCompletion *m_completion = nullptr;
     QPointer<QWidget> m_editTarget;

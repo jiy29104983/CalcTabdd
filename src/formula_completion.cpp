@@ -136,7 +136,7 @@ void FormulaCompletion::insertCurrent(int entryIndex)
     while (following < text.size() && text.at(following).isSpace()) ++following;
     const bool function = entry.kind == CalculationCatalog::Kind::Function;
     const bool existingCall = function && following < text.size() && text.at(following) == QLatin1Char('(');
-    const QString insertion = existingCall ? entry.name : entry.insertion;
+    const QString insertion = existingCall ? entry.name : entry.insertion();
     const int offset = entry.name.size() + (function ? 1 : 0) + (existingCall ? following - token.end : 0);
     m_inserting = true;
     QTextCursor cursor = m_input->textCursor();

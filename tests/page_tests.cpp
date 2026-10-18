@@ -2094,7 +2094,7 @@ private slots:
         QCOMPARE(entries.at(1).result.errorPosition, 2);
         QCOMPARE(asDouble(entries.at(2).answerBefore), 6.0);
         QCOMPARE(asDouble(entries.at(2).result.value), 7.0);
-        QCOMPARE(entries.last().result.value, decimalNumber(entries.last().result.text));
+        QCOMPARE(entries.last().result.value, decimalNumber(QStringLiteral("0.3")));
     }
     void reuseReadsModelAndUsesCurrentAnswer()
     {

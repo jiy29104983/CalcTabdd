@@ -509,7 +509,7 @@ private slots:
         QCOMPARE(output, sentinel);
         QVERIFY(!NumericValue::function(QStringLiteral("pow"), {one}, output).ok());
         QVERIFY(!NumericValue::constant(QStringLiteral("unknown"), output).ok());
-        QCOMPARE(output.sources(), sentinel.sources());
+        QCOMPARE(output, sentinel);
         QVERIFY(NumericValue::operate('-', output, output, output).ok());
         QVERIFY(output.isZero());
         QCOMPARE(output.sources(), sentinel.sources());
@@ -1933,7 +1933,7 @@ private slots:
             {
                 QVERIFY(!functions.contains(entry.name));
                 functions.insert(entry.name);
-                formula += entry.insertion.contains(QLatin1Char(',')) ? QStringLiteral("(2,3)") : QStringLiteral("(1)");
+                formula += entry.insertion().contains(QLatin1Char(',')) ? QStringLiteral("(2,3)") : QStringLiteral("(1)");
             }
             else constants.insert(entry.name);
             const auto result = ExpressionEngine::evaluate(formula, decimalNumber(QStringLiteral("42")));

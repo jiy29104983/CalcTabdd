@@ -16,10 +16,11 @@ struct Entry
     QString description;
     QString example;
     QString keywords;
-    QString insertion;
 
     bool isCompletion() const;
     bool matches(const QString &query, bool completion = false) const;
+    // 补全插入文本由名称和函数元数派生，避免与引擎参数定义漂移。
+    QString insertion() const;
 };
 
 const QVector<Entry> &entries();
