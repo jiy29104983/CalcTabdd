@@ -168,6 +168,40 @@ private slots:
         QCOMPARE(page.childAt(applyBounds.center()), apply);
         QTest::mouseClick(apply, Qt::LeftButton);
         QCOMPARE(page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"))->text(), QStringLiteral("已应用"));
+        // 应用定义会异步改变多个控件高度；先核对最终排版，再截取界面。
+        QCoreApplication::processEvents();
+        auto *composer = page.findChild<QWidget *>(QStringLiteral("formulaComposer"));
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
+        auto *parameterHeader = page.findChild<QWidget *>(QStringLiteral("customParameterHeader"));
+        QVERIFY(composer && hint && parameterHeader);
+        QTRY_VERIFY(hint->mapTo(composer, QPoint()).y()
+            >= page.input()->mapTo(composer, QPoint(0, page.input()->height())).y());
+        QTRY_VERIFY(parameterHeader->mapTo(composer, QPoint()).y()
+            >= definition->mapTo(composer, QPoint(0, definition->height())).y());
+        for (auto *card : page.findChildren<QFrame *>(QStringLiteral("calculationRecord")))
+        {
+            QTRY_VERIFY(([&]() {
+                int previousBottom = 0;
+                for (auto *button : card->findChildren<QAbstractButton *>())
+                    previousBottom = qMax(previousBottom, button->mapTo(card, QPoint(0, button->height())).y());
+                for (const QString &name : {QStringLiteral("recordCustomMeta"), QStringLiteral("recordFormula"),
+                                           QStringLiteral("recordResult"), QStringLiteral("recordSources")})
+                {
+                    auto *text = card->findChild<RecordText *>(name);
+                    if (!text) continue;
+                    const int top = text->mapTo(card, QPoint()).y();
+                    if (top < previousBottom || text->viewport()->height() < text->document()->size().height())
+                        return false;
+                    previousBottom = top + text->height();
+                }
+                return previousBottom <= card->height();
+            })());
+        }
+        QTRY_COMPARE(ans->text(), QStringLiteral("ans = 10"));
+        auto *composerScroll = page.findChild<QScrollArea *>(QStringLiteral("formulaComposerScroll"));
+        QVERIFY(composerScroll);
+        composerScroll->verticalScrollBar()->setValue(0);
+        scroll->ensureWidgetVisible(record, 0, 0);
         const auto directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
         if (!directory.isEmpty())
         {
