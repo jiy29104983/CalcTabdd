@@ -10,6 +10,7 @@ class QAction;
 class QTimer;
 class FormulaCompletion;
 class QLabel;
+class ElidedLabel;
 class QDialog;
 class QPushButton;
 class QToolButton;
@@ -63,7 +64,7 @@ private:
     QLabel *m_definitionError = nullptr;
     QPushButton *m_applyDefinitionButton = nullptr;
     QWidget *m_parameterHeader = nullptr;
-    QLabel *m_parameterChipsBadge = nullptr;
+    ElidedLabel *m_parameterChipsBadge = nullptr;
     bool m_defining = false;
     QLabel *m_inputLabel = nullptr;
     QLabel *m_historyBadge = nullptr;
@@ -109,7 +110,7 @@ private:
     QPointer<QWidget> m_editTarget;
     QScrollArea *m_scroll = nullptr;
     QVBoxLayout *m_records = nullptr;
-    QLabel *m_answerBadge = nullptr;
+    ElidedLabel *m_answerBadge = nullptr;
     QLabel *m_count = nullptr;
     QPushButton *m_clearButton = nullptr;
     QPointer<QDialog> m_clearConfirmation;

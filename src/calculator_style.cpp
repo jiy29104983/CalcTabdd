@@ -93,11 +93,11 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
     QString css = QStringLiteral(R"(
         QDialog, QLabel, QPushButton, QToolButton, QMenu, QLineEdit, QComboBox, QTabBar, QTextBrowser { font-size: @uiSize; }
         QLabel#calculatorTitle { font-size: @titleSize; font-weight: bold; }
-        QLabel#recordFormula { font-size: @formulaSize; }
+        RecordText#recordFormula { font-size: @formulaSize; }
         RecordText#recordResult[error="false"] { font-size: @resultSize; font-weight: bold; }
         QDialog, QWidget#calctabddPage { background: @window; color: @text; }
         QLabel { color: @text; background: transparent; }
-        RecordText#recordResult { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
+        RecordText#recordFormula, RecordText#recordResult { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
         RecordText#recordSources { color: @muted; background: transparent; border: none; padding: 0; margin: 0; }
         QLabel#recordCount, QLabel#recordNumber, QLabel#inputHint, QLabel#customDefinitionHint,
         QLabel#emptyHistory, QLabel#helpMatchCount, QLabel#clearSessionDetails,
@@ -121,8 +121,8 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
             background: @errorBackground; color: @error; border: 1px solid @errorBorder;
             border-radius: 4px; padding: 1px 7px; font-size: @captionSize; font-weight: bold;
         }
-        QLabel#recordCustomMeta {
-            background: @hover; color: @muted; border-radius: 4px;
+        RecordText#recordCustomMeta {
+            background: @hover; color: @muted; border: none; border-radius: 4px;
             padding: 3px 8px; font-size: @captionSize;
         }
         QLabel#customDefinitionLabel, QLabel#parameterSectionLabel {
@@ -145,6 +145,7 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
             border-radius: 10px; padding: 22px 20px;
         }
         QFrame#calculatorHeader { background: @base; border-bottom: 1px solid @border; }
+        QScrollArea#formulaComposerScroll { background: @base; border: none; }
         QFrame#formulaComposer { background: @base; border-top: 1px solid @border; }
         QFrame#modeSwitcher { background: @hover; border: 1px solid @border; border-radius: 7px; }
         QScrollArea#calculationHistory, QWidget#historyCanvas { background: @window; border: none; }

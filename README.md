@@ -4,7 +4,7 @@
 
 CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它将每次计算按“公式在上、结果在下”排列，支持十进制计算、自定义公式、历史复用和本地会话，适合日常计算与重复代入。名称中的 `dd` 表示 `--`。
 
-[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.1 更新说明](docs/releases/v1.0.1.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
+[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.2 测试版说明](docs/releases/v1.0.2-preview.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
 
 ## 界面预览
 
@@ -25,7 +25,7 @@ CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它�
 
 ## 安装
 
-当前版本为 **1.0.1**，预编译包面向 **Windows x64**。
+当前开发版本为 **1.0.2 测试版**，最新正式版为 **1.0.1**。预编译包面向 **Windows x64**。
 
 1. 在 [Releases](https://github.com/jiy29104983/CalcTabdd/releases) 下载 Windows x64 ZIP 安装包。
 2. 退出所有 notepad-- 窗口，将包内 `plugin/calctabdd.dll` 放入 notepad-- 安装目录的 `plugin` 文件夹。
@@ -56,7 +56,7 @@ CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它�
 例如，定义一个用于反复计算长方形面积的公式：
 
 1. 在底部输入区切换至 **自定义公式**。
-2. 在公式定义栏输入 `S=w*h`，按 **Enter** 应用。
+2. 在公式定义栏输入 `S=w*h`，按 **Enter** 或点击 **应用公式**。
 3. 在生成的参数区逐行填写：
 
    ```text

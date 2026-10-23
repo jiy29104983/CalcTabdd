@@ -26,6 +26,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QLayout>
 #include <QtTest>
 
 class PageTests : public QObject
@@ -98,6 +99,173 @@ class PageTests : public QObject
         return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
+    void refactoredControlsFitNarrowPage_data()
+    {
+        QTest::addColumn<int>("pointSize");
+        QTest::newRow("normal-font") << 12;
+        QTest::newRow("large-font") << 18;
+    }
+    void refactoredControlsFitNarrowPage()
+    {
+        QFETCH(int, pointSize);
+        QWidget owner;
+        QFont font = owner.font();
+        font.setPointSize(pointSize);
+        owner.setFont(font);
+        owner.resize(480, 900);
+        CalculatorPage page(&owner);
+        page.setGeometry(owner.rect());
+        owner.show();
+        page.show();
+        owner.activateWindow();
+        page.focusInput();
+        page.input()->setPlainText(QString(50, QLatin1Char('9')));
+        page.submit();
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        auto *recall = page.findChild<QLabel *>(QStringLiteral("historyRecallBadge"));
+        QVERIFY(recall && recall->isVisible());
+        for (const QString &name : {QStringLiteral("normalModeButton"), QStringLiteral("customModeButton")})
+        {
+            auto *button = page.findChild<QToolButton *>(name);
+            QVERIFY(button);
+            QTRY_VERIFY(button->width() >= button->sizeHint().width());
+            const QRect bounds(button->mapTo(&page, QPoint()), button->size());
+            QVERIFY(page.rect().contains(bounds));
+            QCOMPARE(page.childAt(bounds.center()), button);
+        }
+        auto *ans = page.findChild<QLabel *>(QStringLiteral("answerBadge"));
+        QVERIFY(ans && ans->toolTip().contains(page.history().answer().text()));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QVERIFY(defineFormula(page, QStringLiteral("A=parameter_one+parameter_two+parameter_three+parameter_four")));
+        page.input()->setPlainText(QStringLiteral("parameter_one=1\nparameter_two=2\nparameter_three=3\nparameter_four=4"));
+        page.submit();
+        auto *scroll = page.findChild<QScrollArea *>();
+        QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
+        auto *record = page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).last();
+        for (const QString &name : {QStringLiteral("reuseFormula"), QStringLiteral("recordActions")})
+        {
+            auto *button = record->findChild<QAbstractButton *>(name);
+            QVERIFY(button);
+            QTRY_VERIFY(([&]() {
+                scroll->ensureWidgetVisible(button, 0, 0);
+                return scroll->viewport()->rect().contains(
+                    QRect(button->mapTo(scroll->viewport(), QPoint()), button->size()));
+            })());
+            const QRect bounds(button->mapTo(scroll->viewport(), QPoint()), button->size());
+            QVERIFY2(scroll->viewport()->rect().contains(bounds),
+                qPrintable(QStringLiteral("%1 bounds=%2,%3 %4x%5 viewport=%6x%7").arg(name)
+                    .arg(bounds.x()).arg(bounds.y()).arg(bounds.width()).arg(bounds.height())
+                    .arg(scroll->viewport()->width()).arg(scroll->viewport()->height())));
+            QCOMPARE(page.childAt(button->mapTo(&page, button->rect().center())), button);
+        }
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        definition->moveCursor(QTextCursor::End);
+        definition->insertPlainText(QStringLiteral("+1"));
+        auto *apply = page.findChild<QPushButton *>(QStringLiteral("applyDefinitionButton"));
+        QTRY_VERIFY(apply->width() >= apply->sizeHint().width());
+        const QRect applyBounds(apply->mapTo(&page, QPoint()), apply->size());
+        QVERIFY(page.rect().contains(applyBounds));
+        QCOMPARE(page.childAt(applyBounds.center()), apply);
+        QTest::mouseClick(apply, Qt::LeftButton);
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"))->text(), QStringLiteral("已应用"));
+        const auto directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QVERIFY(page.grab().save(directory + QStringLiteral("/review-narrow-%1.png").arg(pointSize)));
+        }
+    }
+    void recordTextWrapsAndCopiesAfterResize()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(defineFormula(page, QStringLiteral("A=first_parameter+second_parameter")));
+        page.input()->setPlainText(QStringLiteral("first_parameter=") + QString(45, QLatin1Char('1'))
+            + QStringLiteral("\nsecond_parameter=2"));
+        page.submit();
+        for (int width : {480, 800, 440})
+        {
+            page.resize(width, 900);
+            for (const QString &name : {QStringLiteral("recordFormula"), QStringLiteral("recordCustomMeta")})
+            {
+                auto *text = page.findChild<RecordText *>(name);
+                QVERIFY(text);
+                QTRY_VERIFY(text->viewport()->width() > 0);
+                QTRY_VERIFY(text->viewport()->height() >= text->document()->size().height());
+                QTRY_COMPARE(text->horizontalScrollBar()->maximum(), 0);
+                text->setFocus();
+                QTRY_VERIFY(text->hasFocus());
+                text->selectAll();
+                page.routeEdit(QStringLiteral("actioncopy"));
+                QCOMPARE(QApplication::clipboard()->text(), text->toPlainText());
+                if (name == QStringLiteral("recordFormula"))
+                    QCOMPARE(text->toPlainText(), page.history().records().first().expression);
+            }
+        }
+    }
+    void modeSwitchAndDefinitionApplyAreKeyboardAccessible()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("2+3"));
+        QTRY_VERIFY(page.input()->hasFocus());
+        auto *custom = page.findChild<QToolButton *>(QStringLiteral("customModeButton"));
+        QVERIFY(custom);
+        for (int count = 0; count < 24 && !custom->hasFocus(); ++count)
+        {
+            QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
+            QCoreApplication::processEvents();
+        }
+        QVERIFY(custom->hasFocus());
+        QTest::keyClick(custom, Qt::Key_Space);
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(definition && definition->isVisible());
+        definition->setPlainText(QStringLiteral("A=x+1"));
+        definition->setFocus();
+        auto *apply = page.findChild<QPushButton *>(QStringLiteral("applyDefinitionButton"));
+        QVERIFY(apply);
+        for (int count = 0; count < 24 && !apply->hasFocus(); ++count)
+            QTest::keyClick(QApplication::focusWidget(), Qt::Key_Backtab);
+        QVERIFY(apply->hasFocus());
+        QTest::keyClick(apply, Qt::Key_Space);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x="));
+        QVERIFY(page.findChild<QToolButton *>(QStringLiteral("customModeButton"))->isChecked());
+        QCOMPARE(page.history().count(), 0);
+    }
+    void constrainedComposerKeepsEditorsAndActionsUsable()
+    {
+        QWidget owner;
+        QFont font = owner.font();
+        font.setPointSize(18);
+        owner.setFont(font);
+        owner.resize(480, 760);
+        CalculatorPage page(&owner);
+        page.setGeometry(owner.rect());
+        owner.show();
+        page.show();
+        owner.activateWindow();
+        QVERIFY(defineFormula(page, QStringLiteral("A=a+b+c+d")));
+        page.input()->setPlainText(QStringLiteral("a=1\nb=2\nc=3\nd=4"));
+        auto *composer = page.findChild<QWidget *>(QStringLiteral("formulaComposer"));
+        auto *hint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
+        auto *parameters = page.findChild<QWidget *>(QStringLiteral("customParameterHeader"));
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+        QVERIFY(composer && hint && parameters && definition && calculate);
+        QTRY_VERIFY(hint->mapTo(composer, QPoint()).y()
+            >= page.input()->mapTo(composer, QPoint(0, page.input()->height())).y());
+        QTRY_VERIFY(parameters->mapTo(composer, QPoint()).y()
+            >= definition->mapTo(composer, QPoint(0, definition->height())).y());
+        // 输入区能在短窗口里滚动到按钮，鼠标实际命中后正常提交。
+        auto *scroll = page.findChild<QScrollArea *>(QStringLiteral("formulaComposerScroll"));
+        QVERIFY(scroll);
+        QTRY_VERIFY(([&]() {
+            scroll->ensureWidgetVisible(calculate, 0, 0);
+            return page.childAt(calculate->mapTo(&page, calculate->rect().center())) == calculate;
+        })());
+        QTest::mouseClick(calculate, Qt::LeftButton);
+        QCOMPARE(page.history().count(), 1);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("10"));
+    }
     void pasteFromHistoryTargetsVisibleEditor_data()
     {
         QTest::addColumn<bool>("formulaLabel");
@@ -127,7 +295,7 @@ private slots:
         if (mode) { definition->setPlainText(QStringLiteral("B=")); definition->moveCursor(QTextCursor::End); }
         const QString inputBefore = page.input()->toPlainText();
         QWidget *record = formulaLabel
-            ? static_cast<QWidget *>(page.findChild<QLabel *>(QStringLiteral("recordFormula")))
+            ? static_cast<QWidget *>(page.findChild<RecordText *>(QStringLiteral("recordFormula")))
             : static_cast<QWidget *>(page.findChild<RecordText *>(QStringLiteral("recordResult")));
         record->setFocus();
         QTRY_VERIFY(record->hasFocus());
@@ -327,7 +495,7 @@ private slots:
         QCOMPARE(page.history().count(), 1);
         QCOMPARE(asDouble(page.history().answer()), 3.0);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=1\ny=2"));
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("recordFormula"))->text(), QStringLiteral("A=1+2"));
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordFormula"))->toPlainText(), QStringLiteral("A=1+2"));
         QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 3"));
         page.input()->setPlainText(QStringLiteral("x=4\ny=5"));
         page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
@@ -2070,7 +2238,7 @@ private slots:
             page.submit();
         }
         const auto &entries = page.history().records();
-        const auto formulas = page.findChildren<QLabel *>(QStringLiteral("recordFormula"));
+        const auto formulas = page.findChildren<RecordText *>(QStringLiteral("recordFormula"));
         const auto results = page.findChildren<RecordText *>(QStringLiteral("recordResult"));
         const auto numbers = page.findChildren<QLabel *>(QStringLiteral("recordNumber"));
         QCOMPARE(page.history().count(), 4);
@@ -2083,7 +2251,7 @@ private slots:
         {
             const auto &entry = entries.at(index);
             QCOMPARE(numbers.at(index)->text(), QStringLiteral("%1").arg(entry.id, 2, 10, QLatin1Char('0')));
-            QCOMPARE(formulas.at(index)->text(), entry.expression);
+            QCOMPARE(formulas.at(index)->toPlainText(), entry.expression);
             QCOMPARE(results.at(index)->toPlainText(), entry.result.ok
                 ? QStringLiteral("= %1").arg(entry.result.text)
                 : QStringLiteral("无法计算：%1").arg(entry.result.text));
@@ -2114,7 +2282,7 @@ private slots:
         }
         page.input()->setPlainText(QStringLiteral("100"));
         page.submit();
-        page.findChildren<QLabel *>(QStringLiteral("recordFormula")).at(1)->setText(QStringLiteral("999"));
+        page.findChildren<RecordText *>(QStringLiteral("recordFormula")).at(1)->setPlainText(QStringLiteral("999"));
         page.findChildren<RecordText *>(QStringLiteral("recordResult")).at(1)->setPlainText(QStringLiteral("= 999"));
         reuse->click();
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+1"));
@@ -2168,7 +2336,7 @@ private slots:
             page.input()->setPlainText(QStringLiteral("%1*2").arg(index));
             page.submit();
         }
-        const auto *formula = page.findChild<QLabel *>(QStringLiteral("recordFormula"));
+        const auto *formula = page.findChild<RecordText *>(QStringLiteral("recordFormula"));
         const auto *result = page.findChild<RecordText *>(QStringLiteral("recordResult"));
         QVERIFY(formula && result);
         // 25 条记录的布局通过事件队列更新；Debug/Windows 不保证在固定 50ms 内完成。
@@ -2254,7 +2422,7 @@ private slots:
             page.input()->setPlainText(QString::number(index));
             page.submit();
         }
-        page.findChild<QLabel *>(QStringLiteral("recordFormula"))->setText(QStringLiteral("999"));
+        page.findChild<RecordText *>(QStringLiteral("recordFormula"))->setPlainText(QStringLiteral("999"));
         page.findChild<RecordText *>(QStringLiteral("recordResult"))->setPlainText(QStringLiteral("= 999"));
         more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("ans+2\n= 2"));
@@ -2380,9 +2548,8 @@ private slots:
         CalculatorPage page;
         page.input()->setPlainText(QStringLiteral("<b>1</b>"));
         page.submit();
-        auto *formula = page.findChild<QLabel *>(QStringLiteral("recordFormula"));
-        QCOMPARE(formula->textFormat(), Qt::PlainText);
-        QCOMPARE(formula->text(), QStringLiteral("<b>1</b>"));
+        auto *formula = page.findChild<RecordText *>(QStringLiteral("recordFormula"));
+        QCOMPARE(formula->toPlainText(), QStringLiteral("<b>1</b>"));
     }
     void completionTemplates_data()
     {
@@ -2733,10 +2900,10 @@ private slots:
         page.input()->setPlainText(QStringLiteral("x=3\ny=4"));
         page.submit();
         QCOMPARE(ansBadge->text(), QStringLiteral("ans = 5"));
-        auto *customMeta = page.findChild<QLabel *>(QStringLiteral("recordCustomMeta"));
+        auto *customMeta = page.findChild<RecordText *>(QStringLiteral("recordCustomMeta"));
         QVERIFY(customMeta && customMeta->isVisible());
-        QVERIFY(customMeta->text().contains(QStringLiteral("A=sqrt(x^2+y^2)")));
-        QVERIFY(customMeta->text().contains(QStringLiteral("x=3, y=4")));
+        QVERIFY(customMeta->toPlainText().contains(QStringLiteral("A=sqrt(x^2+y^2)")));
+        QVERIFY(customMeta->toPlainText().contains(QStringLiteral("x=3, y=4")));
         QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
         QVERIFY(recallBadge->isVisible());
         QVERIFY(recallBadge->text().contains(QStringLiteral("01/01")));

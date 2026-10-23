@@ -381,7 +381,9 @@ private slots:
         QVERIFY(first.page()->findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("每行只能填写一个参数")));
         first.input()->setPlainText(QStringLiteral("x=-2\ny=3"));
         first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
-        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordFormula"))->text(), QStringLiteral("A=(-2)^2+3"));
+        auto *formula = first.page()->findChild<QTextBrowser *>(QStringLiteral("recordFormula"));
+        QVERIFY(formula);
+        QCOMPARE(formula->toPlainText(), QStringLiteral("A=(-2)^2+3"));
         QCOMPARE(first.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 7"));
         QVERIFY(defineFormula(second, QStringLiteral("B=t*3")));
         second.input()->setPlainText(QStringLiteral("t=10"));
