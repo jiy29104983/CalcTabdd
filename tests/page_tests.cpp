@@ -2519,12 +2519,16 @@ private slots:
         cursor.setPosition(end, QTextCursor::KeepAnchor);
         page.input()->setTextCursor(cursor);
         // 在结果标签取得焦点后仍使用输入区原选区，撤销路由返回输入框。
-        page.findChild<RecordText *>(QStringLiteral("recordResult"))->setFocus();
+        auto *result = page.findChild<RecordText *>(QStringLiteral("recordResult"));
+        QVERIFY(result);
+        result->setFocus();
+        QTRY_VERIFY(result->hasFocus());
         QApplication::clipboard()->setText(QStringLiteral("keep clipboard"));
         QVERIFY(chooseRecordAction(page.findChild<QToolButton *>(QStringLiteral("recordActions")),
                                    page.findChild<QAction *>(QStringLiteral("insertResult"))));
         QCOMPARE(page.input()->toPlainText(), expected);
         QCOMPARE(page.input()->textCursor().position(), qMin(start, end) + 4);
+        QCoreApplication::processEvents();
         QTRY_VERIFY(page.input()->hasFocus());
         QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("keep clipboard"));
         QCOMPARE(page.history().count(), 1);

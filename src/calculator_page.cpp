@@ -1022,6 +1022,8 @@ void CalculatorPage::insertResult(quint64 id)
     m_input->setTextCursor(cursor);
     m_editTarget = m_input;
     focusInput();
+    // QAction 在 QMenu 完全关闭前触发；待菜单完成自身的焦点恢复后再聚焦输入区。
+    QTimer::singleShot(0, this, [this]() { refocusPage(this); });
     m_status->setText(entry->result.value.sources()
         ? QStringLiteral("已插入数值文本；再次计算按新数字处理，不保留原计算来源")
         : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
