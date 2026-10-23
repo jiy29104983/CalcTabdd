@@ -2684,13 +2684,14 @@ private slots:
     {
         CalculatorPage page;
         prepare(page, QStringLiteral("2+3"));
-        auto *mode = page.findChild<QToolButton *>(QStringLiteral("calculationModeButton"));
-        // 模式菜单仅保留两种模式；通过真实菜单进入定义栏，取消后普通草稿保持。
-        const auto actions = mode->menu()->actions();
-        QCOMPARE(actions.size(), 2);
-        QCOMPARE(actions.at(0)->text(), QStringLiteral("普通计算模式"));
-        QCOMPARE(actions.at(1)->text(), QStringLiteral("自定义公式模式"));
-        QVERIFY(chooseRecordAction(mode, actions.at(1)));
+        auto *normalMode = page.findChild<QToolButton *>(QStringLiteral("normalModeButton"));
+        auto *customMode = page.findChild<QToolButton *>(QStringLiteral("customModeButton"));
+        QVERIFY(normalMode && customMode);
+        QCOMPARE(normalMode->text(), QStringLiteral("普通计算"));
+        QCOMPARE(customMode->text(), QStringLiteral("自定义公式"));
+        QVERIFY(normalMode->isChecked() && !customMode->isChecked());
+        QTest::mouseClick(customMode, Qt::LeftButton);
+        QVERIFY(!normalMode->isChecked() && customMode->isChecked());
         auto *edit = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
         QVERIFY(edit && edit->isVisible());
         for (bool dark : {true, false})
@@ -2711,10 +2712,36 @@ private slots:
                 QVERIFY(page.grab().save(directory + (dark ? QStringLiteral("/definition-dark.png") : QStringLiteral("/definition-light.png"))));
             }
         }
+        auto *stateBadge = page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"));
+        auto *applyBtn = page.findChild<QPushButton *>(QStringLiteral("applyDefinitionButton"));
+        auto *paramChips = page.findChild<QLabel *>(QStringLiteral("parameterChipsBadge"));
+        auto *ansBadge = page.findChild<QLabel *>(QStringLiteral("answerBadge"));
+        auto *recallBadge = page.findChild<QLabel *>(QStringLiteral("historyRecallBadge"));
+        QVERIFY(stateBadge && applyBtn && paramChips && ansBadge && recallBadge);
+        QCOMPARE(stateBadge->text(), QStringLiteral("待按 Enter 应用"));
+        QCOMPARE(ansBadge->text(), QStringLiteral("ans = 0"));
+        QVERIFY(!recallBadge->isVisible());
         QTest::keyClick(edit, Qt::Key_Escape);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCOMPARE(page.input()->toPlainText(), QStringLiteral("2+3"));
         QCOMPARE(page.history().count(), 0);
+        QTest::mouseClick(customMode, Qt::LeftButton);
+        edit->setPlainText(QStringLiteral("A=sqrt(x^2+y^2)"));
+        QTest::mouseClick(applyBtn, Qt::LeftButton);
+        QCOMPARE(stateBadge->text(), QStringLiteral("已应用"));
+        QCOMPARE(paramChips->text(), QStringLiteral("参数：x · y"));
+        page.input()->setPlainText(QStringLiteral("x=3\ny=4"));
+        page.submit();
+        QCOMPARE(ansBadge->text(), QStringLiteral("ans = 5"));
+        auto *customMeta = page.findChild<QLabel *>(QStringLiteral("recordCustomMeta"));
+        QVERIFY(customMeta && customMeta->isVisible());
+        QVERIFY(customMeta->text().contains(QStringLiteral("A=sqrt(x^2+y^2)")));
+        QVERIFY(customMeta->text().contains(QStringLiteral("x=3, y=4")));
+        QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QVERIFY(recallBadge->isVisible());
+        QVERIFY(recallBadge->text().contains(QStringLiteral("01/01")));
+        QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier);
+        QVERIFY(!recallBadge->isVisible());
     }
     void paletteAndScreenshot()
     {

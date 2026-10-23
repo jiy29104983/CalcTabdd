@@ -17,6 +17,14 @@ RecordText::RecordText(const QString &text, QWidget *parent) : QTextBrowser(pare
     setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     document()->setDocumentMargin(0);
+    for (const QWidget *w = parent; w; w = w->parentWidget())
+    {
+        if (w->width() > 120)
+        {
+            document()->setTextWidth(w->width() - 32);
+            break;
+        }
+    }
     connect(document()->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged,
             this, [this]() { updateHeight(); });
     setPlainText(text);

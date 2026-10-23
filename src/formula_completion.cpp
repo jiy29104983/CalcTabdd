@@ -4,17 +4,126 @@
 
 #include <QAbstractItemView>
 #include <QCompleter>
+#include <QFontDatabase>
+#include <QFontMetrics>
 #include <QInputMethodEvent>
 #include <QFocusEvent>
 #include <QKeyEvent>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QStandardItemModel>
+#include <QStyledItemDelegate>
 #include <QTextCursor>
 #include <QTimer>
 
 namespace {
 constexpr int EntryRole = Qt::UserRole + 1;
 bool isQueryCharacter(QChar ch) { return ch.isLetterOrNumber() || ch == QLatin1Char('_'); }
+
+QColor mix(const QColor &a, const QColor &b, int percentB)
+{
+    return QColor((a.red() * (100 - percentB) + b.red() * percentB) / 100,
+                  (a.green() * (100 - percentB) + b.green() * percentB) / 100,
+                  (a.blue() * (100 - percentB) + b.blue() * percentB) / 100);
+}
+
+class CompletionItemDelegate : public QStyledItemDelegate
+{
+public:
+    explicit CompletionItemDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const override
+    {
+        const QFontMetrics fm(option.font);
+        return QSize(qMax(380, option.rect.width()), fm.height() * 2 + 18);
+    }
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const auto &entries = CalculationCatalog::entries();
+        const int entryIndex = index.data(EntryRole).toInt();
+        if (entryIndex < 0 || entryIndex >= entries.size())
+        {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        const auto &entry = entries.at(entryIndex);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QPalette &pal = option.palette;
+        const QColor base = pal.color(QPalette::Base);
+        const QColor text = pal.color(QPalette::Text);
+        const QColor accent = pal.color(QPalette::Highlight);
+        const QColor accentText = pal.color(QPalette::HighlightedText);
+        const bool selected = option.state & QStyle::State_Selected;
+        const bool hovered = option.state & QStyle::State_MouseOver;
+
+        painter->fillRect(option.rect, base);
+        const QRect card = option.rect.adjusted(4, 2, -4, -2);
+        if (selected || hovered)
+        {
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(selected ? accent : mix(base, text, 9));
+            painter->drawRoundedRect(card, 6, 6);
+        }
+
+        const QRect inner = card.adjusted(10, 5, -10, -5);
+        QFont uiFont = option.font;
+        QFont monoFont = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+        if (uiFont.pointSizeF() > 0) monoFont.setPointSizeF(uiFont.pointSizeF());
+        else if (uiFont.pixelSize() > 0) monoFont.setPixelSize(uiFont.pixelSize());
+        monoFont.setBold(true);
+
+        QFont badgeFont = uiFont;
+        if (badgeFont.pointSizeF() > 0) badgeFont.setPointSizeF(qMax(8.5, badgeFont.pointSizeF() - 1.0));
+        const QFontMetrics uiFm(uiFont);
+        const QFontMetrics monoFm(monoFont);
+        const QFontMetrics badgeFm(badgeFont);
+
+        const int line1Height = qMax(uiFm.height(), monoFm.height());
+        const QRect row1(inner.left(), inner.top(), inner.width(), line1Height);
+        const QRect row2(inner.left(), inner.bottom() - uiFm.height() + 1, inner.width(), uiFm.height());
+
+        const int badgeWidth = badgeFm.horizontalAdvance(entry.category) + 14;
+        const int badgeHeight = qMin(line1Height, badgeFm.height() + 4);
+        const QRect badgeRect(row1.right() - badgeWidth + 1,
+                              row1.top() + (row1.height() - badgeHeight) / 2,
+                              badgeWidth, badgeHeight);
+        const QColor badgeBg = selected ? mix(accent, accentText, 20) : mix(base, text, 10);
+        const QColor mutedText = selected ? mix(accent, accentText, 84) : mix(base, text, 68);
+
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(badgeBg);
+        painter->drawRoundedRect(badgeRect, 4, 4);
+        painter->setFont(badgeFont);
+        painter->setPen(selected ? accentText : mutedText);
+        painter->drawText(badgeRect, Qt::AlignCenter, entry.category);
+
+        const int availableLeft = qMax(40, badgeRect.left() - row1.left() - 8);
+        painter->setFont(monoFont);
+        painter->setPen(selected ? accentText : (base.lightness() < 128 ? accent.lighter(130) : accent.darker(110)));
+        const QString sigText = monoFm.elidedText(entry.signature, Qt::ElideRight, availableLeft);
+        painter->drawText(row1.left(), row1.top(), availableLeft, row1.height(),
+                          Qt::AlignLeft | Qt::AlignVCenter, sigText);
+        const int titleLeft = row1.left() + monoFm.horizontalAdvance(sigText) + 10;
+        const int titleWidth = badgeRect.left() - titleLeft - 8;
+        if (titleWidth > 20)
+        {
+            painter->setFont(uiFont);
+            painter->setPen(selected ? accentText : text);
+            const QString titleText = uiFm.elidedText(entry.title, Qt::ElideRight, titleWidth);
+            painter->drawText(titleLeft, row1.top(), titleWidth, row1.height(),
+                              Qt::AlignLeft | Qt::AlignVCenter, titleText);
+        }
+
+        painter->setFont(uiFont);
+        painter->setPen(mutedText);
+        const QString exampleText = uiFm.elidedText(QStringLiteral("示例：") + entry.example, Qt::ElideRight, row2.width());
+        painter->drawText(row2, Qt::AlignLeft | Qt::AlignVCenter, exampleText);
+        painter->restore();
+    }
+};
 }
 
 FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
@@ -27,6 +136,8 @@ FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
     m_completer->setWidget(input);
     m_completer->popup()->setObjectName(QStringLiteral("formulaCompletionPopup"));
     m_completer->popup()->setAccessibleName(QStringLiteral("函数和常量候选"));
+    m_completer->popup()->setMouseTracking(true);
+    m_completer->popup()->setItemDelegate(new CompletionItemDelegate(m_completer->popup()));
     // Install after QCompleter so Ctrl+Enter and IME keys keep their own meaning.
     input->installEventFilter(this);
     m_completer->popup()->installEventFilter(this);
