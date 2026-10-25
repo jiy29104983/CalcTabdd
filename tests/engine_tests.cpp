@@ -47,6 +47,81 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void mixedHistoryKeepsAnswersAndFrozenContexts()
+    {
+        CalculationHistory history, other;
+        other.calculate(QStringLiteral("99"));
+        other.calculateProgrammer(QStringLiteral("9007199254740993"), {64, false});
+        QVector<CalculationRecord> frozen;
+        frozen.append(history.calculate(QStringLiteral("1/3")));
+        const auto math = history.answer();
+        QString error;
+        frozen.append(history.calculateCustom(QStringLiteral("A=x+ans"), QStringLiteral("x=0"), error));
+        QVERIFY(error.isEmpty());
+        QCOMPARE(frozen.last().answerBefore, math);
+        QCOMPARE(history.answer(), math);
+        unsigned sources = 0;
+        for (int width : {8, 16, 32, 64})
+        {
+            const auto before = history.programmerAnswer();
+            frozen.append(history.calculateProgrammer(
+                QStringLiteral("ans+0x") + QString(width / 4, QLatin1Char('F')) + QStringLiteral("+1"), {width, false}));
+            QVERIFY(frozen.last().result.ok);
+            QCOMPARE(frozen.last().programmerAnswerBefore, before);
+            QCOMPARE(frozen.last().programmerConfig, (ProgrammerConfig{width, false}));
+            sources = sources * 2 + 1;
+            QCOMPARE(history.programmerAnswer().sources(), sources);
+            QCOMPARE(history.programmerAnswer().text(), QStringLiteral("0"));
+            QCOMPARE(history.answer(), math);
+            frozen.append(history.calculate(QStringLiteral("1/0")));
+            QVERIFY(!frozen.last().result.ok);
+            QCOMPARE(history.answer(), math);
+        }
+        const auto integer = history.programmerAnswer();
+        frozen.append(history.calculateProgrammer(QStringLiteral("ans*0"), {16, true}));
+        QCOMPARE(history.programmerAnswer().sources(), 15u);
+        QCOMPARE(frozen.last().programmerAnswerBefore, integer);
+        const auto preserved = history.programmerAnswer();
+        frozen.append(history.calculateProgrammer(QStringLiteral("ans/0"), {8, true}));
+        QVERIFY(!frozen.last().result.ok);
+        QCOMPARE(frozen.last().programmerAnswerBefore, preserved);
+        QCOMPARE(history.programmerAnswer(), preserved);
+        frozen.append(history.calculateCustom(QStringLiteral("B=1/x"), QStringLiteral("x=0"), error));
+        QVERIFY(error.isEmpty());
+        QVERIFY(!frozen.last().result.ok);
+        QCOMPARE(history.answer(), math);
+        const auto rejected = history.calculateCustom(QStringLiteral("B=x"), QStringLiteral("x=1\ny=2"), error);
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(rejected.id, quint64(0));
+        QCOMPARE(history.count(), frozen.size());
+        for (int index = 0; index < frozen.size(); ++index)
+        {
+            const auto &actual = history.records().at(index);
+            const auto &expected = frozen.at(index);
+            QCOMPARE(actual.id, quint64(index + 1));
+            QCOMPARE(actual.expression, expected.expression);
+            QCOMPARE(actual.programmer, expected.programmer);
+            QCOMPARE(actual.customDefinition, expected.customDefinition);
+            QCOMPARE(actual.parameterInput, expected.parameterInput);
+            QCOMPARE(actual.answerBefore, expected.answerBefore);
+            QCOMPARE(actual.programmerAnswerBefore, expected.programmerAnswerBefore);
+            QCOMPARE(actual.programmerConfig, expected.programmerConfig);
+            QCOMPARE(actual.programmerValue, expected.programmerValue);
+            QCOMPARE(actual.result.value, expected.result.value);
+            QCOMPARE(actual.result.ok, expected.result.ok);
+            QCOMPARE(actual.result.error, expected.result.error);
+            QCOMPARE(actual.result.errorPosition, expected.result.errorPosition);
+            QCOMPARE(actual.result.errorLength, expected.result.errorLength);
+        }
+        history.clear();
+        QCOMPARE(history.count(), 0);
+        QCOMPARE(history.answer(), NumericValue());
+        QCOMPARE(history.programmerAnswer(), ProgrammerValue());
+        QCOMPARE(other.answer().text(), QStringLiteral("99"));
+        QCOMPARE(other.programmerAnswer().text(), QStringLiteral("9007199254740993"));
+        QCOMPARE(history.calculateProgrammer(QStringLiteral("ans+1"), {64, true}).id, quint64(1));
+        QCOMPARE(history.programmerAnswer().sources(), 0u);
+    }
     void programmerRadixFormatting_data()
     {
         QTest::addColumn<int>("width");

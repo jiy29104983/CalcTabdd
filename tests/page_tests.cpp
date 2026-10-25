@@ -99,7 +99,301 @@ class PageTests : public QObject
         QTest::keyClick(edit, Qt::Key_Return);
         return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
+    void setProgrammerConfig(CalculatorPage &page, int width, bool isSigned)
+    {
+        auto *bits = page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        bits->setCurrentIndex(bits->findData(width));
+        page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->setCurrentIndex(isSigned ? 1 : 0);
+    }
+    void setDraft(CalculatorPage &page, const QString &text, int anchor, int position)
+    {
+        page.input()->setPlainText(text);
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(anchor);
+        cursor.setPosition(position, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+    }
 private slots:
+    void programmerAnswerConversion_data()
+    {
+        QTest::addColumn<QString>("expression");
+        QTest::addColumn<int>("oldWidth");
+        QTest::addColumn<bool>("oldSigned");
+        QTest::addColumn<int>("newWidth");
+        QTest::addColumn<bool>("newSigned");
+        QTest::addColumn<bool>("accepted");
+        QTest::newRow("narrow-overflow") << QStringLiteral("256") << 16 << false << 8 << false << false;
+        QTest::newRow("unsigned-to-signed-overflow") << QStringLiteral("255") << 8 << false << 8 << true << false;
+        QTest::newRow("unsigned-to-wide-signed") << QStringLiteral("255") << 8 << false << 16 << true << true;
+        QTest::newRow("signed-extension") << QStringLiteral("-1") << 8 << true << 16 << true << true;
+        QTest::newRow("negative-to-unsigned") << QStringLiteral("-1") << 8 << true << 16 << false << false;
+        QTest::newRow("above-double-precision") << QStringLiteral("9007199254740993") << 64 << false << 64 << true << true;
+        QTest::newRow("unsigned-64-overflow") << QStringLiteral("18446744073709551615") << 64 << false << 64 << true << false;
+        QTest::newRow("signed-64-minimum") << QStringLiteral("-9223372036854775808") << 64 << true << 64 << true << true;
+    }
+    void programmerAnswerConversion()
+    {
+        QFETCH(QString, expression);
+        QFETCH(int, oldWidth);
+        QFETCH(bool, oldSigned);
+        QFETCH(int, newWidth);
+        QFETCH(bool, newSigned);
+        QFETCH(bool, accepted);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("sin(0)"));
+        page.submit();
+        const auto math = page.history().answer();
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, oldWidth, oldSigned);
+        page.input()->setPlainText(expression);
+        page.submit();
+        const auto answer = page.history().programmerAnswer();
+        QVERIFY(page.history().record(2)->result.ok);
+        setDraft(page, QStringLiteral(" ans "), 4, 1);
+        setProgrammerConfig(page, newWidth, newSigned);
+        QCOMPARE(page.history().count(), 2);
+        QCOMPARE(page.history().programmerAnswer(), answer);
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("answerBadge"))->toolTip(), QStringLiteral("上次成功结果：ans = ") + expression);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral(" ans "));
+        QCOMPARE(page.input()->textCursor().anchor(), 4);
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        page.submit();
+        const auto &record = page.history().records().last();
+        QCOMPARE(record.programmerAnswerBefore, answer);
+        QCOMPARE(record.programmerConfig, (ProgrammerConfig{newWidth, newSigned}));
+        QCOMPARE(record.result.ok, accepted);
+        if (accepted)
+        {
+            QCOMPARE(page.history().programmerAnswer().text(), expression);
+            QCOMPARE(page.history().programmerAnswer().config(), record.programmerConfig);
+        }
+        else
+        {
+            QCOMPARE(record.result.error, CalculationError::Overflow);
+            QCOMPARE(page.history().programmerAnswer(), answer);
+            QCOMPARE(page.input()->toPlainText(), QStringLiteral(" ans "));
+            QCOMPARE(page.input()->extraSelections().size(), 1);
+            // 不使用 ans 的新表达式无需转换旧值，成功后才替换整数 ans。
+            page.input()->setPlainText(QStringLiteral("7"));
+            page.submit();
+            QVERIFY(page.history().records().last().result.ok);
+            QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("7"));
+            QCOMPARE(page.history().programmerAnswer().config(), (ProgrammerConfig{newWidth, newSigned}));
+        }
+        QCOMPARE(page.history().answer(), math);
+        QCOMPARE(page.history().record(2)->programmerValue, answer);
+    }
+    void threeModeDraftsAndHistory_data()
+    {
+        QTest::addColumn<int>("origin");
+        QTest::addColumn<int>("exit");
+        for (int origin = 0; origin < 3; ++origin)
+            for (int exit = 0; exit < 4; ++exit)
+                QTest::newRow(qPrintable(QStringLiteral("mode-%1-exit-%2").arg(origin).arg(exit))) << origin << exit;
+    }
+    void threeModeDraftsAndHistory()
+    {
+        QFETCH(int, origin);
+        QFETCH(int, exit); // 越过最新、成功提交、确认清空、手动切换。
+        CalculatorPage page;
+        prepare(page, QStringLiteral("10"));
+        page.submit();
+        const QStringList modes{QStringLiteral("normalCalculationMode"), QStringLiteral("customCalculationMode"),
+                                QStringLiteral("programmerCalculationMode")};
+        const QStringList drafts{QStringLiteral("  100+\n "), QStringLiteral("y=7"), QStringLiteral("  ans+5\n ")};
+        setDraft(page, drafts.at(0), 3, 1);
+        QVERIFY(defineFormula(page, QStringLiteral("A=x+ans")));
+        page.input()->setPlainText(QStringLiteral("x=2"));
+        page.submit();
+        QVERIFY(defineFormula(page, QStringLiteral("B=y+ans")));
+        setDraft(page, drafts.at(1), 3, 1);
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        definition->setPlainText(QStringLiteral("C=y+9")); // 未应用定义也须保留在原自定义草稿中。
+        page.findChild<QAction *>(modes.at(2))->trigger();
+        setProgrammerConfig(page, 8, false);
+        page.input()->setPlainText(QStringLiteral("255+1"));
+        page.submit();
+        setProgrammerConfig(page, 16, false);
+        page.input()->setPlainText(QStringLiteral("ans+2"));
+        page.submit();
+        const auto original = *page.history().record(4);
+        setProgrammerConfig(page, 64, true);
+        setDraft(page, drafts.at(2), 3, 1);
+        page.findChild<QAction *>(modes.at(origin))->trigger();
+        const auto reuse = page.findChildren<QPushButton *>(QStringLiteral("reuseFormula"));
+        reuse.at(3)->click();
+        QVERIFY(page.programmerMode());
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 16);
+        setProgrammerConfig(page, 32, true);
+        setDraft(page, QStringLiteral("ans+3"), 5, 2);
+        reuse.at(1)->click();
+        QCOMPARE(definition->toPlainText(), QStringLiteral("A=x+ans"));
+        setDraft(page, QStringLiteral("x=8"), 3, 1);
+        reuse.at(0)->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10"));
+        reuse.at(1)->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=8"));
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.input()->textCursor().anchor(), 3);
+        reuse.at(3)->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+3"));
+        QCOMPARE(page.input()->textCursor().position(), 2);
+        QCOMPARE(page.input()->textCursor().anchor(), 5);
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 32);
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentData().toBool(), true);
+        page.input()->setPlainText(QStringLiteral("ans/0"));
+        page.submit();
+        QCOMPARE(page.history().count(), 5);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("12"));
+        QCOMPARE(page.history().programmerAnswer(), original.programmerValue);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans/0"));
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        auto *badge = page.findChild<QLabel *>(QStringLiteral("historyRecallBadge"));
+        QVERIFY(badge->text().contains(QStringLiteral("04/05")));
+        setDraft(page, QStringLiteral("ans+3"), 5, 2);
+        if (exit == 0)
+        {
+            QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier); // 新增的失败记录。
+            QTest::keyClick(page.input(), Qt::Key_Down, Qt::AltModifier); // 原草稿。
+        }
+        else if (exit == 1)
+        {
+            page.submit();
+            QCOMPARE(page.history().count(), 6);
+            QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("5"));
+            QCOMPARE(page.history().programmerAnswer().sourceText(), QStringLiteral("含 8 位回绕"));
+            QCOMPARE(page.history().records().last().programmerAnswerBefore, original.programmerValue);
+        }
+        else if (exit == 2)
+        {
+            auto *clear = page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"));
+            clear->click();
+            auto *dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+            QVERIFY(dialog);
+            dialog->reject();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QCOMPARE(page.history().count(), 5);
+            QCOMPARE(page.input()->toPlainText(), QStringLiteral("ans+3"));
+            QCOMPARE(page.input()->textCursor().position(), 2);
+            QCOMPARE(page.input()->textCursor().anchor(), 5);
+            clear->click();
+            dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+            dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+            QCOMPARE(page.history().count(), 0);
+            QCOMPARE(page.history().answer(), NumericValue());
+            QCOMPARE(page.history().programmerAnswer(), ProgrammerValue());
+            QVERIFY(page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).isEmpty());
+        }
+        else page.findChild<QAction *>(modes.at(origin))->trigger();
+        QVERIFY(!badge->isVisible());
+        QCOMPARE(page.input()->toPlainText(), drafts.at(origin));
+        for (int mode : {0, 1, 2})
+        {
+            page.findChild<QAction *>(modes.at(mode))->trigger();
+            QCOMPARE(page.input()->toPlainText(), drafts.at(mode));
+            QCOMPARE(page.input()->textCursor().position(), 1);
+            QCOMPARE(page.input()->textCursor().anchor(), 3);
+            if (mode == 1) QCOMPARE(definition->toPlainText(), QStringLiteral("C=y+9"));
+        }
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 64);
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentData().toBool(), true);
+        if (exit != 2)
+        {
+            QCOMPARE(page.history().record(4)->expression, original.expression);
+            QCOMPARE(page.history().record(4)->programmerConfig, original.programmerConfig);
+            QCOMPARE(page.history().record(4)->programmerValue, original.programmerValue);
+            QCOMPARE(page.history().record(4)->programmerAnswerBefore, original.programmerAnswerBefore);
+            QCOMPARE(page.history().record(2)->parameterInput, QStringLiteral("x=2"));
+        }
+        else
+        {
+            page.input()->setPlainText(QStringLiteral("ans+1"));
+            page.submit();
+            QCOMPARE(page.history().records().first().id, quint64(1));
+            QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("1"));
+            QCOMPARE(page.history().programmerAnswer().sources(), 0u);
+        }
+    }
+    void firstCustomSwitchEndsMixedHistory_data()
+    {
+        QTest::addColumn<bool>("programmerOrigin");
+        QTest::addColumn<bool>("apply");
+        for (bool origin : {false, true})
+            for (bool apply : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("programmer-%1-apply-%2").arg(origin).arg(apply))) << origin << apply;
+    }
+    void firstCustomSwitchEndsMixedHistory()
+    {
+        QFETCH(bool, programmerOrigin);
+        QFETCH(bool, apply);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("10"));
+        page.submit();
+        setDraft(page, QStringLiteral("100+"), 4, 1);
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, 8, false);
+        page.input()->setPlainText(QStringLiteral("20"));
+        page.submit();
+        setProgrammerConfig(page, 64, true);
+        setDraft(page, QStringLiteral("0x12+"), 5, 2);
+        const QString originMode = programmerOrigin ? QStringLiteral("programmerCalculationMode") : QStringLiteral("normalCalculationMode");
+        page.findChild<QAction *>(originMode)->trigger();
+        page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(programmerOrigin ? 0 : 1)->click();
+        page.input()->setPlainText(QStringLiteral("777"));
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QVERIFY(!page.findChild<QLabel *>(QStringLiteral("historyRecallBadge"))->isVisible());
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(definition->isVisible());
+        definition->setPlainText(QStringLiteral("A=x+ans"));
+        QTest::keyClick(definition, apply ? Qt::Key_Return : Qt::Key_Escape);
+        if (apply)
+        {
+            QCOMPARE(page.input()->toPlainText(), QStringLiteral("x="));
+            page.findChild<QAction *>(originMode)->trigger();
+        }
+        QCOMPARE(page.programmerMode(), programmerOrigin);
+        QCOMPARE(page.input()->toPlainText(), programmerOrigin ? QStringLiteral("0x12+") : QStringLiteral("100+"));
+        QCOMPARE(page.input()->textCursor().position(), programmerOrigin ? 2 : 1);
+        QCOMPARE(page.input()->textCursor().anchor(), programmerOrigin ? 5 : 4);
+        QCOMPARE(page.history().count(), 2);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("10"));
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("20"));
+    }
+    void recalledProgrammerErrorRequiresOriginalSettings_data()
+    {
+        QTest::addColumn<bool>("changeSign");
+        QTest::newRow("width") << false;
+        QTest::newRow("sign") << true;
+    }
+    void recalledProgrammerErrorRequiresOriginalSettings()
+    {
+        QFETCH(bool, changeSign);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, 8, changeSign);
+        const QString formula = changeSign ? QStringLiteral("128") : QStringLiteral("256");
+        page.input()->setPlainText(formula);
+        page.submit();
+        QVERIFY(!page.history().record(2)->result.ok);
+        setProgrammerConfig(page, 64, false);
+        page.input()->setPlainText(QStringLiteral("original draft"));
+        const auto reuse = page.findChildren<QPushButton *>(QStringLiteral("reuseFormula"));
+        reuse.at(1)->click();
+        QCOMPARE(page.input()->extraSelections().size(), 1);
+        setProgrammerConfig(page, changeSign ? 8 : 16, false);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        reuse.at(0)->click();
+        reuse.at(1)->click();
+        QCOMPARE(page.input()->toPlainText(), formula);
+        QVERIFY(page.input()->extraSelections().isEmpty());
+        page.submit();
+        QVERIFY(page.history().records().last().result.ok);
+        QCOMPARE(page.history().programmerAnswer().text(), formula);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("original draft"));
+        QVERIFY(!page.history().record(2)->result.ok);
+    }
     void programmerResultsAndFrozenDetails_data()
     {
         QTest::addColumn<int>("width");

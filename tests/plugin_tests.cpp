@@ -219,6 +219,98 @@ private slots:
         QCOMPARE(host.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 32);
         QCOMPARE(host.page()->findChild<QLabel *>(QStringLiteral("answerBadge"))->text(), QStringLiteral("ans = 0"));
     }
+    void mixedModeClearAndCloseKeepOtherWindowIndependent()
+    {
+        Host first, second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        auto *firstNative = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        auto *secondNative = qobject_cast<QsciScintilla *>(second.tabs->currentWidget());
+        QVERIFY(firstNative && secondNative);
+        const auto calculate = [](Host &host, const QString &text) {
+            host.input()->setPlainText(text);
+            host.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        };
+        calculate(first, QStringLiteral("10"));
+        first.activateWindow();
+        QVERIFY(defineFormula(first, QStringLiteral("A=x+ans")));
+        calculate(first, QStringLiteral("x=2"));
+        first.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        auto *bits = first.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        auto *type = first.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+        bits->setCurrentIndex(0);
+        calculate(first, QStringLiteral("255+1"));
+        calculate(first, QStringLiteral("ans+1"));
+        bits->setCurrentIndex(3);
+        type->setCurrentIndex(1);
+        first.input()->setPlainText(QStringLiteral("ans+5"));
+        QTextCursor cursor = first.input()->textCursor();
+        cursor.setPosition(5);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        first.input()->setTextCursor(cursor);
+        calculate(second, QStringLiteral("99"));
+        second.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        second.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->setCurrentIndex(3);
+        calculate(second, QStringLiteral("9007199254740993"));
+        first.page()->findChildren<QPushButton *>(QStringLiteral("reuseFormula")).last()->click();
+        QCOMPARE(bits->currentData().toInt(), 8);
+        bits->setCurrentIndex(1);
+        first.input()->setPlainText(QStringLiteral("ans+999"));
+        first.page()->findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *dialog = first.page()->findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        QVERIFY(dialog && dialog->isVisible());
+        // 当前窗口的确认框不挂起另一窗口的整数计算。
+        second.activateWindow();
+        second.input()->setFocus();
+        QTRY_VERIFY(second.input()->hasFocus());
+        second.input()->setPlainText(QStringLiteral("ans+2"));
+        QTest::keyClick(second.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(),
+                 QStringLiteral("= 9007199254740995"));
+        second.input()->setPlainText(QStringLiteral("second draft"));
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+5"));
+        QCOMPARE(first.input()->textCursor().position(), 2);
+        QCOMPARE(first.input()->textCursor().anchor(), 5);
+        QCOMPARE(bits->currentData().toInt(), 64);
+        QCOMPARE(type->currentData().toBool(), true);
+        calculate(first, QStringLiteral("ans+5"));
+        QCOMPARE(first.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 5"));
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordSources")).isEmpty());
+        QCOMPARE(first.page()->findChild<QLabel *>(QStringLiteral("recordNumber"))->text(), QStringLiteral("01"));
+        first.page()->findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("x=2"));
+        calculate(first, QStringLiteral("x=2"));
+        QCOMPARE(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 2"));
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("second draft"));
+        QCOMPARE(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 3);
+        QVERIFY(firstNative->text().isEmpty());
+        QVERIFY(!firstNative->isModified());
+        first.closeCurrent();
+        first.openAction()->trigger();
+        QVERIFY(first.input()->toPlainText().isEmpty());
+        QVERIFY(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
+        first.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QCOMPARE(first.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 32);
+        QCOMPARE(first.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentData().toBool(), false);
+        calculate(first, QStringLiteral("ans+1"));
+        QCOMPARE(first.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 1"));
+        QCOMPARE(second.input()->toPlainText(), QStringLiteral("second draft"));
+        QCOMPARE(second.page()->findChild<QLabel *>(QStringLiteral("answerBadge"))->toolTip(),
+                 QStringLiteral("上次成功结果：ans = 9007199254740995"));
+        second.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        calculate(second, QStringLiteral("ans+1"));
+        QCOMPARE(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 100"));
+        QVERIFY(secondNative->text().isEmpty());
+        QVERIFY(!secondNative->isModified());
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QVERIFY(!first.ordinary->isModified());
+        QVERIFY(!second.ordinary->isModified());
+    }
     void nativeToolbarRoutingAndRestoration_data()
     {
         QTest::addColumn<bool>("translated");

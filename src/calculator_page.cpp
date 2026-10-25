@@ -801,13 +801,13 @@ void CalculatorPage::requestClearSession()
                                             QStringLiteral("清空会话"), layout);
     m_clearConfirmation = dialog;
     auto *question = new QLabel(
-        QStringLiteral("清空当前窗口的 %1 条计算记录，并将 ans 重置为 0？").arg(m_history.count()), dialog);
+        QStringLiteral("清空当前窗口的 %1 条计算记录，并将数学与整数 ans 重置为 0？").arg(m_history.count()), dialog);
     question->setTextFormat(Qt::PlainText);
     question->setWordWrap(true);
     layout->addWidget(question);
     auto *details = new QLabel(m_historyPosition >= 0
-        ? QStringLiteral("将返回召回前的草稿，并丢弃本轮历史公式的临时编辑。清空不可撤销；其他窗口不受影响。")
-        : QStringLiteral("输入区的草稿、光标和选区会保留。清空不可撤销；其他窗口不受影响。"), dialog);
+        ? QStringLiteral("将返回召回前的草稿，并丢弃本轮历史公式的临时编辑。三种模式的原草稿及程序员设置保留。清空不可撤销；其他窗口不受影响。")
+        : QStringLiteral("三种模式的草稿、光标和选区会保留，程序员位宽与符号设置不变。清空不可撤销；其他窗口不受影响。"), dialog);
     if (m_sessionFile) details->setText(details->text() + QStringLiteral("\n本地保存已开启：清空也会更新会话文件。"));
     details->setObjectName(QStringLiteral("clearSessionDetails"));
     details->setTextFormat(Qt::PlainText);
@@ -847,7 +847,7 @@ void CalculatorPage::clearSession()
     m_empty->show();
     m_followLatest = true;
     m_scroll->verticalScrollBar()->setValue(0);
-    m_status->setText(QStringLiteral("会话已清空 · ans = 0 · 草稿已保留"));
+    m_status->setText(QStringLiteral("会话已清空 · 数学与整数 ans = 0 · 草稿及设置已保留"));
     // 恢复只发生在未开启保存的空白页，因此此处 m_sessionFile 一定为空。
     if (m_sessionFile) saveSession();
 }
@@ -856,6 +856,17 @@ void CalculatorPage::clearSession()
 void CalculatorPage::updateRecordUi()
 {
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
+    if (m_historyPosition >= 0 && m_history.count() > 0)
+    {
+        m_historyBadge->setText(QStringLiteral("历史浏览 %1/%2 · Alt+↓ 返回草稿")
+            .arg(m_historyPosition + 1, 2, 10, QLatin1Char('0'))
+            .arg(m_history.count(), 2, 10, QLatin1Char('0')));
+        m_historyBadge->show();
+    }
+    else
+    {
+        m_historyBadge->hide();
+    }
     const QString ansText = programmerMode() ? m_history.programmerAnswer().text() : m_history.answer().text();
     m_answerBadge->setFullText(QStringLiteral("ans = %1").arg(ansText));
     const QString ansSource = programmerMode() ? m_history.programmerAnswer().sourceText() : m_history.answer().sourceText();
@@ -1082,8 +1093,9 @@ void CalculatorPage::showHistory(int position)
                              entry.programmer, entry.programmerConfig};
     restoreInput(m_recalledInputs.value(entry.id, initial));
     m_status->setText(QStringLiteral("已召回第 %1 条公式 · Alt+↑↓ 浏览，向后越过最新记录返回草稿").arg(entry.id));
-    // 仅对未修改的错误公式使用历史诊断，已有临时编辑须重新提交才能定位。
-    if (!customMode() && !entry.result.ok && m_input->toPlainText() == entry.expression)
+    // 公式和程序员设置均未修改时才使用历史诊断；临时修改须重新提交才能定位。
+    if (!customMode() && !entry.result.ok && m_input->toPlainText() == entry.expression
+        && (!entry.programmer || programmerConfig() == entry.programmerConfig))
         showInputError(entry.result, 0, !m_recalledInputs.contains(entry.id));
     scheduleSave();
 }
@@ -1528,17 +1540,6 @@ void CalculatorPage::updateModeUi()
     {
         m_parameterChipsBadge->setFullText(QStringLiteral("应用公式后生成参数"));
     }
-    if (m_historyPosition >= 0 && m_history.count() > 0)
-    {
-        m_historyBadge->setText(QStringLiteral("历史浏览 %1/%2 · Alt+↓ 返回草稿")
-            .arg(m_historyPosition + 1, 2, 10, QLatin1Char('0'))
-            .arg(m_history.count(), 2, 10, QLatin1Char('0')));
-        m_historyBadge->show();
-    }
-    else
-    {
-        m_historyBadge->hide();
-    }
     updateDefinitionStateUi();
     findChild<QLabel *>(QStringLiteral("inputHint"))->setText(custom
         ? QStringLiteral("每行一个参数 · Enter 换行 · Alt+↑↓ 召回历史／返回草稿")
@@ -1581,6 +1582,9 @@ void CalculatorPage::switchMode(Mode mode)
         focusInput();
         return;
     }
+    // 手动切换先结束历史浏览；首次定义和 Esc 返回也使用原草稿，不保留历史临时编辑。
+    if (m_historyPosition >= 0) restoreDraft();
+    modeDraft() = captureInput();
     if (custom && m_customInput.customDefinition.isEmpty() && !customMode())
     {
         m_defining = true;
@@ -1590,9 +1594,6 @@ void CalculatorPage::switchMode(Mode mode)
         m_status->setText(QStringLiteral("输入或修改公式，按 Enter 应用 · @ 补全函数"));
         return;
     }
-    // 手动切换结束历史浏览，先恢复其原草稿，再切换到另一份模式草稿。
-    if (m_historyPosition >= 0) restoreDraft();
-    modeDraft() = captureInput();
     if (programmer) m_programmerInput.programmer = true;
     restoreInput(programmer ? m_programmerInput : custom ? m_customInput : m_normalInput);
     m_status->setText(programmer ? QStringLiteral("程序员模式 · Ctrl+Enter 计算 · Enter 不换行")
