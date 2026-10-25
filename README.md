@@ -4,7 +4,7 @@
 
 CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它将每次计算按“公式在上、结果在下”排列，支持十进制计算、自定义公式和程序员整数计算，适合日常计算、重复代入与位运算。名称中的 `dd` 表示 `--`。
 
-[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.8 测试版说明](docs/releases/v1.0.8-preview.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
+[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.9 版本说明](docs/releases/v1.0.9.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
 
 ## 界面预览
 
@@ -26,8 +26,8 @@ CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它�
 
 ## 安装
 
-当前开发版本为 **1.0.8 测试版**。正式版本与测试包请见 Releases。预编译包面向 **Windows x64**。
-本测试版完善按模式显示的帮助和程序员补全说明，支持混合导出与 version 4 会话保存恢复。
+当前版本为 **1.0.9**，预编译包面向 **Windows x64**。
+提供普通、自定义和程序员计算，支持混合导出与 version 4 会话保存恢复。
 
 1. 在 [Releases](https://github.com/jiy29104983/CalcTabdd/releases) 下载 Windows x64 ZIP 安装包。
 2. 退出所有 notepad-- 窗口，将包内 `plugin/calctabdd.dll` 放入 notepad-- 安装目录的 `plugin` 文件夹。
@@ -149,7 +149,7 @@ TXT／Markdown 支持普通、自定义和程序员的混合历史。程序员�
 | 需要做什么 | 入口 | 保存内容 |
 | --- | --- | --- |
 | 留存或分享计算过程 | **导出记录 → 导出为 TXT / Markdown** | 已提交的公式、结果、错误和来源；程序员附原配置及四进制结果 |
-| 下次继续计算 | **本地会话 → 开启保存／另存新文件…** | 记录、`ans`、两种模式的草稿、已确认公式及参数 |
+| 下次继续计算 | **本地会话 → 开启保存／另存新文件…** | 记录、两类 `ans`、三种模式的草稿与设置、已确认公式及参数 |
 | 继续已保存的会话 | 在空白计算器选择 **本地会话 → 恢复会话…** | 从 `.calctabdd` 文件恢复，不重新计算历史 |
 
 计算器标签右键菜单提供“关闭计算器”，保存与分享请使用页面内的“本地会话”或“导出记录”。宿主主工具栏的复制、剪切、粘贴、撤销与重做会作用于计算器；文档保存、查找替换等入口在该标签中不可用，切回普通文档恢复。
@@ -171,6 +171,9 @@ ctest --test-dir build/local -C Release --output-on-failure --no-tests=error
 ```
 
 若 CMake 无法找到 Qt，在配置命令中添加 `-DCMAKE_PREFIX_PATH=/path/to/Qt`。以上流程启用引擎和页面测试；宿主集成测试还需设置 `CALCTABDD_HOST_SOURCE_DIR`，指向 [notepad-- 源码](https://github.com/cxasm/notepad--)。宿主依赖的固定版本和 Windows x64 / MSVC v142 构建配置见 [Windows 工作流](.github/workflows/windows.yml)。本地页面测试不能替代 Windows 宿主中的插件加载与交互验证。
+
+日常推送和手动运行工作流执行构建、测试及安装包校验，产物保存在 Actions 中，不自动创建 Release。
+正式发布由维护者按需推送与项目版本一致的 `v<版本>` 标签触发，验证通过后发布正式 Release；不再生成预发布。
 
 | 目录 | 内容 |
 | --- | --- |

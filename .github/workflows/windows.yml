@@ -135,8 +135,8 @@ jobs:
           retention-days: 30
 
   publish:
-    name: Publish download
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    name: Publish requested release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: windows
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -160,25 +160,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]
+          tag="${GITHUB_REF#refs/tags/}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$tag" == "v${VERSION}" ]]
           notes="docs/releases/v${VERSION}.md"
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && "$tag" == "v${VERSION}" ]]
-            test -s "$notes"
-          else
-            [[ "$GITHUB_REF" == refs/heads/main ]]
-            tag="test-v${VERSION}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-            if [[ ! -f "$notes" ]]; then notes="docs/releases/v${VERSION}-preview.md"; fi
-            test -s "$notes"
-          fi
+          test -s "$notes"
           cp "$notes" build-release-notes.md
           printf '\n源码提交：`%s`\n\n[Windows 编译与测试记录](%s/%s/actions/runs/%s)\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> build-release-notes.md
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            gh release create "$tag" dist/*.zip dist/*.sha256 --verify-tag --draft \
-              --title "CalcTabdd v${VERSION}" --notes-file build-release-notes.md
-            gh release edit "$tag" --draft=false --prerelease=false --latest
-          else
-            gh release create "$tag" dist/*.zip dist/*.sha256 --prerelease --target "$GITHUB_SHA" \
-              --title "CalcTabdd v${VERSION} 测试版 · ${GITHUB_SHA:0:7}" --notes-file build-release-notes.md
-          fi
+          gh release create "$tag" dist/*.zip dist/*.sha256 --verify-tag --target "$GITHUB_SHA" --draft \
+            --title "CalcTabdd v${VERSION}" --notes-file build-release-notes.md
+          gh release edit "$tag" --draft=false --prerelease=false --latest
