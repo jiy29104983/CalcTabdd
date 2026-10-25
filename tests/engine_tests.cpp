@@ -1,5 +1,6 @@
 #include "numeric_test_helpers.h"
 #include "expression_engine.h"
+#include "programmer_engine.h"
 #include "decimal_value.h"
 #include "custom_formula.h"
 #include "calculation_history.h"
@@ -46,6 +47,375 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void programmerReference_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<QString>("error");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<QString>("expectedBits");
+        QTest::addColumn<uint>("sources");
+        QFile file(QFINDTESTDATA("data/programmer_vectors.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const auto rows = QJsonDocument::fromJson(file.readAll()).array();
+        QCOMPARE(rows.size(), 1896);
+        for (const auto &entry : rows)
+        {
+            const auto row = entry.toObject();
+            QTest::newRow(qPrintable(row.value("name").toString())) << row.value("width").toInt()
+                << row.value("signed").toBool() << row.value("expression").toString()
+                << row.value("error").toString() << row.value("text").toString()
+                << row.value("bits").toString() << uint(row.value("sources").toInt());
+        }
+    }
+    void programmerReference()
+    {
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(QString, formula);
+        QFETCH(QString, error);
+        QFETCH(QString, expected);
+        QFETCH(QString, expectedBits);
+        QFETCH(uint, sources);
+        const auto result = ProgrammerEngine::evaluate(formula, {width, signedMode});
+        if (error != QStringLiteral("None"))
+        {
+            QVERIFY2(!result.ok, qPrintable(formula));
+            QCOMPARE(result.error, error == QStringLiteral("Domain") ? CalculationError::Domain
+                                                                   : CalculationError::DivisionByZero);
+            QVERIFY(result.errorPosition >= 0 && result.errorLength > 0);
+            QVERIFY(result.errorPosition + result.errorLength <= formula.size());
+            return;
+        }
+        QVERIFY2(result.ok, qPrintable(formula + QStringLiteral(": ") + result.text));
+        QCOMPARE(result.text, expected);
+        QCOMPARE(result.value.text(), expected);
+        QCOMPARE(QString::number(result.value.bits(), 16), expectedBits);
+        QCOMPARE(result.value.config().bitWidth, width);
+        QCOMPARE(result.value.config().isSigned, signedMode);
+        QCOMPARE(result.value.sources(), sources);
+        QCOMPARE(result.error, CalculationError::None);
+        QCOMPARE(result.errorPosition, -1);
+        QCOMPARE(result.errorLength, 0);
+    }
+    void programmerRules_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<uint>("sources");
+        struct Example { const char *formula; int width; bool signedMode; const char *expected; uint sources; };
+        const Example examples[] = {
+            {"255", 8, false, "255", 0}, {"0xFF", 8, false, "255", 0},
+            {"0b11111111", 8, false, "255", 0}, {"0o377", 8, false, "255", 0},
+            {"010", 8, false, "10", 0}, {"0x10+0b10+0o10+10", 8, false, "36", 0},
+            {"0XFFFF_FFFF", 32, false, "4294967295", 0}, {"0B1111_0000", 32, false, "240", 0},
+            {"0O377", 32, false, "255", 0}, {"1_000", 32, false, "1000", 0},
+            {"(0x12 & 0x0F) << 4", 16, false, "32", 0},
+            {"0xFF^0x0F", 8, false, "240", 0}, {"~0x0F", 8, false, "240", 0},
+            {"0x10|0x03", 8, false, "19", 0}, {"2^3", 8, false, "1", 0},
+            {"1+2<<3", 8, false, "24", 0}, {"1<<2+1", 8, false, "8", 0},
+            {"1|2^3&4", 8, false, "3", 0}, {"~1&3", 8, false, "2", 0},
+            {"2^3^2", 8, false, "3", 0}, {"8/4/2", 8, false, "1", 0},
+            {"8>>1>>1", 8, false, "2", 0}, {"20-6-3", 8, false, "11", 0},
+            {"255+1", 8, false, "0", 1}, {"(255+1)/2", 8, false, "0", 1},
+            {"127+1", 8, true, "-128", 1}, {"-1", 8, false, "255", 1},
+            {"7/3", 8, true, "2", 0}, {"-7/3", 8, true, "-2", 0},
+            {"-7%3", 8, true, "-1", 0}, {"7%-3", 8, true, "1", 0},
+            {"0x80>>1", 8, true, "-64", 0}, {"0x80>>>1", 8, true, "64", 0},
+            {"0x80>>>0", 8, true, "-128", 0}, {"-3>>1", 8, true, "-2", 0},
+            {"-3/2", 8, true, "-1", 0}, {"64<<1", 8, true, "-128", 1},
+            {"-1<<1", 8, true, "-2", 0}, {"128<<1", 8, false, "0", 1},
+            {"-(-128)", 8, true, "-128", 1}, {"-128/-1", 8, true, "-128", 1},
+            {"-128%-1", 8, true, "0", 0}, {"1<<(255+1)", 8, false, "1", 1},
+            {"(255+1)*0", 8, false, "0", 1}, {"(255+1)^(255+1)", 8, false, "0", 1},
+            {"18446744073709551615", 64, false, "18446744073709551615", 0},
+            {"0xFFFFFFFFFFFFFFFF", 64, false, "18446744073709551615", 0},
+            {"18446744073709551615+1", 64, false, "0", 8},
+            {"9007199254740993+2", 64, false, "9007199254740995", 0},
+            {"18446744073709551615/3", 64, false, "6148914691236517205", 0},
+            {"0xFFFFFFFFFFFFFFFF*0xFFFFFFFFFFFFFFFF", 64, false, "1", 8},
+            {"0xFFFFFFFFFFFFFFFF*0xFFFFFFFFFFFFFFFF", 64, true, "1", 0},
+            {"-9223372036854775808/-1", 64, true, "-9223372036854775808", 8},
+            {"-9223372036854775808%-1", 64, true, "0", 0},
+            {"-9223372036854775808>>63", 64, true, "-1", 0},
+            {"-9223372036854775808>>>63", 64, true, "1", 0},
+            {"-1<<63", 64, true, "-9223372036854775808", 0},
+            {"1<<63", 64, true, "-9223372036854775808", 8},
+            {"1<<63", 64, false, "9223372036854775808", 0}
+        };
+        for (const auto &example : examples)
+        {
+            const QByteArray name = QByteArray(example.formula) + (example.signedMode ? "-s" : "-u") + QByteArray::number(example.width);
+            QTest::newRow(name) << QString::fromLatin1(example.formula) << example.width << example.signedMode
+                               << QString::fromLatin1(example.expected) << example.sources;
+        }
+    }
+    void programmerRules()
+    {
+        QFETCH(QString, formula);
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(QString, expected);
+        QFETCH(uint, sources);
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        const auto result = ProgrammerEngine::evaluate(formula, {width, signedMode});
+        QVERIFY2(result.ok, qPrintable(result.text));
+        QCOMPARE(result.text, expected);
+        QCOMPARE(result.value.sources(), sources);
+        QCOMPARE(result.value.sourceText(), sources ? QStringLiteral("含 %1 位回绕").arg(width) : QString());
+    }
+    void programmerErrors_data()
+    {
+        QTest::addColumn<QString>("formula");
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<int>("length");
+        struct Example { const char *text; CalculationError kind; int position; int length; };
+        const Example cases[] = {
+            {"", CalculationError::Syntax, 0, 0}, {" \t", CalculationError::Syntax, 2, 0},
+            {"256", CalculationError::Overflow, 0, 3}, {"0x100", CalculationError::Overflow, 0, 5},
+            {"999999999999999999999999999999", CalculationError::Overflow, 0, 30},
+            {"0b102", CalculationError::Syntax, 4, 1}, {"0o8", CalculationError::Syntax, 2, 1},
+            {"0xG", CalculationError::Syntax, 2, 1}, {"0x", CalculationError::Syntax, 2, 0},
+            {"0x_FF", CalculationError::Syntax, 2, 1}, {"1__0", CalculationError::Syntax, 1, 1},
+            {"1_", CalculationError::Syntax, 1, 1}, {"0b1_2", CalculationError::Syntax, 3, 1},
+            {"1.5", CalculationError::Syntax, 1, 1}, {"1e2", CalculationError::Syntax, 1, 1},
+            {"1,000", CalculationError::Syntax, 1, 1}, {"1 000", CalculationError::Syntax, 2, 1},
+            {"1/0", CalculationError::DivisionByZero, 2, 1},
+            {" 7 % (3-3) ", CalculationError::DivisionByZero, 5, 5},
+            {"1<<8", CalculationError::Domain, 3, 1}, {"1>>>8", CalculationError::Domain, 4, 1},
+            {"1<<-1", CalculationError::Domain, 3, 2}, {"1+(", CalculationError::Syntax, 3, 0},
+            {"(1+2", CalculationError::Syntax, 4, 0}, {"1)", CalculationError::Syntax, 1, 1},
+            {"2(3)", CalculationError::Syntax, 1, 1}, {"sqrt(4)", CalculationError::UnknownName, 0, 4},
+            {"pi", CalculationError::UnknownName, 0, 2}, {"ans2", CalculationError::UnknownName, 0, 4},
+            {"1==1", CalculationError::Syntax, 1, 2}, {"1&&2", CalculationError::Syntax, 1, 2},
+            {"1||2", CalculationError::Syntax, 1, 2}, {"1<2", CalculationError::Syntax, 1, 1},
+            {"1=2", CalculationError::Syntax, 1, 1}, {"!1", CalculationError::Syntax, 0, 1},
+            {"1**2", CalculationError::Syntax, 1, 2}
+        };
+        for (const auto &example : cases)
+            QTest::newRow(example.text) << QString::fromLatin1(example.text) << int(example.kind)
+                                       << example.position << example.length;
+        QTest::newRow("surrogate") << QString::fromUtf8("1+😀") << int(CalculationError::Syntax) << 2 << 2;
+        QTest::newRow("unicode-digit") << QString::fromUtf8("１") << int(CalculationError::Syntax) << 0 << 1;
+        QTest::newRow("leading-separator") << QStringLiteral("_1") << int(CalculationError::Syntax) << 0 << 1;
+    }
+    void programmerErrors()
+    {
+        QFETCH(QString, formula);
+        QFETCH(int, kind);
+        QFETCH(int, position);
+        QFETCH(int, length);
+        const auto answer = ProgrammerEngine::evaluate(QStringLiteral("255+1"), {8, false}).value;
+        const auto before = answer;
+        const auto result = ProgrammerEngine::evaluate(formula, {8, false}, answer);
+        QVERIFY2(!result.ok, qPrintable(formula));
+        QCOMPARE(int(result.error), kind);
+        QCOMPARE(result.errorPosition, position);
+        QCOMPARE(result.errorLength, length);
+        QVERIFY(!result.text.isEmpty());
+        QCOMPARE(answer, before);
+    }
+    void programmerMinimumAndLimits()
+    {
+        for (int width : {8, 16, 32, 64})
+        {
+            const QString magnitude = QString::number(quint64(1) << (width - 1));
+            for (const QString &formula : {QStringLiteral("-") + magnitude, QStringLiteral("-((") + magnitude + QStringLiteral("))")})
+            {
+                const auto value = ProgrammerEngine::evaluate(formula, {width, true});
+                QVERIFY2(value.ok, qPrintable(value.text));
+                QCOMPARE(value.text, QStringLiteral("-") + magnitude);
+                QCOMPARE(value.value.sources(), 0u);
+            }
+            for (const QString &formula : {magnitude, magnitude + QStringLiteral("+0"),
+                                           QStringLiteral("-(") + magnitude + QStringLiteral("+0)"),
+                                           QStringLiteral("-(+") + magnitude + QStringLiteral(")"),
+                                           QStringLiteral("~(") + magnitude + QStringLiteral(")")})
+            {
+                const auto result = ProgrammerEngine::evaluate(formula, {width, true});
+                QVERIFY(!result.ok);
+                QCOMPARE(result.error, CalculationError::Overflow);
+                QCOMPARE(formula.mid(result.errorPosition, result.errorLength), magnitude);
+            }
+            const auto negativeShift = ProgrammerEngine::evaluate(QStringLiteral("1<<-1"), {width, true});
+            QCOMPARE(negativeShift.error, CalculationError::Domain);
+            for (int count : {0, width - 1, width})
+                QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("1<<%1").arg(count), {width, false}).ok, count < width);
+        }
+        for (int depth : {128, 129})
+        {
+            const QString parentheses = QString(depth, QLatin1Char('(')) + QStringLiteral("1") + QString(depth, QLatin1Char(')'));
+            const QString unary = QString(depth, QLatin1Char('-')) + QStringLiteral("1");
+            for (const auto &formula : {parentheses, unary})
+            {
+                const auto result = ProgrammerEngine::evaluate(formula);
+                QCOMPARE(result.ok, depth == 128);
+                if (!result.ok) QCOMPARE(result.error, CalculationError::Limit);
+            }
+        }
+        const QString longFormula = QStringLiteral("1+").repeated(2047) + QStringLiteral("1 ");
+        QCOMPARE(longFormula.size(), 4096);
+        const auto longResult = ProgrammerEngine::evaluate(longFormula, {8, false});
+        QVERIFY(longResult.ok);
+        QCOMPARE(longResult.text, QStringLiteral("0"));
+        QCOMPARE(longResult.value.sources(), uint(ProgrammerValue::Wrap8));
+        const auto tooLong = ProgrammerEngine::evaluate(longFormula + QLatin1Char(' '));
+        QCOMPARE(tooLong.error, CalculationError::Limit);
+        QCOMPARE(tooLong.errorPosition, 4096);
+        QCOMPARE(tooLong.errorLength, 1);
+        QVERIFY(ProgrammerEngine::evaluate(QString(4095, QLatin1Char('0')) + QLatin1Char('1')).ok);
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("4294967295")).text, QStringLiteral("4294967295"));
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("4294967296")).error, CalculationError::Overflow);
+        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("2^3")).text, QStringLiteral("8"));
+    }
+    void programmerAnswerSourcesAndFailureProtection()
+    {
+        ProgrammerValue answer;
+        unsigned sources = 0;
+        for (int width : {8, 16, 32, 64})
+        {
+            const auto formula = QStringLiteral("ans+0x") + QString(width / 4, QLatin1Char('F')) + QStringLiteral("+1");
+            const auto result = ProgrammerEngine::evaluate(formula, {width, false}, answer);
+            QVERIFY(result.ok);
+            sources = sources * 2 + 1;
+            QCOMPARE(result.value.sources(), sources);
+            QCOMPARE(result.value.text(), QStringLiteral("0"));
+            answer = result.value;
+            for (const auto &reuse : {QStringLiteral("ANS-ans"), QStringLiteral("ans*0"), QStringLiteral("~ans & 0")})
+            {
+                const auto reused = ProgrammerEngine::evaluate(reuse, {width, false}, answer);
+                QVERIFY(reused.ok);
+                QCOMPARE(reused.value.sources(), sources);
+                QCOMPARE(reused.text, QStringLiteral("0"));
+            }
+        }
+        QCOMPARE(answer.sourceText(), QStringLiteral("含 8 位回绕；含 16 位回绕；含 32 位回绕；含 64 位回绕"));
+        QCOMPARE(ProgrammerEngine::evaluate(answer.text()).value.sources(), 0u);
+        const auto wide = ProgrammerEngine::evaluate(QStringLiteral("256"), {16, false}).value;
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("ans"), {8, false}, wide).error, CalculationError::Overflow);
+        QVERIFY(ProgrammerEngine::evaluate(QStringLiteral("7"), {8, false}, wide).ok);
+        const auto unsignedByte = ProgrammerEngine::evaluate(QStringLiteral("255"), {8, false}).value;
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("ans"), {8, true}, unsignedByte).error, CalculationError::Overflow);
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("ans"), {16, true}, unsignedByte).text, QStringLiteral("255"));
+        const auto negative = ProgrammerEngine::evaluate(QStringLiteral("-1"), {8, true}).value;
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("ans"), {16, true}, negative).text, QStringLiteral("-1"));
+        QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("ans"), {16, false}, negative).error, CalculationError::Overflow);
+        const ProgrammerValue before = answer;
+        QCOMPARE(negative.converted({16, false}, answer), ProgrammerError::Overflow);
+        QCOMPARE(answer, before);
+        for (int width : {-1, 0, 7, 9, 63, 65, 128, std::numeric_limits<int>::max()})
+        {
+            QCOMPARE(ProgrammerEngine::evaluate(QStringLiteral("1"), {width, true}).error, CalculationError::Domain);
+            QCOMPARE(ProgrammerValue::fromBits(0, {width, true}, answer), ProgrammerError::InvalidConfig);
+            QCOMPARE(answer, before);
+        }
+        QCOMPARE(ProgrammerValue::fromBits(256, {8, false}, answer), ProgrammerError::Overflow);
+        QCOMPARE(answer, before);
+        ProgrammerValue zero, one;
+        QCOMPARE(ProgrammerValue::fromBits(0, {64, false}, zero), ProgrammerError::None);
+        QCOMPARE(ProgrammerValue::fromBits(1, {64, false}, one), ProgrammerError::None);
+        for (auto op : {IntegerBinary::Divide, IntegerBinary::Remainder})
+        {
+            QCOMPARE(ProgrammerValue::operate(op, answer, zero, answer), ProgrammerError::DivisionByZero);
+            QCOMPARE(answer, before);
+        }
+        QCOMPARE(ProgrammerValue::operate(IntegerBinary::Add, one, answer, answer), ProgrammerError::None);
+        QCOMPARE(answer.text(), QStringLiteral("1"));
+        QCOMPARE(answer.sources(), 15u);
+        QCOMPARE(answer.converted({8, true}, answer), ProgrammerError::None);
+        QCOMPARE(answer.text(), QStringLiteral("1"));
+        QCOMPARE(answer.sources(), 15u);
+        const auto signedBefore = answer;
+        QCOMPARE(ProgrammerValue::operate(IntegerBinary::Add, answer, one, answer), ProgrammerError::InvalidConfig);
+        QCOMPARE(answer, signedBefore);
+        const auto invalidShift = ProgrammerEngine::evaluate(QStringLiteral("8"), {8, true}).value;
+        QCOMPARE(ProgrammerValue::operate(IntegerBinary::LeftShift, answer, invalidShift, answer), ProgrammerError::ShiftRange);
+        QCOMPARE(answer, signedBefore);
+    }
+    void programmerExhaustiveByteArithmetic()
+    {
+        const IntegerBinary operations[] = {IntegerBinary::Add, IntegerBinary::Subtract, IntegerBinary::Multiply,
+            IntegerBinary::Divide, IntegerBinary::Remainder, IntegerBinary::And, IntegerBinary::Xor, IntegerBinary::Or};
+        for (bool signedMode : {false, true})
+        {
+            const ProgrammerConfig config{8, signedMode};
+            for (int a = 0; a < 256; ++a)
+            {
+                const int x = signedMode && a >= 128 ? a - 256 : a;
+                ProgrammerValue operand;
+                QCOMPARE(ProgrammerValue::fromBits(quint64(a), config, operand), ProgrammerError::None);
+                for (const auto op : {IntegerUnary::Plus, IntegerUnary::Negate, IntegerUnary::Complement})
+                {
+                    ProgrammerValue result = operand;
+                    QCOMPARE(ProgrammerValue::operate(op, result, result), ProgrammerError::None);
+                    const int expected = op == IntegerUnary::Negate ? -x : op == IntegerUnary::Complement ? ~a : a;
+                    const bool wrapped = op == IntegerUnary::Negate
+                        && (expected < (signedMode ? -128 : 0) || expected > (signedMode ? 127 : 255));
+                    QCOMPARE(result.bits(), quint64(quint32(expected) & 255));
+                    QCOMPARE(result.sources(), wrapped ? uint(ProgrammerValue::Wrap8) : 0u);
+                }
+                for (int shift = 0; shift < 8; ++shift)
+                {
+                    ProgrammerValue count;
+                    QCOMPARE(ProgrammerValue::fromBits(quint64(shift), config, count), ProgrammerError::None);
+                    for (auto op : {IntegerBinary::LeftShift, IntegerBinary::RightShift, IntegerBinary::LogicalRightShift})
+                    {
+                        ProgrammerValue result = count;
+                        QCOMPARE(ProgrammerValue::operate(op, operand, result, result), ProgrammerError::None);
+                        const int scale = 1 << shift;
+                        const int expected = op == IntegerBinary::LeftShift ? x * scale
+                            : op == IntegerBinary::LogicalRightShift ? a / scale
+                            : x / scale - (x < 0 && x % scale != 0 ? 1 : 0);
+                        const bool wrapped = op == IntegerBinary::LeftShift
+                            && (expected < (signedMode ? -128 : 0) || expected > (signedMode ? 127 : 255));
+                        QCOMPARE(result.bits(), quint64(quint32(expected) & 255));
+                        QCOMPARE(result.sources(), wrapped ? uint(ProgrammerValue::Wrap8) : 0u);
+                    }
+                }
+                for (int b = 0; b < 256; ++b)
+                {
+                    const int y = signedMode && b >= 128 ? b - 256 : b;
+                    ProgrammerValue left, right;
+                    QCOMPARE(ProgrammerValue::fromBits(quint64(a), config, left), ProgrammerError::None);
+                    QCOMPARE(ProgrammerValue::fromBits(quint64(b), config, right), ProgrammerError::None);
+                    for (const auto op : operations)
+                    {
+                        ProgrammerValue result = left;
+                        const auto status = ProgrammerValue::operate(op, result, right, result);
+                        if ((op == IntegerBinary::Divide || op == IntegerBinary::Remainder) && y == 0)
+                        {
+                            QCOMPARE(status, ProgrammerError::DivisionByZero);
+                            QCOMPARE(result, left);
+                            continue;
+                        }
+                        QCOMPARE(status, ProgrammerError::None);
+                        int expected = 0;
+                        bool arithmetic = true;
+                        switch (op)
+                        {
+                        case IntegerBinary::Add: expected = x + y; break;
+                        case IntegerBinary::Subtract: expected = x - y; break;
+                        case IntegerBinary::Multiply: expected = x * y; break;
+                        case IntegerBinary::Divide: expected = x / y; break;
+                        case IntegerBinary::Remainder: expected = x % y; arithmetic = false; break;
+                        case IntegerBinary::And: expected = a & b; arithmetic = false; break;
+                        case IntegerBinary::Xor: expected = a ^ b; arithmetic = false; break;
+                        case IntegerBinary::Or: expected = a | b; arithmetic = false; break;
+                        default: QFAIL("Unexpected operation");
+                        }
+                        const bool wrapped = arithmetic && (expected < (signedMode ? -128 : 0) || expected > (signedMode ? 127 : 255));
+                        QCOMPARE(result.bits(), quint64(quint32(expected) & 255));
+                        QCOMPARE(result.sources(), wrapped ? uint(ProgrammerValue::Wrap8) : 0u);
+                    }
+                }
+            }
+        }
+    }
     void canonicalNumericText_data()
     {
         QTest::addColumn<QString>("kind");
