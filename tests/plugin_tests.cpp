@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QAbstractItemView>
 #include <QCompleter>
+#include <QComboBox>
 #include <QDialog>
 #include <QFileDialog>
 #include <QFile>
@@ -154,6 +155,70 @@ class PluginTests : public QObject
         return host.input()->isVisible() && host.page()->findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
+    void programmerNativeInputAndWindowIsolation()
+    {
+        Host host, other;
+        QCOMPARE(initialize(host), 0);
+        QCOMPARE(initialize(other), 0);
+        host.openAction()->trigger();
+        other.openAction()->trigger();
+        host.activateWindow();
+        host.input()->setFocus();
+        host.page()->findChild<QToolButton *>(QStringLiteral("programmerModeButton"))->click();
+        auto *width = host.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        auto *type = host.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+        QVERIFY(width && type);
+        width->setCurrentIndex(0);
+        type->setCurrentIndex(1);
+        auto *native = qobject_cast<QsciScintilla *>(host.tabs->currentWidget());
+        QVERIFY(native);
+        host.input()->setPlainText(QStringLiteral("0x80>>>1"));
+        QTest::keyClick(host.input(), Qt::Key_Return);
+        QVERIFY(host.page()->findChildren<QFrame *>(QStringLiteral("calculationRecord")).isEmpty());
+        QTest::keyClick(host.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(host.page()->findChild<QTextBrowser *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= 64"));
+        QCOMPARE(host.page()->findChild<QTextBrowser *>(QStringLiteral("recordHex"))->toPlainText(), QStringLiteral("HEX  0x40"));
+        QVERIFY(other.page()->findChildren<QFrame *>(QStringLiteral("calculationRecord")).isEmpty());
+        QVERIFY(!other.page()->findChild<QWidget *>(QStringLiteral("programmerPanel"))->isVisible());
+        host.input()->setPlainText(QStringLiteral("123+"));
+        host.tabs->setCurrentIndex(0);
+        QCoreApplication::processEvents();
+        host.openAction()->trigger();
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("123+"));
+        QVERIFY(host.page()->findChild<QWidget *>(QStringLiteral("programmerPanel"))->isVisible());
+        QCOMPARE(width->currentData().toInt(), 8);
+        QTest::keyClick(host.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("0x80>>>1"));
+        QTest::keyClick(host.input(), Qt::Key_Down, Qt::AltModifier);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("123+"));
+        host.findChild<QAction *>(QStringLiteral("calctabddHelp"))->trigger();
+        auto *help = host.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QVERIFY(help);
+        QCOMPARE(help->findChild<QComboBox *>(QStringLiteral("helpMode"))->currentIndex(), 1);
+        help->close();
+        host.activateWindow();
+        host.input()->setFocus();
+        host.input()->setPlainText(QStringLiteral("@取反"));
+        host.input()->moveCursor(QTextCursor::End);
+        auto *popup = host.input()->findChild<QCompleter *>()->popup();
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(host.input(), Qt::Key_Tab);
+        QCOMPARE(host.input()->toPlainText(), QStringLiteral("~()"));
+        QCOMPARE(host.input()->textCursor().position(), 2);
+        QCOMPARE(native->text(), QString());
+        QVERIFY(!native->isModified());
+        QCOMPARE(host.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QVERIFY(!host.ordinary->isModified());
+        QPointer<QWidget> oldPage = host.page();
+        host.closeCurrent();
+        QVERIFY(oldPage.isNull());
+        host.openAction()->trigger();
+        QVERIFY(!host.page()->findChild<QWidget *>(QStringLiteral("programmerPanel"))->isVisible());
+        QVERIFY(host.page()->findChildren<QFrame *>(QStringLiteral("calculationRecord")).isEmpty());
+        host.page()->findChild<QToolButton *>(QStringLiteral("programmerModeButton"))->click();
+        QCOMPARE(host.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 32);
+        QCOMPARE(host.page()->findChild<QLabel *>(QStringLiteral("answerBadge"))->text(), QStringLiteral("ans = 0"));
+    }
     void nativeToolbarRoutingAndRestoration_data()
     {
         QTest::addColumn<bool>("translated");

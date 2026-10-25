@@ -55,7 +55,9 @@ bool PluginController::installMenu(QMenu *menu)
         connect(m_openAction, &QAction::triggered, this, &PluginController::openCalculator);
         m_helpAction = new QAction(QStringLiteral("运算与精度帮助"), this);
         m_helpAction->setObjectName(QStringLiteral("calctabddHelp"));
-        connect(m_helpAction, &QAction::triggered, this, [this]() { showCalculatorHelp(m_host); });
+        connect(m_helpAction, &QAction::triggered, this, [this]() {
+            showCalculatorHelp(m_host, m_page && m_page->isVisible() && m_page->programmerMode());
+        });
         m_aboutAction = new QAction(QStringLiteral("关于 CalcTabdd"), this);
         m_aboutAction->setObjectName(QStringLiteral("calctabddAbout"));
         connect(m_aboutAction, &QAction::triggered, this, [this]() { showCalculatorAbout(m_host); });

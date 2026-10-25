@@ -14,6 +14,7 @@ public:
     explicit FormulaCompletion(QPlainTextEdit *input, bool definition = false);
     bool hasVisiblePopup() const;
     void setEnabled(bool enabled);
+    void setProgrammerMode(bool programmer);
 
 signals:
     void calculationRequested();
@@ -37,6 +38,7 @@ private:
     QCompleter *m_completer;
     QStandardItemModel *m_model;
     bool m_definition = false;
+    bool m_programmer = false;
     bool m_enabled = true;
     bool m_composing = false;
     bool m_inserting = false;

@@ -5,7 +5,7 @@
 namespace CalculationCatalog {
 bool Entry::isCompletion() const
 {
-    return kind == Kind::Function || kind == Kind::Constant;
+    return kind == Kind::Function || kind == Kind::Constant || kind == Kind::BitOperator;
 }
 
 bool Entry::matches(const QString &query, bool completion) const
@@ -25,13 +25,63 @@ bool Entry::matches(const QString &query, bool completion) const
 QString Entry::insertion() const
 {
     if (kind == Kind::Constant) return name;
+    if (kind == Kind::BitOperator) return name == QStringLiteral("~") ? QStringLiteral("~()") : name + QLatin1Char(' ');
     if (kind != Kind::Function) return {};
     return NumericValue::argumentCount(name) > 1 ? name + QStringLiteral("(, )")
                                                  : name + QStringLiteral("()");
 }
 
-const QVector<Entry> &entries()
+const QVector<Entry> &entries(bool programmer)
 {
+    static const QVector<Entry> integers = {
+        {Kind::Constant, QStringLiteral("ans"), QStringLiteral("ans"), QStringLiteral("整数上次结果"), QStringLiteral("上次结果"),
+            QStringLiteral("保留程序员模式上次成功的整数值与回绕来源，初始为 0；与普通／自定义的数学 ans 独立。失败不更新，清空重置。更改位宽或符号后，实际使用 ans 时保持原数值转换；新范围无法表示时会报错，不截断或重新解释位模式。"),
+            QStringLiteral("8 位无符号先算 255+1，再算 ans+1 → 1，保留含 8 位回绕提示"), QStringLiteral("上次 上一次 结果 答案 answer")},
+        {Kind::BitOperator, QStringLiteral("~"), QStringLiteral("~x"), QStringLiteral("位运算"), QStringLiteral("按位取反"),
+            QStringLiteral("反转当前位宽内的所有位，不新增回绕提示。补全插入 ~()，光标位于括号内。"),
+            QStringLiteral("8 位无符号：~0x0F → 240／0xF0"), QStringLiteral("取反 按位取反 complement")},
+        {Kind::BitOperator, QStringLiteral("&"), QStringLiteral("x & y"), QStringLiteral("位运算"), QStringLiteral("按位与"),
+            QStringLiteral("仅保留两个操作数中同为 1 的位。"), QStringLiteral("0x12 & 0x0F → 2"), QStringLiteral("按位与 掩码 and")},
+        {Kind::BitOperator, QStringLiteral("|"), QStringLiteral("x | y"), QStringLiteral("位运算"), QStringLiteral("按位或"),
+            QStringLiteral("保留任一操作数中为 1 的位。"), QStringLiteral("0x10 | 0x03 → 19"), QStringLiteral("按位或 标志 or")},
+        {Kind::BitOperator, QStringLiteral("^"), QStringLiteral("x ^ y"), QStringLiteral("位运算"), QStringLiteral("按位异或"),
+            QStringLiteral("对应位不同时得到 1。程序员模式 ^ 为异或；普通／自定义模式 ^ 为乘方。"),
+            QStringLiteral("程序员 2^3 → 1；普通 2^3 → 8"), QStringLiteral("异或 按位异或 xor")},
+        {Kind::BitOperator, QStringLiteral("<<"), QStringLiteral("x << n"), QStringLiteral("移位"), QStringLiteral("左移"),
+            QStringLiteral("低位补零；数学值乘以 2 的 n 次方超出当前数值范围时保留低位并提示回绕。移位量必须为 0 至位宽减 1。"),
+            QStringLiteral("8 位有符号：64<<1 → -128，含 8 位回绕；-1<<1 → -2"), QStringLiteral("左移 shift")},
+        {Kind::BitOperator, QStringLiteral(">>"), QStringLiteral("x >> n"), QStringLiteral("移位"), QStringLiteral("右移"),
+            QStringLiteral("无符号高位补零，有符号高位补符号位；不新增回绕。移位量必须为 0 至位宽减 1。"),
+            QStringLiteral("8 位有符号：0x80>>1 → -64；-3>>1 → -2"), QStringLiteral("右移 算术右移 shift")},
+        {Kind::BitOperator, QStringLiteral(">>>"), QStringLiteral("x >>> n"), QStringLiteral("移位"), QStringLiteral("逻辑右移"),
+            QStringLiteral("始终高位补零，结果仍使用原位宽与符号解释；不新增回绕。移位量不取模，必须为 0 至位宽减 1。"),
+            QStringLiteral("8 位有符号：0x80>>>1 → 64；0x80>>>0 → -128"), QStringLiteral("逻辑右移 补零 unsigned")},
+        {Kind::Operator, QStringLiteral("arithmetic"), QStringLiteral("+ - * / % ()"), QStringLiteral("整数运算"), QStringLiteral("整数四则与余数"),
+            QStringLiteral("支持一元正负号和括号。除法向零截断，非零余数与被除数同号；除零报错。优先级由高到低为：括号，一元 + - ~，* / %，+ -，<< >> >>>，&，^，|；同级二元运算从左向右。"),
+            QStringLiteral("8 位有符号：-7/3 → -2；-7%3 → -1；1+2<<3 → 24"), QStringLiteral("除法 余数 优先级 运算")},
+        {Kind::Syntax, QStringLiteral("numbers"), QStringLiteral("十进制、0x、0b、0o"), QStringLiteral("整数输入"), QStringLiteral("位宽与数字写法"),
+            QStringLiteral("8／16／32／64 位，默认 32 位无符号。有符号使用补码。裸数字为十进制，必须在当前数值范围内；0x／0b／0o 按原始位模式解释。前缀和十六进制数字不区分大小写，数字间可加下划线。最小有符号数可直接取负或在幅值外加括号。拒绝小数、科学计数法、科学函数和赋值。"),
+            QStringLiteral("8 位有符号：0xFF → -1，-128 与 -(128) 合法；128 报错。010 → 10；0b1111_0000 → -16"), QStringLiteral("进制 二进制 八进制 十六进制 符号 下划线")},
+        {Kind::Syntax, QStringLiteral("controls"), QStringLiteral("提交、切换与历史"), QStringLiteral("输入操作"), QStringLiteral("确认后计算"),
+            QStringLiteral("Ctrl+Enter 或点击“计算”提交；Enter 不提交也不换行。切换模式保留各自草稿、光标与选区；位宽和符号只影响下次计算，已有记录保留原配置。Alt+↑↓ 或“再次使用”回填记录的原模式和设置；重新计算使用当前对应 ans。清空重置两类 ans，保留原草稿及设置。"),
+            QStringLiteral("先用 16 位无符号计算 (0x12 & 0x0F)<<4 → 32，再改为 8 位，旧记录仍显示 0x0020"), QStringLiteral("切换 模式 历史 草稿 键盘 Enter Tab 清空")},
+        {Kind::Syntax, QStringLiteral("completion"), QStringLiteral("@ 中文位运算补全"), QStringLiteral("输入操作"), QStringLiteral("补全模板"),
+            QStringLiteral("输入 @ 后用名称或中文关键词筛选 ans 和位运算；Enter／Tab 仅插入模板，Esc 关闭候选。无候选时 Tab／Shift+Tab 切换焦点。输入法组词或尚未完成 @ 查询时不能提交。模板不添加操作数，不自动计算。"),
+            QStringLiteral("@上次结果 → ans；@取反 → ~()；0xFF @按位与 → 0xFF & ；0x80 @逻辑右移 → 0x80 >>> "), QStringLiteral("补全 中文 输入法 模板")},
+        {Kind::Syntax, QStringLiteral("display"), QStringLiteral("DEC／HEX／BIN／OCT"), QStringLiteral("结果查看"), QStringLiteral("展开进制详情"),
+            QStringLiteral("公式下方默认显示十进制结果及 HEX。展开进制详情查看 BIN／OCT，不重新计算或新增记录。HEX 补足位宽并使用大写数字，BIN 补足位宽且每四位分组，OCT 使用最短位模式。长结果自动换行，均可选中文字复制。"),
+            QStringLiteral("8 位有符号 -1：HEX 0xFF，BIN 1111 1111，OCT 0o377"), QStringLiteral("显示 结果 详情 进制 复制")},
+        {Kind::Syntax, QStringLiteral("availability"), QStringLiteral("当前程序员会话的使用范围"), QStringLiteral("输入操作"), QStringLiteral("记录仅在当前窗口保留"),
+            QStringLiteral("程序员界面支持计算、结果详情和历史回填。各进制专用复制菜单、结果插入、含程序员记录的导出以及程序员会话保存尚未开放。关闭标签后程序员内容不保留。已开启数学会话保存时，先停止保存才能进入程序员模式；使用程序员后请在新空白计算器中保存或恢复数学会话。普通／自定义继续使用第 3 版会话文件。"),
+            QStringLiteral("记录可直接选中文字复制；需要数学会话保存时打开新的计算器标签"), QStringLiteral("保存 恢复 导出 插入 限制")},
+        {Kind::Precision, QStringLiteral("wrap"), QStringLiteral("输入范围与逐步回绕"), QStringLiteral("范围与限制"), QStringLiteral("含回绕的结果"),
+            QStringLiteral("输入越界报错；运算每一步超出当前数值范围时保留低位，提示“含 8 位回绕”等。即使后续抵消、乘零或转换位宽，已有来源仍保留。按位运算和右移不新增回绕；整数除法舍弃小数部分不算近似或回绕。"),
+            QStringLiteral("8 位无符号：(255+1)/2 → 0，含 8 位回绕；256 直接输入则报错"), QStringLiteral("回绕 溢出 精度 来源")},
+        {Kind::Precision, QStringLiteral("limits"), QStringLiteral("整数与表达式限制"), QStringLiteral("范围与限制"), QStringLiteral("完整整数与资源边界"),
+            QStringLiteral("整数全程精确保存。无符号范围为 0 至 2^N-1，有符号为 -2^(N-1) 至 2^(N-1)-1。表达式最多 4096 个 UTF-16 字符单位、128 层嵌套。错误时保留公式与整数 ans，标出错误位置。模式和设置可随宽度换行；窗口较矮时滚动底部输入区到“计算”，或按 Ctrl+Enter。"),
+            QStringLiteral("64 位无符号最大值：18446744073709551615；64 位有符号最小值：-9223372036854775808"), QStringLiteral("范围 64 整数 精度 错误 布局 窗口 字体")}
+    };
+    if (programmer) return integers;
     static const QVector<Entry> values = {
         {Kind::Operator, QStringLiteral("+ -"), QStringLiteral("x + y；x - y"), QStringLiteral("基本运算"), QStringLiteral("加法与减法"), QStringLiteral("同级从左向右计算，优先级低于乘除和乘方。"), QStringLiteral("1+2*3 → 7"), QStringLiteral("加法 减法 四则 优先级 结合")},
         {Kind::Operator, QStringLiteral("* /"), QStringLiteral("x * y；x / y"), QStringLiteral("基本运算"), QStringLiteral("乘法与除法"), QStringLiteral("同级从左向右计算；除数不能为 0。×、÷ 也可使用。"), QStringLiteral("8/4/2 → 1"), QStringLiteral("乘法 除法 四则 除零")},
@@ -56,14 +106,14 @@ const QVector<Entry> &entries()
         {Kind::Constant, QStringLiteral("e"), QStringLiteral("e"), QStringLiteral("常量与上次结果"), QStringLiteral("自然常数"), QStringLiteral("自然常数的近似值，显示为 2.7182818284590451。与科学计数法中的 e 含义不同。"), QStringLiteral("ln(e) → 1"), QStringLiteral("自然常数 欧拉")},
         {Kind::Constant, QStringLiteral("ans"), QStringLiteral("ans"), QStringLiteral("常量与上次结果"), QStringLiteral("上一次成功结果"), QStringLiteral("初始为 0，保留上一次成功结果及其计算来源；失败计算不更新。清空会话或打开新的空白会话后重置为 0；恢复本地会话时保留已保存值。"), QStringLiteral("先计算 6*7，再计算 ans+1 → 43"), QStringLiteral("上次 上一次 结果 答案 answer")},
         {Kind::Syntax, QStringLiteral("numbers"), QStringLiteral("小数与科学计数法"), QStringLiteral("输入语法"), QStringLiteral("数字写法"), QStringLiteral("小数点固定为 .，支持 .5、1. 和 e/E 指数，不接受千分位或全角数字。"), QStringLiteral("1e3+2.5E-2 → 1000.025"), QStringLiteral("数字 小数 科学计数法 区域设置")},
-        {Kind::Syntax, QStringLiteral("input"), QStringLiteral("大小写、嵌套与输入限制"), QStringLiteral("输入语法"), QStringLiteral("公式规则"), QStringLiteral("函数和常量不区分大小写，可嵌套，运算符两侧可留空白。普通模式 Enter 不提交也不换行，Ctrl+Enter 或“计算”提交；自定义参数区 Enter 换行，定义栏 Enter 应用。公式长度上限为 4096，普通英文字母、数字和运算符各计 1；嵌套过深时请拆分计算。普通模式不支持变量赋值；自定义公式通过底部模式切换定义参数。不支持复数或符号求解。"), QStringLiteral("MAX(sqrt(9),pow(2,3)) → 8"), QStringLiteral("大小写 嵌套 长度 语法 错误 变量")},
-        {Kind::Syntax, QStringLiteral("custom"), QStringLiteral("自定义公式与参数"), QStringLiteral("输入操作"), QStringLiteral("定义一次，填写不同参数后确认计算"), QStringLiteral("从底部切换至自定义公式，在参数区上方的公式定义栏直接输入 A=x+y，按 Enter（或点击“应用公式”）应用并生成 x=、y=；后续修改也在该栏按 Enter 确认。公式定义支持 @ 补全，候选打开时 Enter 先选中候选，再按 Enter 应用定义。Esc 还原已确认定义；首次定义时取消则返回普通模式。每行填写一个参数。名称只用英文字母、数字、下划线，不能以数字开头，区分大小写且不能与内置名称冲突。参数只填有符号数字、小数或科学计数法；公式支持全部函数、pi、e 和 ans。按 Ctrl+Enter 或点击“计算”后追加记录，成功后保留参数；编辑和普通 Enter 换行不会触发计算。未确认或无效的公式修改会阻止计算；缺少或非法参数不生成记录，数学错误保留错误记录。两种模式共享 ans，分别保留草稿；修改定义时保留同名参数值，新增参数留空。复用历史会恢复当时的定义和参数；成功提交、越过最新记录或手动切换模式后结束浏览并返回草稿。未确认的定义只在当前窗口保留，本地保存仍使用已确认定义；数值参数区不启用 @ 补全。"), QStringLiteral("A=x+y，分两行填 x=1 和 y=2；Ctrl+Enter 后显示 A=1+2，下一行 = 3"), QStringLiteral("自定义 参数 公式 模式 定义 保存 历史 变量")},
-        {Kind::Syntax, QStringLiteral("diagnostics"), QStringLiteral("错误定位与修正"), QStringLiteral("输入操作"), QStringLiteral("标记问题字符或参数"), QStringLiteral("普通模式计算失败时保留公式和 ans，用底色与波浪线标记问题位置，光标移到问题处，并显示行列。末尾缺少内容时标记该行，光标停在需要补充的位置。标记不等于选中文字，继续输入不会替换整段。编辑、输入法组词或清空会话后移除标记，重新提交可再次定位；回填未修改的失败公式会恢复标记。自定义模式通过状态提示说明参数或计算错误，不在参数输入框中标记代入公式的位置。"), QStringLiteral("普通模式输入 ln(0)，标记参数 0；自定义 A=1/x、x=0，提示除数不能为 0，保留参数以便修正。"), QStringLiteral("错误 定位 高亮 范围 行列 参数 修正 下划线")},
+        {Kind::Syntax, QStringLiteral("input"), QStringLiteral("大小写、嵌套与输入限制"), QStringLiteral("输入语法"), QStringLiteral("公式规则"), QStringLiteral("函数和常量不区分大小写，可嵌套，运算符两侧可留空白。普通／程序员模式 Enter 不提交也不换行，Ctrl+Enter 或“计算”提交；自定义参数区 Enter 换行，定义栏 Enter 应用。公式长度上限为 4096，普通英文字母、数字和运算符各计 1；嵌套过深时请拆分计算。普通模式不支持变量赋值；自定义公式通过底部模式切换定义参数。不支持复数或符号求解。"), QStringLiteral("MAX(sqrt(9),pow(2,3)) → 8"), QStringLiteral("大小写 嵌套 长度 语法 错误 变量")},
+        {Kind::Syntax, QStringLiteral("custom"), QStringLiteral("自定义公式与参数"), QStringLiteral("输入操作"), QStringLiteral("定义一次，填写不同参数后确认计算"), QStringLiteral("从底部切换至自定义公式，在参数区上方的公式定义栏直接输入 A=x+y，按 Enter（或点击“应用公式”）应用并生成 x=、y=；后续修改也在该栏按 Enter 确认。公式定义支持 @ 补全，候选打开时 Enter 先选中候选，再按 Enter 应用定义。Esc 还原已确认定义；首次定义时取消则返回此前模式。每行填写一个参数。名称只用英文字母、数字、下划线，不能以数字开头，区分大小写且不能与内置名称冲突。参数只填有符号数字、小数或科学计数法；公式支持全部函数、pi、e 和 ans。按 Ctrl+Enter 或点击“计算”后追加记录，成功后保留参数；编辑和普通 Enter 换行不会触发计算。未确认或无效的公式修改会阻止计算；缺少或非法参数不生成记录，数学错误保留错误记录。普通／自定义两种模式共享数学 ans，程序员另用整数 ans；各模式分别保留草稿；修改定义时保留同名参数值，新增参数留空。复用历史会恢复当时的定义和参数；成功提交、越过最新记录或手动切换模式后结束浏览并返回草稿。未确认的定义只在当前窗口保留，本地保存仍使用已确认定义；数值参数区不启用 @ 补全。"), QStringLiteral("A=x+y，分两行填 x=1 和 y=2；Ctrl+Enter 后显示 A=1+2，下一行 = 3"), QStringLiteral("自定义 参数 公式 模式 定义 保存 历史 变量")},
+        {Kind::Syntax, QStringLiteral("diagnostics"), QStringLiteral("错误定位与修正"), QStringLiteral("输入操作"), QStringLiteral("标记问题字符或参数"), QStringLiteral("普通／程序员模式计算失败时保留公式和对应 ans，用底色与波浪线标记问题位置，光标移到问题处，并显示行列。末尾缺少内容时标记该行，光标停在需要补充的位置。标记不等于选中文字，继续输入不会替换整段。编辑、输入法组词或清空会话后移除标记，重新提交可再次定位；回填未修改的失败公式会恢复标记。自定义模式通过状态提示说明参数或计算错误，不在参数输入框中标记代入公式的位置。"), QStringLiteral("普通模式输入 ln(0)，标记参数 0；自定义 A=1/x、x=0，提示除数不能为 0，保留参数以便修正。"), QStringLiteral("错误 定位 高亮 范围 行列 参数 修正 下划线")},
         {Kind::Syntax, QStringLiteral("completion"), QStringLiteral("@ 快捷补全"), QStringLiteral("输入语法"), QStringLiteral("查找函数与常量"), QStringLiteral("普通公式输入和自定义公式定义栏支持 @，可用英文名称或中文关键词筛选；↑↓ 选择，Enter/Tab 插入，Esc 关闭。在定义栏补全后按 Enter 应用公式，再填写参数；普通公式或参数填写完成后，按 Ctrl+Enter 或点击“计算”。中文输入法组词时优先处理输入法候选。"), QStringLiteral("2+@平方根 → 2+sqrt()，光标位于括号内"), QStringLiteral("补全 快捷 输入法 帮助")},
         {Kind::Syntax, QStringLiteral("layout"), QStringLiteral("窗口大小与键盘操作"), QStringLiteral("输入操作"), QStringLiteral("窄窗口和大字体下继续计算"), QStringLiteral("模式按钮、记录操作随可用宽度换行。窗口高度不足时，可滚动底部输入区查看公式定义、填写参数和点击“计算”。ans 和参数摘要过长时省略显示，悬停查看完整内容。模式和“应用公式”按钮支持 Tab／Shift+Tab 聚焦、空格操作；补全候选打开时 Tab 仍优先插入候选。"), QStringLiteral("输入完成后按 Tab 聚焦“计算”，空格提交；Ctrl+Enter 也可提交。"), QStringLiteral("窗口 布局 缩放 字体 键盘 Tab 滚动 摘要")},
         {Kind::Syntax, QStringLiteral("host"), QStringLiteral("宿主菜单与工具栏"), QStringLiteral("输入操作"), QStringLiteral("计算器中的编辑与保存入口"), QStringLiteral("计算器标签中，宿主编辑菜单与主工具栏的复制、剪切、粘贴、撤销和重做作用于计算器。选中历史文本后粘贴会返回输入区；正在修改尚未应用的公式定义时，粘贴到定义栏，不改参数或另一模式草稿。文档保存、全部保存、自动保存、查找替换等入口不可用。计算器标签右键提供关闭和保存入口提示；保存会话或导出记录请使用页面内按钮。切回普通文档后，宿主命令与工具栏恢复。"), QStringLiteral("计算器标签右键 → 关闭计算器；留存记录 → 本地会话或导出记录"), QStringLiteral("宿主 菜单 工具栏 右键 保存 粘贴 剪切 撤销")},
         {Kind::Syntax, QStringLiteral("history"), QStringLiteral("Alt+↑ / Alt+↓ 历史召回"), QStringLiteral("输入操作"), QStringLiteral("保留草稿并浏览历史公式"), QStringLiteral("在输入框按 Alt+↑ 从最新记录向前浏览，Alt+↓ 向后浏览，越过最新记录返回草稿；最旧处不循环。首次召回保存草稿、光标和选区，本轮浏览中的临时编辑会保留；返回草稿或成功提交后结束浏览。普通方向键移动光标；输入法组词或 @ 候选可见时不召回。召回只回填内容，成功提交按当前 ans 追加计算并返回原草稿，失败保留待修正。“再次使用／修改公式”也保留草稿。切换历史记录后不能通过撤销恢复上一条输入；当前记录中的文字编辑仍可撤销。"), QStringLiteral("先计算 6*7，输入草稿 100+；Alt+↑ 召回并改为 6*7+1，Ctrl+Enter 得到 43 后回到 100+"), QStringLiteral("历史 召回 草稿 键盘 快捷键 Alt 上下 回填 编辑 撤销")},
-        {Kind::Syntax, QStringLiteral("session"), QStringLiteral("本地会话保存与恢复"), QStringLiteral("输入操作"), QStringLiteral("可选保存记录、ans 与草稿"), QStringLiteral("默认不保存。通过“本地会话”选择新文件后自动保存记录、ans、两种模式的草稿、已确认的公式定义、参数和历史浏览位置，完整保留结果及计算来源。尚未按 Enter 应用的定义修改不保存。关闭后文件仍在；重开或重启后，从空白计算器选择“恢复会话…”，不会重新计算历史。每个文件同时只能由一个窗口或进程使用。清空会话也会更新保存文件；停止保存前会保存最后更改。保存失败时请在关闭前重试或另存。只支持当前第 3 版会话格式，旧格式、未知格式或损坏文件不会载入或覆盖。输入法未上屏文字和文字撤销记录不保存；单文件最多 16 MiB、10000 条记录。"), QStringLiteral("本地会话 → 开启保存；关闭标签 → 打开空白计算器 → 恢复会话"), QStringLiteral("保存 恢复 历史 文件 本地 会话 草稿 重启 自动 保存失败 重试")},
+        {Kind::Syntax, QStringLiteral("session"), QStringLiteral("本地会话保存与恢复"), QStringLiteral("输入操作"), QStringLiteral("可选保存记录、ans 与草稿"), QStringLiteral("数学会话默认不保存。程序员会话暂不支持保存或恢复；已开启保存时先停止保存才能进入程序员，使用程序员后须在新空白计算器中保存或恢复数学会话。通过“本地会话”选择新文件后自动保存记录、ans、两种模式的草稿、已确认的公式定义、参数和历史浏览位置，完整保留结果及计算来源。尚未按 Enter 应用的定义修改不保存。关闭后文件仍在；重开或重启后，从空白计算器选择“恢复会话…”，不会重新计算历史。每个文件同时只能由一个窗口或进程使用。清空会话也会更新保存文件；停止保存前会保存最后更改。保存失败时请在关闭前重试或另存。只支持当前第 3 版会话格式，旧格式、未知格式或损坏文件不会载入或覆盖。输入法未上屏文字和文字撤销记录不保存；单文件最多 16 MiB、10000 条记录。"), QStringLiteral("本地会话 → 开启保存；关闭标签 → 打开空白计算器 → 恢复会话"), QStringLiteral("保存 恢复 历史 文件 本地 会话 草稿 重启 自动 保存失败 重试")},
         {Kind::Syntax, QStringLiteral("clear"), QStringLiteral("清空会话"), QStringLiteral("输入操作"), QStringLiteral("重新开始当前窗口的计算"), QStringLiteral("点击顶部“清空会话”，确认后清空全部成功和失败记录，将 ans 重置为 0，编号从 01 开始。保留输入草稿、光标、选区和文字撤销记录；历史浏览中则返回召回前的草稿，丢弃本轮临时编辑。自定义公式及参数也会保留。确认框默认取消，Esc 或关闭也取消；清空记录不可撤销。其他窗口不受影响；没有记录或输入法组词期间按钮不可用。"), QStringLiteral("计算 42 后保留草稿 ans+1，清空会话再计算得到 1"), QStringLiteral("清空 会话 重置 删除 草稿 确认 取消 ans")},
         {Kind::Precision, QStringLiteral("double"), QStringLiteral("十进制与近似计算"), QStringLiteral("精度与限制"), QStringLiteral("最多 50 位十进制有效数字"), QStringLiteral("直接输入的数字按十进制计算，最多支持 50 位有效数字。十进制数的加、减、乘和取余在支持范围内精确计算，超限报错。三角函数、对数、exp、pi、e、非整数次幂和不能精确开方的平方根使用近似计算；含近似值的后续运算也使用近似计算。十进制结果完整显示，近似结果最多显示 17 位有效数字，但不保证每一位都准确。显示时，科学计数法指数在 -6 至 20 之间用普通小数，其余用小写 e；省略无意义的尾零，保留 -0。"), QStringLiteral("0.1+0.2 → 0.3；(0.1+0.2)-0.3 → 0"), QStringLiteral("精度 十进制 double binary64 来源 舍入 复制 负零 范围 下溢")},
         {Kind::Precision, QStringLiteral("integer"), QStringLiteral("整数与数值范围"), QStringLiteral("精度与限制"), QStringLiteral("数值与中间结果的限制"), QStringLiteral("最多支持 50 位有效数字，末尾用于表示数量级的零不占有效数字容量，例如 1000 只占 1 位。非零十进制数的科学计数法指数范围为 -999 至 999。每一步计算都要满足精度和范围限制，即使后续运算能抵消超限部分，也会先报错。十进制整数幂的指数绝对值最多 10000；负幂先算正幂再取倒数，因此 2^-200 会因中间正幂超过 50 位而失败。"), QStringLiteral("(1e16+1)-1e16 → 1；(1e50+1)-1e50 报精度超限"), QStringLiteral("精度 十进制 double binary64 来源 舍入 复制 负零 范围 下溢")},

@@ -1,17 +1,52 @@
 #include "calculation_history.h"
 #include "custom_formula.h"
+#include "programmer_engine.h"
+#include <algorithm>
 
 QString CalculationRecord::valueText() const
 {
     if (!result.ok) return {};
-    return result.value.text();
+    return programmer ? programmerValue.text() : result.value.text();
+}
+
+QString CalculationRecord::sourceText() const
+{
+    return result.ok ? (programmer ? programmerValue.sourceText() : result.value.sourceText()) : QString();
 }
 
 QString CalculationRecord::calculationText() const
 {
+    // 程序员完整文本由后续复用／导出任务接入，不能生成丢失配置的数学记录。
+    if (programmer) return {};
     if (!result.ok) return expression + QStringLiteral("\n无法计算：") + result.text;
     const QString sources = result.value.sourceText();
     return expression + QStringLiteral("\n= ") + valueText() + (sources.isEmpty() ? QString() : QLatin1Char('\n') + sources);
+}
+
+CalculationRecord CalculationHistory::calculateProgrammer(const QString &expression, ProgrammerConfig config)
+{
+    CalculationRecord record;
+    record.id = quint64(m_records.size()) + 1;
+    record.expression = expression;
+    record.programmer = true;
+    record.programmerConfig = config;
+    record.answerBefore = m_answer;
+    record.programmerAnswerBefore = m_programmerAnswer;
+    const auto result = ProgrammerEngine::evaluate(expression, config, m_programmerAnswer);
+    record.result.ok = result.ok;
+    record.result.text = result.text;
+    record.result.error = result.error;
+    record.result.errorPosition = result.errorPosition;
+    record.result.errorLength = result.errorLength;
+    record.programmerValue = result.value;
+    if (result.ok) m_programmerAnswer = result.value;
+    m_records.append(record);
+    return record;
+}
+
+bool CalculationHistory::hasProgrammerRecords() const
+{
+    return std::any_of(m_records.cbegin(), m_records.cend(), [](const CalculationRecord &record) { return record.programmer; });
 }
 
 QString CalculationRecord::insertionText() const
@@ -54,6 +89,7 @@ void CalculationHistory::clear()
 {
     m_records.clear();
     m_answer = NumericValue();
+    m_programmerAnswer = ProgrammerValue();
 }
 
 const CalculationRecord *CalculationHistory::record(quint64 id) const
@@ -67,6 +103,8 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
     quint64 nextId = 1;
     for (const auto &entry : records)
     {
+        // 当前文件格式仅支持数学记录；整数快照恢复在 version 4 中接入。
+        if (entry.programmer) return false;
         if (!entry.customDefinition.isEmpty())
         {
             CustomFormula formula;
@@ -95,5 +133,6 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
     for (auto &entry : m_records)
         if (entry.result.ok) entry.result.text = entry.result.value.text();
     m_answer = answer;
+    m_programmerAnswer = ProgrammerValue();
     return true;
 }

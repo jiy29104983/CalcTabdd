@@ -97,11 +97,13 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         RecordText#recordResult[error="false"] { font-size: @resultSize; font-weight: bold; }
         QDialog, QWidget#calctabddPage { background: @window; color: @text; }
         QLabel { color: @text; background: transparent; }
-        RecordText#recordFormula, RecordText#recordResult { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
+        RecordText#recordFormula, RecordText#recordResult, RecordText#recordHex,
+        RecordText#recordBin, RecordText#recordOct { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
         RecordText#recordSources { color: @muted; background: transparent; border: none; padding: 0; margin: 0; }
         QLabel#recordCount, QLabel#recordNumber, QLabel#inputHint, QLabel#customDefinitionHint,
         QLabel#emptyHistory, QLabel#helpMatchCount, QLabel#clearSessionDetails,
-        QLabel#sessionSaveStatus { color: @muted; }
+        QLabel#sessionSaveStatus, QLabel#programmerAvailabilityHint { color: @muted; }
+        QLabel#programmerHint { color: @text; font-weight: bold; }
         QLabel#sessionSaveStatus { border-bottom: 1px solid @border; }
         QLabel#sessionSaveStatus[error="true"] { color: @error; border-bottom-color: @errorBorder; }
         QLabel#recordCount { background: @hover; border-radius: 10px; padding: 3px 10px; font-size: @captionSize; }

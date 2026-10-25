@@ -47,6 +47,85 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void programmerRadixFormatting_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<bool>("maximumBits");
+        for (int width : {8, 16, 32, 64})
+            for (bool signedMode : {false, true})
+                for (bool maximumBits : {false, true})
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(width).arg(signedMode).arg(maximumBits)))
+                        << width << signedMode << maximumBits;
+    }
+    void programmerRadixFormatting()
+    {
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(bool, maximumBits);
+        const QString expression = maximumBits ? QStringLiteral("0x") + QString(width / 4, QLatin1Char('F')) : QStringLiteral("0");
+        const auto result = ProgrammerEngine::evaluate(expression, {width, signedMode});
+        QVERIFY(result.ok);
+        QCOMPARE(result.value.hexText(), QStringLiteral("0x") + QString(width / 4, maximumBits ? QLatin1Char('F') : QLatin1Char('0')));
+        const QString binary = result.value.binaryText();
+        QCOMPARE(binary.size(), width + width / 4 - 1);
+        const auto groups = binary.split(QLatin1Char(' '));
+        QCOMPARE(groups.size(), width / 4);
+        for (const auto &group : groups) QCOMPARE(group, maximumBits ? QStringLiteral("1111") : QStringLiteral("0000"));
+        // 显示值重新按原配置解析，检查补位及八进制位模式不受符号解释影响。
+        for (const auto &literal : {result.value.hexText(), result.value.octalText(),
+                                   QStringLiteral("0b") + QString(binary).remove(QLatin1Char(' '))})
+        {
+            const auto parsed = ProgrammerEngine::evaluate(literal, {width, signedMode});
+            QVERIFY(parsed.ok);
+            QCOMPARE(parsed.value, result.value);
+        }
+        if (maximumBits && signedMode) QCOMPARE(result.value.text(), QStringLiteral("-1"));
+        if (!maximumBits) QCOMPARE(result.value.octalText(), QStringLiteral("0o0"));
+    }
+    void programmerUiRecordSnapshotAndUnsupportedSerialization()
+    {
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("2^3"));
+        const auto first = session.history.calculateProgrammer(QStringLiteral("255+1"), {8, false});
+        const auto second = session.history.calculateProgrammer(QStringLiteral("ans+1"), {16, false});
+        session.history.calculateProgrammer(QStringLiteral("1/0"), {32, true});
+        QCOMPARE(first.valueText(), QStringLiteral("0"));
+        QCOMPARE(second.valueText(), QStringLiteral("1"));
+        QCOMPARE(second.sourceText(), QStringLiteral("含 8 位回绕"));
+        QCOMPARE(first.programmerValue.hexText(), QStringLiteral("0x00"));
+        QCOMPARE(second.programmerValue.hexText(), QStringLiteral("0x0001"));
+        QCOMPARE(session.history.answer().text(), QStringLiteral("8"));
+        QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("1"));
+        QCOMPARE(second.programmerAnswerBefore, first.programmerValue);
+        QVERIFY(SessionFormat::encode(session).isEmpty());
+        QVERIFY(CalculationExport::serialize(session.history.records(), CalculationExport::Format::Text).isEmpty());
+        QVERIFY(CalculationExport::serialize(session.history.records(), CalculationExport::Format::Markdown).isEmpty());
+        CalculationHistory math;
+        math.calculate(QStringLiteral("42"));
+        QVERIFY(!math.restoreRecords(session.history.records()));
+        QCOMPARE(math.answer().text(), QStringLiteral("42"));
+        session.history.clear();
+        QCOMPARE(session.history.answer().text(), QStringLiteral("0"));
+        QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("0"));
+        QVERIFY(!SessionFormat::encode(session).isEmpty());
+        session.programmerInput.programmer = true;
+        session.programmerInput.text = QStringLiteral("0xF+");
+        QVERIFY(SessionFormat::encode(session).isEmpty());
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("protected.calctabdd"));
+        CalculationSessionFile file;
+        CalculationSession blank;
+        QVERIFY(file.create(path, blank).isEmpty());
+        QFile read(path);
+        QVERIFY(read.open(QIODevice::ReadOnly));
+        const auto contents = read.readAll();
+        read.close();
+        QVERIFY(!file.save(session).isEmpty());
+        QVERIFY(read.open(QIODevice::ReadOnly));
+        QCOMPARE(read.readAll(), contents);
+    }
     void programmerReference_data()
     {
         QTest::addColumn<int>("width");

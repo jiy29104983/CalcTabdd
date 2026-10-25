@@ -99,6 +99,16 @@ QString readFile(const QString &path, QByteArray &bytes)
 
 QByteArray SessionFormat::encode(const CalculationSession &session)
 {
+    // 拒绝不完整快照，不能把整数记录误存成数学值或静默丢弃第三份草稿。
+    const auto integerState = [](const CalculationInputState &input) {
+        return input.programmer || input.programmerConfig != ProgrammerConfig();
+    };
+    if (session.history.hasProgrammerRecords() || integerState(session.input) || integerState(session.draft)
+        || integerState(session.normalInput) || integerState(session.customInput)
+        || integerState(session.programmerInput) || !session.programmerInput.text.isEmpty())
+        return {};
+    for (const auto &input : session.recalledInputs)
+        if (integerState(input)) return {};
     QJsonArray records;
     for (const auto &entry : session.history.records())
     {

@@ -7,6 +7,7 @@
 #include <QPointer>
 
 class QAction;
+class QComboBox;
 class QTimer;
 class FormulaCompletion;
 class QLabel;
@@ -26,6 +27,7 @@ public:
     ~CalculatorPage() override;
     QPlainTextEdit *input() const { return m_input; }
     const CalculationHistory &history() const { return m_history; }
+    bool programmerMode() const { return m_programmerMode && !m_defining; }
     void focusInput();
     void routeEdit(const QString &command);
 
@@ -49,13 +51,22 @@ private:
     void applyDefinition();
     void resetDefinitionEditor(const QString &text);
     bool hasPendingDefinition() const;
-    void switchMode(bool custom);
+    enum class Mode { Normal, Custom, Programmer };
+    void switchMode(Mode mode);
+    InputState &modeDraft();
+    ProgrammerConfig programmerConfig() const;
+    bool hasProgrammerState() const;
     void updateModeUi();
     void updateDefinitionStateUi();
     void updateRecordUi();
     QString m_definition;
     InputState m_normalInput;
     InputState m_customInput;
+    InputState m_programmerInput;
+    bool m_programmerMode = false;
+    QWidget *m_programmerPanel = nullptr;
+    QComboBox *m_bitWidth = nullptr;
+    QComboBox *m_integerType = nullptr;
     QWidget *m_definitionPanel = nullptr;
     QPlainTextEdit *m_definitionInput = nullptr;
     FormulaCompletion *m_definitionCompletion = nullptr;
@@ -70,8 +81,10 @@ private:
     QLabel *m_historyBadge = nullptr;
     QToolButton *m_normalModeButton = nullptr;
     QToolButton *m_customModeButton = nullptr;
+    QToolButton *m_programmerModeButton = nullptr;
     QAction *m_normalModeAction = nullptr;
     QAction *m_customModeAction = nullptr;
+    QAction *m_programmerModeAction = nullptr;
     CalculationSession captureSession() const;
     void restoreSession(const CalculationSession &session);
     void requestSessionFile(bool restore);

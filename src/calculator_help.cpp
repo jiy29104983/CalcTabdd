@@ -3,6 +3,7 @@
 #include "calculation_catalog.h"
 
 #include <QDialog>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -65,12 +66,13 @@ void present(QDialog *dialog)
 }
 }
 
-void showCalculatorHelp(QWidget *owner)
+void showCalculatorHelp(QWidget *owner, bool programmer)
 {
     if (!owner) return;
     auto *existing = owner->findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"), Qt::FindDirectChildrenOnly);
     if (existing)
     {
+        existing->findChild<QComboBox *>(QStringLiteral("helpMode"))->setCurrentIndex(programmer ? 1 : 0);
         present(existing);
         return;
     }
@@ -84,6 +86,13 @@ void showCalculatorHelp(QWidget *owner)
     auto *layout = new QVBoxLayout(dialog);
     layout->setContentsMargins(22, 18, 22, 18);
     layout->setSpacing(10);
+    auto *mode = new QComboBox(dialog);
+    mode->setObjectName(QStringLiteral("helpMode"));
+    mode->setAccessibleName(QStringLiteral("帮助模式"));
+    mode->addItem(QStringLiteral("普通／自定义计算"));
+    mode->addItem(QStringLiteral("程序员"));
+    mode->setCurrentIndex(programmer ? 1 : 0);
+    layout->addWidget(mode);
     auto *searchRow = new QHBoxLayout;
     searchRow->setSpacing(10);
     auto *search = new QLineEdit(dialog);
@@ -110,7 +119,7 @@ void showCalculatorHelp(QWidget *owner)
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     layout->addWidget(buttons);
     CalculatorStyle::prepareButton(buttons->button(QDialogButtonBox::Close));
-    const auto filter = [dialog, operations, precision, tabs, count](const QString &query) {
+    const auto filter = [dialog, mode, operations, precision, tabs, count](const QString &query) {
         const QPalette pal = CalculatorStyle::palette(dialog->palette());
         const QColor base = pal.color(QPalette::Base);
         const QColor text = pal.color(QPalette::Text);
@@ -125,7 +134,7 @@ void showCalculatorHelp(QWidget *owner)
         QString html[2];
         QString category[2];
         int matches[2] = {0, 0};
-        for (const auto &entry : CalculationCatalog::entries())
+        for (const auto &entry : CalculationCatalog::entries(mode->currentIndex() == 1))
         {
             if (!entry.matches(query)) continue;
             const int page = entry.kind == CalculationCatalog::Kind::Precision ? 1 : 0;
@@ -162,6 +171,10 @@ void showCalculatorHelp(QWidget *owner)
             tabs->setCurrentIndex(1 - tabs->currentIndex());
     };
     QObject::connect(search, &QLineEdit::textChanged, dialog, filter);
+    QObject::connect(mode, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [search, filter]() {
+        search->clear();
+        filter(search->text());
+    });
     dialog->setRefreshCallback([search, filter]() { filter(search->text()); });
     present(dialog);
     search->setFocus();

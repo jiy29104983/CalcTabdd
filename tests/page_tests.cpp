@@ -5,6 +5,7 @@
 #include "calculation_catalog.h"
 #include <QAbstractItemView>
 #include <QCompleter>
+#include <QComboBox>
 #include <QDialog>
 #include <QLineEdit>
 #include <QMenu>
@@ -99,6 +100,410 @@ class PageTests : public QObject
         return page.input()->isVisible() && page.findChild<QLabel *>(QStringLiteral("customDefinitionError"))->text().isEmpty();
     }
 private slots:
+    void programmerResultsAndFrozenDetails_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<QString>("expression");
+        QTest::addColumn<QString>("decimal");
+        QTest::addColumn<QString>("hex");
+        QTest::addColumn<QString>("binary");
+        QTest::addColumn<QString>("octal");
+        QTest::newRow("mask-shift") << 16 << false << QStringLiteral("(0x12 & 0x0F) << 4")
+            << QStringLiteral("32") << QStringLiteral("0x0020") << QStringLiteral("0000 0000 0010 0000") << QStringLiteral("0o40");
+        QTest::newRow("negative") << 8 << true << QStringLiteral("0xFF")
+            << QStringLiteral("-1") << QStringLiteral("0xFF") << QStringLiteral("1111 1111") << QStringLiteral("0o377");
+        QTest::newRow("zero") << 8 << false << QStringLiteral("0")
+            << QStringLiteral("0") << QStringLiteral("0x00") << QStringLiteral("0000 0000") << QStringLiteral("0o0");
+        QTest::newRow("max64") << 64 << false << QStringLiteral("0xFFFFFFFFFFFFFFFF")
+            << QStringLiteral("18446744073709551615") << QStringLiteral("0xFFFFFFFFFFFFFFFF")
+            << QStringLiteral("1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111 1111")
+            << QStringLiteral("0o1777777777777777777777");
+        QTest::newRow("min64") << 64 << true << QStringLiteral("-9223372036854775808")
+            << QStringLiteral("-9223372036854775808") << QStringLiteral("0x8000000000000000")
+            << QStringLiteral("1000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000")
+            << QStringLiteral("0o1000000000000000000000");
+    }
+    void programmerResultsAndFrozenDetails()
+    {
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(QString, expression);
+        QFETCH(QString, decimal);
+        QFETCH(QString, hex);
+        QFETCH(QString, binary);
+        QFETCH(QString, octal);
+        CalculatorPage page;
+        prepare(page, QString());
+        page.findChild<QToolButton *>(QStringLiteral("programmerModeButton"))->click();
+        auto *bits = page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        auto *type = page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+        QCOMPARE(bits->currentData().toInt(), 32);
+        QCOMPARE(type->currentData().toBool(), false);
+        bits->setCurrentIndex(bits->findData(width));
+        type->setCurrentIndex(signedMode ? 1 : 0);
+        page.input()->setPlainText(expression);
+        QTest::keyClick(page.input(), Qt::Key_Return);
+        QCOMPARE(page.input()->toPlainText(), expression);
+        QCOMPARE(page.history().count(), 0);
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().count(), 1);
+        QVERIFY(page.history().record(1)->programmer);
+        QVERIFY(page.history().record(1)->result.ok);
+        QCOMPARE(page.history().record(1)->valueText(), decimal);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("0"));
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordResult"))->toPlainText(), QStringLiteral("= ") + decimal);
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordHex"))->toPlainText(), QStringLiteral("HEX  ") + hex);
+        auto *details = page.findChild<QWidget *>(QStringLiteral("radixDetails"));
+        auto *toggle = page.findChild<QToolButton *>(QStringLiteral("toggleRadixDetails"));
+        QVERIFY(details->isHidden());
+        auto *badge = page.findChild<QLabel *>(QStringLiteral("recordModeBadge"));
+        const QString originalBadge = badge->text();
+        QVERIFY(originalBadge.contains(QStringLiteral("%1 位").arg(width)));
+        page.input()->setPlainText(QStringLiteral("1/0")); // 展开详情不得求值当前草稿。
+        bits->setCurrentIndex(bits->findData(width == 8 ? 64 : 8));
+        type->setCurrentIndex(signedMode ? 0 : 1);
+        toggle->setFocus();
+        QTest::keyClick(toggle, Qt::Key_Space);
+        QVERIFY(!details->isHidden());
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordBin"))->toPlainText(), QStringLiteral("BIN  ") + binary);
+        QCOMPARE(page.findChild<RecordText *>(QStringLiteral("recordOct"))->toPlainText(), QStringLiteral("OCT  ") + octal);
+        QCOMPARE(badge->text(), originalBadge);
+        QCOMPARE(page.history().count(), 1);
+        QCOMPARE(page.history().programmerAnswer().text(), decimal);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
+        QTest::keyClick(toggle, Qt::Key_Space);
+        QVERIFY(details->isHidden());
+        auto *value = page.findChild<RecordText *>(QStringLiteral("recordResult"));
+        value->setFocus();
+        value->selectAll();
+        page.routeEdit(QStringLiteral("actioncopy"));
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("= ") + decimal);
+    }
+    void programmerModeRecallAndErrors()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("2^3"));
+        page.submit();
+        QCOMPARE(page.history().answer().text(), QStringLiteral("8"));
+        page.input()->setPlainText(QStringLiteral("100+"));
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        page.input()->setPlainText(QStringLiteral("2^3"));
+        page.submit();
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("1"));
+        QCOMPARE(page.history().answer().text(), QStringLiteral("8"));
+        auto *bits = page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        bits->setCurrentIndex(0);
+        page.input()->setPlainText(QStringLiteral("255+1"));
+        page.submit();
+        QCOMPARE(page.findChildren<RecordText *>(QStringLiteral("recordSources")).last()->toPlainText(),
+                 QStringLiteral("含 8 位回绕"));
+        const auto answer = page.history().programmerAnswer();
+        page.input()->setPlainText(QStringLiteral("  1<<8"));
+        page.submit();
+        const auto &failed = page.history().records().last();
+        QVERIFY(!failed.result.ok);
+        QCOMPARE(page.history().programmerAnswer(), answer);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("  1<<8"));
+        const auto highlight = page.input()->extraSelections();
+        QCOMPARE(highlight.size(), 1);
+        QCOMPARE(highlight.first().cursor.selectionStart(), 2 + failed.result.errorPosition);
+        auto *card = page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).last();
+        QVERIFY(!card->findChild<QWidget *>(QStringLiteral("radixDetails")));
+        page.input()->setPlainText(QStringLiteral("12+34"));
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(1);
+        cursor.setPosition(4, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("100+"));
+        auto *second = page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).at(1);
+        second->findChild<QPushButton *>(QStringLiteral("reuseFormula"))->click();
+        QVERIFY(page.programmerMode());
+        QCOMPARE(bits->currentData().toInt(), 32);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("2^3"));
+        page.submit();
+        QVERIFY(!page.programmerMode());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("100+"));
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QCOMPARE(bits->currentData().toInt(), 8);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("12+34"));
+        QCOMPARE(page.input()->textCursor().position(), 4);
+        QCOMPARE(page.input()->textCursor().anchor(), 1);
+        const int count = page.history().count();
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+        QTRY_VERIFY(calculate->hasFocus());
+        QTest::keyClick(calculate, Qt::Key_Backtab);
+        QTRY_VERIFY(page.input()->hasFocus());
+        QTest::keyClick(page.input(), Qt::Key_Tab);
+        QTest::keyClick(calculate, Qt::Key_Space);
+        QCOMPARE(page.history().count(), count + 1);
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("46"));
+    }
+    void programmerCompletionTemplates_data()
+    {
+        QTest::addColumn<QString>("query");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<int>("key");
+        QTest::newRow("answer-enter") << QStringLiteral("@上次结果") << QStringLiteral("ans") << 3 << int(Qt::Key_Return);
+        QTest::newRow("complement-tab") << QStringLiteral("@取反") << QStringLiteral("~()") << 2 << int(Qt::Key_Tab);
+        QTest::newRow("and-after-value") << QStringLiteral("0xFF @按位与") << QStringLiteral("0xFF & ") << 7 << int(Qt::Key_Return);
+        QTest::newRow("logical-right") << QStringLiteral("0x80 @逻辑右移") << QStringLiteral("0x80 >>> ") << 9 << int(Qt::Key_Tab);
+    }
+    void programmerCompletionTemplates()
+    {
+        QFETCH(QString, query);
+        QFETCH(QString, expected);
+        QFETCH(int, position);
+        QFETCH(int, key);
+        CalculatorPage page;
+        prepare(page, QString());
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        page.input()->setPlainText(query);
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        page.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(page.history().count(), 0);
+        QCOMPARE(page.input()->toPlainText(), query);
+        QTest::keyClick(page.input(), Qt::Key(key));
+        QCOMPARE(page.input()->toPlainText(), expected);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.history().count(), 0);
+        page.input()->undo();
+        QCOMPARE(page.input()->toPlainText(), query);
+        page.input()->redo();
+        QCOMPARE(page.input()->toPlainText(), expected);
+    }
+    void programmerCompletionImeAndHelp()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        page.input()->setPlainText(QStringLiteral("@"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QCOMPARE(completion(page)->model()->rowCount(), 8);
+        QTest::keyClick(page.input(), Qt::Key_Escape);
+        QVERIFY(!completion(page)->isVisible());
+        page.submit();
+        QCOMPARE(page.history().count(), 0);
+        page.input()->setPlainText(QStringLiteral("@平方根"));
+        page.input()->moveCursor(QTextCursor::End);
+        QVERIFY(!completion(page)->isVisible());
+        page.input()->setPlainText(QStringLiteral("42"));
+        QInputMethodEvent preedit(QStringLiteral("中"), {});
+        QApplication::sendEvent(page.input(), &preedit);
+        page.submit();
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().count(), 0);
+        QVERIFY(!page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->isEnabled());
+        QVERIFY(!page.findChild<QToolButton *>(QStringLiteral("normalModeButton"))->isEnabled());
+        QInputMethodEvent end;
+        QApplication::sendEvent(page.input(), &end);
+        page.submit();
+        QCOMPARE(page.history().count(), 1);
+        page.findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+        auto *help = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QVERIFY(help);
+        auto *mode = help->findChild<QComboBox *>(QStringLiteral("helpMode"));
+        QCOMPARE(mode->currentIndex(), 1);
+        auto *search = help->findChild<QLineEdit *>(QStringLiteral("helpSearch"));
+        search->setText(QStringLiteral("^"));
+        auto *text = help->findChild<QTextBrowser *>(QStringLiteral("operationsHelp"));
+        QVERIFY(text->toPlainText().contains(QStringLiteral("按位异或")));
+        QVERIFY(!text->toPlainText().contains(QStringLiteral("pow(")));
+        mode->setCurrentIndex(0);
+        search->setText(QStringLiteral("乘方函数"));
+        QVERIFY(text->toPlainText().contains(QStringLiteral("pow(")));
+        help->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QVERIFY(!page.programmerMode());
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("answerBadge"))->text(), QStringLiteral("ans = 0"));
+        page.findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+        help = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QCOMPARE(help->findChild<QComboBox *>(QStringLiteral("helpMode"))->currentIndex(), 0);
+        help->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QTest::keyClick(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition")), Qt::Key_Escape);
+        QVERIFY(page.programmerMode());
+        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("answerBadge"))->text(), QStringLiteral("ans = 42"));
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        page.activateWindow();
+        page.focusInput();
+        QTRY_VERIFY(page.input()->hasFocus());
+        page.input()->setPlainText(QStringLiteral("@"));
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QCOMPARE(completion(page)->model()->rowCount(), 17);
+    }
+    void programmerPreviewProtectsMathFilesAndReuse()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("math.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        QVERIFY(selectSession(page, path, false));
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QVERIFY(!page.programmerMode());
+        QCOMPARE(readSession(path).history.answer().text(), QStringLiteral("42"));
+        page.findChild<QAction *>(QStringLiteral("stopSavingSession"))->trigger();
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray before = file.readAll();
+        file.close();
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        page.input()->setPlainText(QStringLiteral("0xFF"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("10+"));
+        page.findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+"));
+        page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("暂不支持导出")));
+        for (const auto *action : {"saveSessionAs", "restoreSession"})
+        {
+            page.findChild<QAction *>(QString::fromLatin1(action))->trigger();
+            QVERIFY(!page.findChild<QFileDialog *>());
+        }
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
+        QVERIFY(!page.findChild<QFileDialog *>());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), before);
+        QCOMPARE(page.history().count(), 2);
+    }
+    void programmerConstrainedLayouts_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<int>("height");
+        QTest::addColumn<int>("pointSize");
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("narrow-light") << 360 << 680 << 12 << false;
+        QTest::newRow("large-dark") << 480 << 680 << 18 << true;
+        QTest::newRow("wide-light") << 960 << 900 << 12 << false;
+        QTest::newRow("wide-dark") << 960 << 900 << 12 << true;
+    }
+    void programmerConstrainedLayouts()
+    {
+        QFETCH(int, width);
+        QFETCH(int, height);
+        QFETCH(int, pointSize);
+        QFETCH(bool, dark);
+        QWidget owner;
+        QFont font = owner.font();
+        font.setPointSize(pointSize);
+        owner.setFont(font);
+        owner.resize(width, height);
+        CalculatorPage page(&owner);
+        page.setGeometry(owner.rect());
+        QPalette colors = page.palette();
+        colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+        colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+        colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+        owner.show();
+        page.show();
+        page.setPalette(colors);
+        owner.activateWindow();
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        auto *bits = page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        bits->setCurrentIndex(3);
+        page.input()->setPlainText(QStringLiteral("0xFFFFFFFFFFFFFFFF"));
+        auto *composer = page.findChild<QScrollArea *>(QStringLiteral("formulaComposerScroll"));
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+        QTRY_VERIFY(([&]() {
+            composer->ensureWidgetVisible(calculate, 0, 0);
+            return page.childAt(calculate->mapTo(&page, calculate->rect().center())) == calculate;
+        })());
+        QTest::mouseClick(calculate, Qt::LeftButton);
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("18446744073709551615"));
+        auto *history = page.findChild<QScrollArea *>(QStringLiteral("calculationHistory"));
+        auto *toggle = page.findChild<QToolButton *>(QStringLiteral("toggleRadixDetails"));
+        QTRY_VERIFY(([&]() {
+            history->ensureWidgetVisible(toggle, 0, 0);
+            return page.childAt(toggle->mapTo(&page, toggle->rect().center())) == toggle;
+        })());
+        QTest::mouseClick(toggle, Qt::LeftButton);
+        auto *binary = page.findChild<RecordText *>(QStringLiteral("recordBin"));
+        QTRY_VERIFY(binary->height() >= binary->document()->size().height());
+        QCOMPARE(binary->toPlainText().remove(QLatin1Char(' ')), QStringLiteral("BIN") + QString(64, QLatin1Char('1')));
+        QTRY_COMPARE(history->horizontalScrollBar()->maximum(), 0);
+        QTRY_COMPARE(composer->horizontalScrollBar()->maximum(), 0);
+        for (const auto *name : {"normalModeButton", "customModeButton", "programmerModeButton",
+                                 "programmerBitWidth", "programmerIntegerType"})
+        {
+            auto *control = page.findChild<QWidget *>(QString::fromLatin1(name));
+            QVERIFY(control);
+            QTRY_VERIFY(control->width() >= control->minimumSizeHint().width());
+            QTRY_VERIFY(([&]() {
+                composer->ensureWidgetVisible(control, 0, 0);
+                const QRect bounds(control->mapTo(composer->viewport(), QPoint()), control->size());
+                return composer->viewport()->rect().contains(bounds);
+            })());
+        }
+        auto *card = page.findChild<QFrame *>(QStringLiteral("calculationRecord"));
+        composer->verticalScrollBar()->setValue(0);
+        history->verticalScrollBar()->setValue(0);
+        // 样式、换行及滚动条会排队更新布局；验收最终尺寸，不截取中间帧。
+        QTRY_VERIFY(([&]() {
+            QCoreApplication::processEvents();
+            auto *panel = page.findChild<QWidget *>(QStringLiteral("programmerPanel"));
+            auto *hint = page.findChild<QLabel *>(QStringLiteral("programmerHint"));
+            auto *availability = page.findChild<QLabel *>(QStringLiteral("programmerAvailabilityHint"));
+            auto *inputHint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
+            auto *body = composer->widget();
+            auto *type = page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+            const int settingsBottom = qMax(bits->mapTo(panel, QPoint(0, bits->height())).y(),
+                                           type->mapTo(panel, QPoint(0, type->height())).y());
+            if (hint->y() < settingsBottom || availability->y() < hint->geometry().bottom()
+                || panel->height() < availability->geometry().bottom()
+                || page.input()->y() < panel->geometry().bottom()
+                || inputHint->y() < page.input()->geometry().bottom()
+                || calculate->y() < inputHint->geometry().bottom()
+                || body->height() < calculate->geometry().bottom()) return false;
+            for (auto *text : card->findChildren<RecordText *>())
+            {
+                if (text->isHidden()) continue;
+                if (qAbs(text->height() - text->document()->size().height()) > 2 * text->frameWidth() + 2)
+                    return false;
+                if (text->document()->textWidth() < text->viewport()->width() - 2) return false;
+            }
+            return true;
+        })());
+        QTRY_VERIFY(([&]() {
+            int bottom = 0;
+            for (const auto *name : {"recordNumber", "recordModeBadge", "reuseFormula"})
+            {
+                auto *control = card->findChild<QWidget *>(QString::fromLatin1(name));
+                bottom = qMax(bottom, control->mapTo(card, QPoint(0, control->height())).y());
+            }
+            const int top = card->findChild<RecordText *>(QStringLiteral("recordFormula"))->mapTo(card, QPoint()).y();
+            return top >= bottom && top - bottom <= 12;
+        })());
+        QTRY_VERIFY(([&]() {
+            int bottom = 0;
+            for (const auto *name : {"recordFormula", "recordResult", "recordHex", "recordBin", "recordOct"})
+            {
+                auto *text = card->findChild<RecordText *>(QString::fromLatin1(name));
+                const int top = text->mapTo(card, QPoint()).y();
+                if (top < bottom || text->viewport()->height() < text->document()->size().height()) return false;
+                bottom = top + text->height();
+            }
+            return bottom <= card->height();
+        })());
+        QVERIFY(page.styleSheet().contains(dark ? QStringLiteral("#202329") : QStringLiteral("#f0f0f0")));
+        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QVERIFY(page.grab().save(directory + QStringLiteral("/programmer-%1.png").arg(QString::fromLatin1(QTest::currentDataTag()))));
+        }
+    }
     void refactoredControlsFitNarrowPage_data()
     {
         QTest::addColumn<int>("pointSize");

@@ -16,6 +16,9 @@ struct CalculationInputState
     QString customDefinition;
     // 未确认的定义仅在窗口内随模式／历史草稿保留；文件仍只保存已确认定义。
     QString definitionDraft = {};
+    // 程序员状态目前仅在窗口内保存，不写入 version 3。
+    bool programmer = false;
+    ProgrammerConfig programmerConfig = {};
 };
 
 struct CalculationSession
@@ -25,6 +28,7 @@ struct CalculationSession
     CalculationInputState draft;
     CalculationInputState normalInput;
     CalculationInputState customInput;
+    CalculationInputState programmerInput;
     int historyPosition = -1;
     QMap<quint64, CalculationInputState> recalledInputs;
 };

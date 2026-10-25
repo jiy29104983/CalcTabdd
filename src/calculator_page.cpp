@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
 #include <QFontDatabase>
 #include <QFontMetrics>
 #include <QFileDialog>
@@ -287,7 +288,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     auto *help = new QPushButton(QStringLiteral("帮助"), this);
     help->setObjectName(QStringLiteral("helpButton"));
     help->setToolTip(QStringLiteral("查看全部运算、函数、常量与精度限制"));
-    connect(help, &QPushButton::clicked, this, [this]() { showCalculatorHelp(window()); });
+    connect(help, &QPushButton::clicked, this, [this]() { showCalculatorHelp(window(), programmerMode()); });
     toolbar->addWidget(help);
     layout->addWidget(headerPanel);
     m_sessionStatus = new QLabel(this);
@@ -312,7 +313,8 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
         "开始一次计算\n"
         "· 普通算式：在下方输入如 (128 + 256) / 3，按 Ctrl+Enter 查看结果\n"
         "· 函数与历史：输入 @ 查找函数与常量，按 Alt+↑ / Alt+↓ 召回历史\n"
-        "· 自定义公式：切换模式后输入如 S=w*h 按 Enter 应用，逐行填参数计算"), history);
+        "· 自定义公式：切换模式后输入如 S=w*h 按 Enter 应用，逐行填参数计算\n"
+        "· 程序员：选择位宽和符号，输入如 (0x12 & 0x0F) << 4"), history);
     m_empty->setObjectName(QStringLiteral("emptyHistory"));
     m_empty->setAlignment(Qt::AlignCenter);
     m_empty->setWordWrap(true);
@@ -346,15 +348,20 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_normalModeAction = new QAction(QStringLiteral("普通计算模式"), this);
     m_normalModeAction->setObjectName(QStringLiteral("normalCalculationMode"));
     m_normalModeAction->setCheckable(true);
-    connect(m_normalModeAction, &QAction::triggered, this, [this]() { switchMode(false); });
+    connect(m_normalModeAction, &QAction::triggered, this, [this]() { switchMode(Mode::Normal); });
     m_customModeAction = new QAction(QStringLiteral("自定义公式模式"), this);
     m_customModeAction->setObjectName(QStringLiteral("customCalculationMode"));
     m_customModeAction->setCheckable(true);
-    connect(m_customModeAction, &QAction::triggered, this, [this]() { switchMode(true); });
+    connect(m_customModeAction, &QAction::triggered, this, [this]() { switchMode(Mode::Custom); });
+    m_programmerModeAction = new QAction(QStringLiteral("程序员模式"), this);
+    m_programmerModeAction->setObjectName(QStringLiteral("programmerCalculationMode"));
+    m_programmerModeAction->setCheckable(true);
+    connect(m_programmerModeAction, &QAction::triggered, this, [this]() { switchMode(Mode::Programmer); });
 
     auto *modeSwitcher = new QFrame(composer);
     modeSwitcher->setObjectName(QStringLiteral("modeSwitcher"));
-    auto *modeLayout = new QHBoxLayout(modeSwitcher);
+    auto *modeLayout = new ButtonFlowLayout;
+    modeSwitcher->setLayout(modeLayout);
     modeLayout->setContentsMargins(2, 2, 2, 2);
     modeLayout->setSpacing(2);
     m_normalModeButton = new QToolButton(modeSwitcher);
@@ -377,9 +384,63 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     connect(m_customModeButton, &QToolButton::clicked, m_customModeAction, &QAction::trigger);
     modeLayout->addWidget(m_normalModeButton);
     modeLayout->addWidget(m_customModeButton);
-    inputHeading->addWidget(modeSwitcher);
+    m_programmerModeButton = new QToolButton(modeSwitcher);
+    m_programmerModeButton->setObjectName(QStringLiteral("programmerModeButton"));
+    m_programmerModeButton->setText(QStringLiteral("程序员"));
+    m_programmerModeButton->setCheckable(true);
+    m_programmerModeButton->setFocusPolicy(Qt::TabFocus);
+    m_programmerModeButton->setProperty("modeSegment", true);
+    m_programmerModeButton->setProperty("compact", true);
+    m_programmerModeButton->setToolTip(QStringLiteral("固定宽度整数与位运算"));
+    connect(m_programmerModeButton, &QToolButton::clicked, m_programmerModeAction, &QAction::trigger);
+    modeLayout->addWidget(m_programmerModeButton);
     composeLayout->addLayout(inputHeading);
+    composeLayout->addWidget(modeSwitcher);
     composeLayout->addWidget(m_historyBadge);
+
+    m_programmerPanel = new QWidget(composer);
+    m_programmerPanel->setObjectName(QStringLiteral("programmerPanel"));
+    auto *programmerLayout = new QVBoxLayout(m_programmerPanel);
+    programmerLayout->setContentsMargins(0, 0, 0, 0);
+    programmerLayout->setSpacing(6);
+    auto *settings = new ButtonFlowLayout;
+    const auto setting = [this, settings](const QString &labelText, const QString &name) {
+        auto *group = new QWidget(m_programmerPanel);
+        auto *row = new QHBoxLayout(group);
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(6);
+        auto *label = new QLabel(labelText, group);
+        auto *combo = new QComboBox(group);
+        combo->setObjectName(name);
+        combo->setAccessibleName(labelText);
+        label->setBuddy(combo);
+        row->addWidget(label);
+        row->addWidget(combo);
+        settings->addWidget(group);
+        return combo;
+    };
+    m_bitWidth = setting(QStringLiteral("位宽"), QStringLiteral("programmerBitWidth"));
+    for (int bits : {8, 16, 32, 64}) m_bitWidth->addItem(QStringLiteral("%1 位").arg(bits), bits);
+    m_bitWidth->setCurrentIndex(2);
+    m_integerType = setting(QStringLiteral("类型"), QStringLiteral("programmerIntegerType"));
+    m_integerType->addItem(QStringLiteral("无符号"), false);
+    m_integerType->addItem(QStringLiteral("有符号"), true);
+    programmerLayout->addLayout(settings);
+    auto *integerHint = new QLabel(QStringLiteral("整数运算 · ^ 为异或"), m_programmerPanel);
+    integerHint->setObjectName(QStringLiteral("programmerHint"));
+    integerHint->setWordWrap(true);
+    programmerLayout->addWidget(integerHint);
+    auto *previewHint = new QLabel(QStringLiteral("程序员会话暂不支持保存、导出及结果插入；关闭标签后不保留。"), m_programmerPanel);
+    previewHint->setObjectName(QStringLiteral("programmerAvailabilityHint"));
+    previewHint->setWordWrap(true);
+    programmerLayout->addWidget(previewHint);
+    composeLayout->addWidget(m_programmerPanel);
+    const auto configChanged = [this]() {
+        clearInputError();
+        m_status->setText(QStringLiteral("设置已更新 · Ctrl+Enter 按新设置计算；已有结果保持原配置"));
+    };
+    connect(m_bitWidth, QOverload<int>::of(&QComboBox::currentIndexChanged), this, configChanged);
+    connect(m_integerType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, configChanged);
 
     m_definitionPanel = new QWidget(composer);
     m_definitionPanel->setObjectName(QStringLiteral("customDefinitionPanel"));
@@ -510,7 +571,10 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     setTabOrder(m_input, calculate);
     setTabOrder(calculate, m_normalModeButton);
     setTabOrder(m_normalModeButton, m_customModeButton);
-    setTabOrder(m_customModeButton, m_applyDefinitionButton);
+    setTabOrder(m_customModeButton, m_programmerModeButton);
+    setTabOrder(m_programmerModeButton, m_bitWidth);
+    setTabOrder(m_bitWidth, m_integerType);
+    setTabOrder(m_integerType, m_applyDefinitionButton);
     setTabOrder(m_applyDefinitionButton, m_definitionInput);
     updateModeUi();
     updateRecordUi();
@@ -552,12 +616,12 @@ void CalculatorPage::submit()
     }
     if (!customMode() && expression.contains(QLatin1Char('@')))
     {
-        m_status->setText(QStringLiteral("请先完成 @ 函数或常量补全，或删除 @ 查询后再计算"));
+        m_status->setText(QStringLiteral("请先完成 @ 补全，或删除 @ 查询后再计算"));
         focusInput();
         return;
     }
     QString validationError;
-    const CalculationRecord entry = customMode()
+    const CalculationRecord entry = programmerMode() ? m_history.calculateProgrammer(expression, programmerConfig()) : customMode()
         ? m_history.calculateCustom(m_definition, inputText, validationError) : m_history.calculate(expression);
     if (!validationError.isEmpty())
     {
@@ -651,6 +715,11 @@ void CalculatorPage::applyErrorHighlight()
 void CalculatorPage::requestExport(CalculationExport::Format format)
 {
     if (busy() || m_history.count() == 0) return;
+    if (m_history.hasProgrammerRecords())
+    {
+        m_status->setText(QStringLiteral("含程序员记录的会话暂不支持导出，记录仍保留在当前标签。"));
+        return;
+    }
     const bool markdown = format == CalculationExport::Format::Markdown;
     const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
     // 使用可随页面关闭的异步 Qt 对话框。覆盖确认也使用 Qt 控件，保持相同生命周期。
@@ -787,9 +856,9 @@ void CalculatorPage::clearSession()
 void CalculatorPage::updateRecordUi()
 {
     m_count->setText(QStringLiteral("%1 条记录").arg(m_history.count()));
-    const QString ansText = m_history.answer().text();
+    const QString ansText = programmerMode() ? m_history.programmerAnswer().text() : m_history.answer().text();
     m_answerBadge->setFullText(QStringLiteral("ans = %1").arg(ansText));
-    const QString ansSource = m_history.answer().sourceText();
+    const QString ansSource = programmerMode() ? m_history.programmerAnswer().sourceText() : m_history.answer().sourceText();
     m_answerBadge->setToolTip(ansSource.isEmpty()
         ? QStringLiteral("上次成功结果：ans = %1").arg(ansText)
         : QStringLiteral("上次成功结果：ans = %1\n%2").arg(ansText, ansSource));
@@ -798,6 +867,9 @@ void CalculatorPage::updateRecordUi()
     m_sessionButton->setEnabled(available);
     m_normalModeButton->setEnabled(available);
     m_customModeButton->setEnabled(available);
+    m_programmerModeButton->setEnabled(available);
+    m_bitWidth->setEnabled(available);
+    m_integerType->setEnabled(available);
     m_applyDefinitionButton->setEnabled(available);
     m_clearButton->setEnabled(hasRecords && available);
     m_exportButton->setEnabled(hasRecords && available);
@@ -824,9 +896,13 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     auto *number = new QLabel(QStringLiteral("%1").arg(entry.id, 2, 10, QLatin1Char('0')), record);
     number->setObjectName(QStringLiteral("recordNumber"));
     topBar->addWidget(number);
-    if (!entry.customDefinition.isEmpty())
+    if (entry.programmer || !entry.customDefinition.isEmpty())
     {
-        auto *modeBadge = new QLabel(QStringLiteral("自定义公式"), record);
+        const QString label = entry.programmer ? QStringLiteral("程序员 · %1 位 · %2")
+            .arg(entry.programmerConfig.bitWidth)
+            .arg(entry.programmerConfig.isSigned ? QStringLiteral("有符号") : QStringLiteral("无符号"))
+            : QStringLiteral("自定义公式");
+        auto *modeBadge = new QLabel(label, record);
         modeBadge->setObjectName(QStringLiteral("recordModeBadge"));
         topBar->addWidget(modeBadge);
     }
@@ -853,17 +929,20 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     more->setProperty("calculatorMenu", true);
     auto *menu = new QMenu(more);
     more->setMenu(menu);
-    if (result.ok)
+    if (result.ok && !entry.programmer)
     {
         auto *copyValue = menu->addAction(QStringLiteral("复制纯数值"));
         copyValue->setObjectName(QStringLiteral("copyValue"));
         copyValue->setToolTip(QStringLiteral("复制完整数值文本；重新输入作为新十进制数字，不保留原类型和计算来源"));
         connect(copyValue, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, true); });
     }
-    auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
-    copyCalculation->setObjectName(QStringLiteral("copyCalculation"));
-    connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
-    if (result.ok)
+    if (!entry.programmer)
+    {
+        auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
+        copyCalculation->setObjectName(QStringLiteral("copyCalculation"));
+        connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
+    }
+    if (result.ok && !entry.programmer)
     {
         auto *insert = menu->addAction(QStringLiteral("插入结果数值"));
         insert->setObjectName(QStringLiteral("insertResult"));
@@ -872,6 +951,7 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     }
     topBar->addWidget(reuse);
     topBar->addWidget(more);
+    more->setVisible(!entry.programmer);
     cardLayout->addLayout(topBar);
 
     auto *values = new QVBoxLayout;
@@ -904,11 +984,47 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     }
     value->setFont(resultFont);
     values->addWidget(value);
-    if (result.ok && result.value.sources())
+    if (result.ok && !entry.sourceText().isEmpty())
     {
-        auto *sources = new RecordText(result.value.sourceText(), record);
+        auto *sources = new RecordText(entry.sourceText(), record);
         sources->setObjectName(QStringLiteral("recordSources"));
         values->addWidget(sources);
+    }
+    if (entry.programmer && result.ok)
+    {
+        auto *hex = new RecordText(QStringLiteral("HEX  ") + entry.programmerValue.hexText(), record);
+        hex->setObjectName(QStringLiteral("recordHex"));
+        hex->setFont(m_input->font());
+        values->addWidget(hex);
+        auto *toggle = new QToolButton(record);
+        toggle->setObjectName(QStringLiteral("toggleRadixDetails"));
+        toggle->setText(QStringLiteral("展开进制详情"));
+        toggle->setCheckable(true);
+        toggle->setFocusPolicy(Qt::TabFocus);
+        toggle->setProperty("role", QStringLiteral("quiet"));
+        toggle->setProperty("compact", true);
+        values->addWidget(toggle, 0, Qt::AlignLeft);
+        auto *details = new QWidget(record);
+        details->setObjectName(QStringLiteral("radixDetails"));
+        auto *detailsLayout = new QVBoxLayout(details);
+        detailsLayout->setContentsMargins(0, 0, 0, 0);
+        detailsLayout->setSpacing(4);
+        auto *bin = new RecordText(QStringLiteral("BIN  ") + entry.programmerValue.binaryText(), details);
+        bin->setObjectName(QStringLiteral("recordBin"));
+        bin->setFont(m_input->font());
+        detailsLayout->addWidget(bin);
+        auto *oct = new RecordText(QStringLiteral("OCT  ") + entry.programmerValue.octalText(), details);
+        oct->setObjectName(QStringLiteral("recordOct"));
+        oct->setFont(m_input->font());
+        detailsLayout->addWidget(oct);
+        values->addWidget(details);
+        details->hide();
+        connect(toggle, &QToolButton::toggled, details, [this, details, toggle](bool expanded) {
+            m_followLatest = false;
+            details->setVisible(expanded);
+            toggle->setText(expanded ? QStringLiteral("收起进制详情") : QStringLiteral("展开进制详情"));
+        });
+        CalculatorStyle::prepareButton(toggle);
     }
     cardLayout->addLayout(values);
 
@@ -923,13 +1039,21 @@ CalculatorPage::InputState CalculatorPage::captureInput() const
 {
     const QTextCursor cursor = m_input->textCursor();
     return {m_input->toPlainText(), cursor.position(), cursor.anchor(), m_definition,
-            customMode() ? m_definitionInput->toPlainText() : QString()};
+            customMode() ? m_definitionInput->toPlainText() : QString(),
+            m_programmerMode, m_programmerMode ? programmerConfig() : ProgrammerConfig()};
 }
 
 void CalculatorPage::restoreInput(const InputState &state)
 {
     m_definition = state.customDefinition;
+    m_programmerMode = state.programmer;
     m_defining = false;
+    if (programmerMode())
+    {
+        const QSignalBlocker widthBlocker(m_bitWidth), typeBlocker(m_integerType);
+        m_bitWidth->setCurrentIndex(m_bitWidth->findData(state.programmerConfig.bitWidth));
+        m_integerType->setCurrentIndex(state.programmerConfig.isSigned ? 1 : 0);
+    }
     resetDefinitionEditor(state.definitionDraft.isNull() ? m_definition : state.definitionDraft);
     updateModeUi();
     m_input->setPlainText(state.text);
@@ -948,13 +1072,14 @@ void CalculatorPage::showHistory(int position)
     if (m_historyPosition < 0)
     {
         m_draft = captureInput();
-        (customMode() ? m_customInput : m_normalInput) = m_draft;
+        modeDraft() = m_draft;
     }
     else m_recalledInputs.insert(records.at(m_historyPosition).id, captureInput());
     m_historyPosition = position;
     const auto &entry = records.at(position);
     const QString text = entry.customDefinition.isEmpty() ? entry.expression : entry.parameterInput;
-    const InputState initial{text, text.size(), text.size(), entry.customDefinition};
+    const InputState initial{text, text.size(), text.size(), entry.customDefinition, {},
+                             entry.programmer, entry.programmerConfig};
     restoreInput(m_recalledInputs.value(entry.id, initial));
     m_status->setText(QStringLiteral("已召回第 %1 条公式 · Alt+↑↓ 浏览，向后越过最新记录返回草稿").arg(entry.id));
     // 仅对未修改的错误公式使用历史诊断，已有临时编辑须重新提交才能定位。
@@ -997,7 +1122,7 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
 {
     if (m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
-    if (!entry || (valueOnly && !entry->result.ok)) return;
+    if (!entry || entry->programmer || (valueOnly && !entry->result.ok)) return;
     QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
     m_status->setText(!valueOnly ? QStringLiteral("已复制公式、结果与来源说明")
         : entry->result.value.sources() ? QStringLiteral("已复制数值文本；重新输入按新数字处理，不保留原计算来源")
@@ -1010,6 +1135,11 @@ void CalculatorPage::insertResult(quint64 id)
     if (dialogOpen()) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
+    if (programmerMode() || entry->programmer)
+    {
+        m_status->setText(QStringLiteral("程序员结果插入尚未开放，请在输入区输入整数。"));
+        return;
+    }
     if (m_composing)
     {
         m_status->setText(QStringLiteral("请先完成输入法组词，再插入结果数值"));
@@ -1219,8 +1349,9 @@ CalculationSession CalculatorPage::captureSession() const
     session.input = captureInput();
     session.normalInput = m_normalInput;
     session.customInput = m_customInput;
+    session.programmerInput = m_programmerInput;
     if (m_historyPosition < 0)
-        (customMode() ? session.customInput : session.normalInput) = session.input;
+        (programmerMode() ? session.programmerInput : customMode() ? session.customInput : session.normalInput) = session.input;
     session.historyPosition = m_historyPosition;
     if (m_historyPosition >= 0)
     {
@@ -1278,6 +1409,11 @@ bool CalculatorPage::saveSession()
 {
     m_saveTimer->stop();
     if (!m_sessionFile) return true;
+    if (hasProgrammerState())
+    {
+        updateSessionStatus(QStringLiteral("程序员会话暂不支持保存，当前文件未修改。"));
+        return false;
+    }
     const QString error = m_sessionFile->save(captureSession());
     m_sessionDirty = !error.isEmpty();
     updateSessionStatus(error.isEmpty() ? QString() : QStringLiteral("保存失败：%1").arg(error));
@@ -1296,6 +1432,11 @@ void CalculatorPage::stopSaving()
 void CalculatorPage::requestSessionFile(bool restore)
 {
     if (busy()) return;
+    if (hasProgrammerState())
+    {
+        updateSessionStatus(QStringLiteral("程序员会话暂不支持保存或恢复，请在新的空白计算器中使用数学会话文件。"));
+        return;
+    }
     if (restore && (m_history.count() > 0 || !m_input->toPlainText().isEmpty() || m_sessionFile
         || !m_customInput.customDefinition.isEmpty() || customMode() || hasPendingDefinition() || !m_normalInput.text.isEmpty()))
     {
@@ -1347,15 +1488,20 @@ void CalculatorPage::updateDefinitionStateUi()
 void CalculatorPage::updateModeUi()
 {
     const bool custom = customMode() || m_defining;
-    m_normalModeAction->setChecked(!custom);
+    const bool programmer = programmerMode();
+    m_normalModeAction->setChecked(!custom && !programmer);
     m_customModeAction->setChecked(custom);
-    m_normalModeButton->setChecked(!custom);
+    m_normalModeButton->setChecked(!custom && !programmer);
     m_customModeButton->setChecked(custom);
+    m_programmerModeAction->setChecked(programmer);
+    m_programmerModeButton->setChecked(programmer);
+    m_programmerPanel->setVisible(programmer);
     m_inputLabel->setText(m_defining ? QStringLiteral("定义公式")
-        : custom ? QStringLiteral("填写参数") : QStringLiteral("输入公式"));
+        : custom ? QStringLiteral("填写参数") : programmer ? QStringLiteral("输入整数表达式") : QStringLiteral("输入公式"));
     m_input->setAccessibleName(m_defining ? QStringLiteral("定义公式")
-        : custom ? QStringLiteral("填写参数") : QStringLiteral("输入公式"));
-    m_input->setPlaceholderText(custom ? QStringLiteral("每行填写 名称=数字；无参数时可直接确认计算") : QStringLiteral("例如 (128 + 256) / 3"));
+        : custom ? QStringLiteral("填写参数") : programmer ? QStringLiteral("输入整数表达式") : QStringLiteral("输入公式"));
+    m_input->setPlaceholderText(custom ? QStringLiteral("每行填写 名称=数字；无参数时可直接确认计算")
+        : programmer ? QStringLiteral("例如 (0x12 & 0x0F) << 4") : QStringLiteral("例如 (128 + 256) / 3"));
     m_definitionPanel->setVisible(custom);
     m_definitionInput->setVisible(custom);
     m_definitionHint->setVisible(custom);
@@ -1366,6 +1512,7 @@ void CalculatorPage::updateModeUi()
     m_input->setVisible(showParams);
     m_definitionCompletion->setEnabled(custom);
     m_completion->setEnabled(!custom);
+    m_completion->setProgrammerMode(programmer);
     CustomFormula formula;
     const bool validFormula = custom && CustomFormula::parse(m_definition, formula).isEmpty();
     const int rows = validFormula ? qBound(3, formula.parameters().size(), 6) : 0;
@@ -1395,14 +1542,40 @@ void CalculatorPage::updateModeUi()
     updateDefinitionStateUi();
     findChild<QLabel *>(QStringLiteral("inputHint"))->setText(custom
         ? QStringLiteral("每行一个参数 · Enter 换行 · Alt+↑↓ 召回历史／返回草稿")
+        : programmer ? QStringLiteral("@ 补全位运算 · Alt+↑↓ 召回历史／返回草稿 · ans 整数上次结果")
         : QStringLiteral("@ 补全函数 · Alt+↑↓ 召回历史／返回草稿 · ans 上次结果"));
+    updateRecordUi();
 }
 
-void CalculatorPage::switchMode(bool custom)
+CalculatorPage::InputState &CalculatorPage::modeDraft()
+{
+    return m_programmerMode ? m_programmerInput : customMode() ? m_customInput : m_normalInput;
+}
+
+ProgrammerConfig CalculatorPage::programmerConfig() const
+{
+    return {m_bitWidth->currentData().toInt(), m_integerType->currentData().toBool()};
+}
+
+bool CalculatorPage::hasProgrammerState() const
+{
+    return m_programmerMode || m_programmerInput.programmer || m_history.hasProgrammerRecords()
+        || m_draft.programmer;
+}
+
+void CalculatorPage::switchMode(Mode mode)
 {
     if (busy()) return;
+    const bool custom = mode == Mode::Custom;
+    const bool programmer = mode == Mode::Programmer;
+    if (programmer && m_sessionFile)
+    {
+        updateModeUi();
+        m_status->setText(QStringLiteral("请先停止本地保存，再使用程序员模式；当前文件仅支持普通／自定义会话。"));
+        return;
+    }
     if (!custom) m_defining = false;
-    if (custom == customMode() && m_historyPosition < 0)
+    if (custom == customMode() && programmer == programmerMode() && m_historyPosition < 0)
     {
         updateModeUi();
         focusInput();
@@ -1419,9 +1592,11 @@ void CalculatorPage::switchMode(bool custom)
     }
     // 手动切换结束历史浏览，先恢复其原草稿，再切换到另一份模式草稿。
     if (m_historyPosition >= 0) restoreDraft();
-    (customMode() ? m_customInput : m_normalInput) = captureInput();
-    restoreInput(custom ? m_customInput : m_normalInput);
-    m_status->setText(custom ? QStringLiteral("自定义公式模式 · 填写参数后按 Ctrl+Enter 计算")
+    modeDraft() = captureInput();
+    if (programmer) m_programmerInput.programmer = true;
+    restoreInput(programmer ? m_programmerInput : custom ? m_customInput : m_normalInput);
+    m_status->setText(programmer ? QStringLiteral("程序员模式 · Ctrl+Enter 计算 · Enter 不换行")
+        : custom ? QStringLiteral("自定义公式模式 · 填写参数后按 Ctrl+Enter 计算")
                              : QStringLiteral("普通计算模式 · Ctrl+Enter 计算"));
     scheduleSave();
 }
@@ -1458,7 +1633,7 @@ void CalculatorPage::applyDefinition()
     // 仅确认后替换定义；同名参数保留原文，无效编辑不能触发旧公式计算。
     const InputState previous = customMode() ? captureInput() : m_customInput;
     if (m_historyPosition >= 0) restoreDraft();
-    (customMode() ? m_customInput : m_normalInput) = captureInput();
+    modeDraft() = captureInput();
     const QString input = formula.parameterTemplate(previous.text);
     const int position = input.isEmpty() ? 0 : input.indexOf(QLatin1Char('=')) + 1;
     m_customInput = {input, position, position, formula.definition()};

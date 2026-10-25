@@ -1,7 +1,23 @@
 #include "programmer_value.h"
-
 #include <QStringList>
 #include <limits>
+
+QString ProgrammerValue::hexText() const
+{
+    return QStringLiteral("0x") + QString::number(m_bits, 16).toUpper().rightJustified(m_config.bitWidth / 4, QLatin1Char('0'));
+}
+
+QString ProgrammerValue::binaryText() const
+{
+    QString text = QString::number(m_bits, 2).rightJustified(m_config.bitWidth, QLatin1Char('0'));
+    for (int i = text.size() - 4; i > 0; i -= 4) text.insert(i, QLatin1Char(' '));
+    return text;
+}
+
+QString ProgrammerValue::octalText() const
+{
+    return QStringLiteral("0o") + QString::number(m_bits, 8);
+}
 
 bool ProgrammerConfig::isValid() const
 {

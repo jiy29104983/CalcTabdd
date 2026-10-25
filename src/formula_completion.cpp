@@ -18,6 +18,7 @@
 
 namespace {
 constexpr int EntryRole = Qt::UserRole + 1;
+constexpr int ProgrammerRole = Qt::UserRole + 2;
 bool isQueryCharacter(QChar ch) { return ch.isLetterOrNumber() || ch == QLatin1Char('_'); }
 
 QColor mix(const QColor &a, const QColor &b, int percentB)
@@ -40,7 +41,7 @@ public:
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
-        const auto &entries = CalculationCatalog::entries();
+        const auto &entries = CalculationCatalog::entries(index.data(ProgrammerRole).toBool());
         const int entryIndex = index.data(EntryRole).toInt();
         if (entryIndex < 0 || entryIndex >= entries.size())
         {
@@ -149,7 +150,7 @@ FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
     connect(m_completer, QOverload<const QModelIndex &>::of(&QCompleter::highlighted), this,
             [this](const QModelIndex &index) {
         if (!index.isValid()) return;
-        const auto &entry = CalculationCatalog::entries().at(index.data(EntryRole).toInt());
+        const auto &entry = CalculationCatalog::entries(m_programmer).at(index.data(EntryRole).toInt());
         emit hintChanged(entry.signature + QStringLiteral(" · ") + entry.description + QStringLiteral(" 示例：") + entry.example);
     });
 }
@@ -166,7 +167,7 @@ FormulaCompletion::Token FormulaCompletion::tokenAtCursor() const
     --start;
     int previous = start - 1;
     while (previous >= 0 && text.at(previous).isSpace()) --previous;
-    if (previous >= 0 && !QStringLiteral("(,+-*/%^×÷−").contains(text.at(previous))
+    if (!m_programmer && previous >= 0 && !QStringLiteral("(,+-*/%^×÷−").contains(text.at(previous))
         && !(m_definition && text.at(previous) == QLatin1Char('='))) return {};
     int end = cursor.position();
     while (end < text.size() && isQueryCharacter(text.at(end))) ++end;
@@ -189,6 +190,17 @@ void FormulaCompletion::setEnabled(bool enabled)
     if (!enabled) hide();
 }
 
+void FormulaCompletion::setProgrammerMode(bool programmer)
+{
+    if (m_programmer == programmer) return;
+    hide();
+    m_model->clear();
+    m_programmer = programmer;
+    m_dismissedText.clear();
+    m_dismissedPosition = -1;
+    m_completer->popup()->setAccessibleName(programmer ? QStringLiteral("整数和位运算候选") : QStringLiteral("函数和常量候选"));
+}
+
 void FormulaCompletion::refresh()
 {
     if (m_inserting) return;
@@ -205,7 +217,7 @@ void FormulaCompletion::refresh()
         return;
     }
     m_model->clear();
-    const auto &entries = CalculationCatalog::entries();
+    const auto &entries = CalculationCatalog::entries(m_programmer);
     for (int index = 0; index < entries.size(); ++index)
     {
         const auto &entry = entries.at(index);
@@ -213,13 +225,15 @@ void FormulaCompletion::refresh()
         auto *item = new QStandardItem(QStringLiteral("[%1] %2 — %3\n示例：%4")
             .arg(entry.category, entry.signature, entry.title, entry.example));
         item->setData(index, EntryRole);
+        item->setData(m_programmer, ProgrammerRole);
         item->setToolTip(entry.description);
         m_model->appendRow(item);
     }
     if (!m_model->rowCount())
     {
         hide();
-        emit hintChanged(QStringLiteral("没有匹配的函数或常量；可修改 @ 后的名称或中文关键词"));
+        emit hintChanged(m_programmer ? QStringLiteral("没有匹配的整数或位运算候选；可修改 @ 后的中文关键词")
+            : QStringLiteral("没有匹配的函数或常量；可修改 @ 后的名称或中文关键词"));
         return;
     }
     m_completer->popup()->setAttribute(Qt::WA_WindowPropagation, true);
@@ -237,7 +251,7 @@ void FormulaCompletion::refresh()
 void FormulaCompletion::insertCurrent(int entryIndex)
 {
     const Token token = tokenAtCursor();
-    const auto &entries = CalculationCatalog::entries();
+    const auto &entries = CalculationCatalog::entries(m_programmer);
     if (!m_enabled || m_composing || token.start < 0 || entryIndex < 0 || entryIndex >= entries.size()) return;
     const auto &entry = entries.at(entryIndex);
     if (!entry.isCompletion() || !entry.matches(token.query, true)) return;
@@ -248,7 +262,9 @@ void FormulaCompletion::insertCurrent(int entryIndex)
     const bool function = entry.kind == CalculationCatalog::Kind::Function;
     const bool existingCall = function && following < text.size() && text.at(following) == QLatin1Char('(');
     const QString insertion = existingCall ? entry.name : entry.insertion();
-    const int offset = entry.name.size() + (function ? 1 : 0) + (existingCall ? following - token.end : 0);
+    const int offset = entry.kind == CalculationCatalog::Kind::BitOperator
+        ? (entry.name == QStringLiteral("~") ? 2 : insertion.size())
+        : entry.name.size() + (function ? 1 : 0) + (existingCall ? following - token.end : 0);
     m_inserting = true;
     QTextCursor cursor = m_input->textCursor();
     cursor.beginEditBlock();

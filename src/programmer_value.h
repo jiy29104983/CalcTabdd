@@ -39,6 +39,9 @@ public:
     bool isNegative() const;
     unsigned sources() const { return m_sources; }
     QString text() const;
+    QString hexText() const;
+    QString binaryText() const;
+    QString octalText() const;
     QString sourceText() const;
     bool operator==(const ProgrammerValue &other) const;
     bool operator!=(const ProgrammerValue &other) const { return !(*this == other); }

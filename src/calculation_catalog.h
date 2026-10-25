@@ -4,7 +4,7 @@
 #include <QVector>
 
 namespace CalculationCatalog {
-enum class Kind { Function, Constant, Operator, Syntax, Precision };
+enum class Kind { Function, Constant, Operator, BitOperator, Syntax, Precision };
 
 struct Entry
 {
@@ -23,5 +23,5 @@ struct Entry
     QString insertion() const;
 };
 
-const QVector<Entry> &entries();
+const QVector<Entry> &entries(bool programmer = false);
 }

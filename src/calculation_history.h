@@ -1,6 +1,7 @@
 #pragma once
 
 #include "expression_engine.h"
+#include "programmer_value.h"
 #include <QVector>
 
 struct CalculationRecord
@@ -12,11 +13,17 @@ struct CalculationRecord
     NumericValue answerBefore;
     QString customDefinition;
     QString parameterInput;
+    // 整数结果独立存储，result 只共用成功／错误与诊断字段，不转换为数学值。
+    bool programmer = false;
+    ProgrammerConfig programmerConfig;
+    ProgrammerValue programmerValue;
+    ProgrammerValue programmerAnswerBefore;
 
     // 数值复用读取内部值；失败记录没有可复制或插入的数值。
     QString valueText() const;
     QString calculationText() const;
     QString insertionText() const;
+    QString sourceText() const;
 };
 
 class CalculationHistory
@@ -24,6 +31,7 @@ class CalculationHistory
 public:
     // 返回值副本，供调用方安全使用，不受后续追加引起的存储移动影响。
     CalculationRecord calculate(const QString &expression);
+    CalculationRecord calculateProgrammer(const QString &expression, ProgrammerConfig config);
     // 参数校验失败不追加记录，返回 id=0 并提供提示。
     CalculationRecord calculateCustom(const QString &definition, const QString &input, QString &error);
     // 同时清空成功和失败记录，重置 ans 与编号。
@@ -35,8 +43,11 @@ public:
     const CalculationRecord *record(quint64 id) const;
     int count() const { return m_records.size(); }
     const NumericValue &answer() const { return m_answer; }
+    const ProgrammerValue &programmerAnswer() const { return m_programmerAnswer; }
+    bool hasProgrammerRecords() const;
 
 private:
     QVector<CalculationRecord> m_records;
     NumericValue m_answer;
+    ProgrammerValue m_programmerAnswer;
 };
