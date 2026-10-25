@@ -2824,6 +2824,42 @@ private slots:
         QCOMPARE(functions.size(), 14);
         QCOMPARE(constants, QSet<QString>({QStringLiteral("pi"), QStringLiteral("e"), QStringLiteral("ans")}));
     }
+    void advertisedProgrammerCapabilitiesAreExecutable()
+    {
+        const QMap<QString, QPair<QString, QString>> examples = {
+            {QStringLiteral("ans"), {QStringLiteral("ans+1"), QStringLiteral("43")}},
+            {QStringLiteral("~"), {QStringLiteral("~0x0F"), QStringLiteral("-16")}},
+            {QStringLiteral("&"), {QStringLiteral("0x12 & 0x0F"), QStringLiteral("2")}},
+            {QStringLiteral("|"), {QStringLiteral("0x10 | 0x03"), QStringLiteral("19")}},
+            {QStringLiteral("^"), {QStringLiteral("2^3"), QStringLiteral("1")}},
+            {QStringLiteral("<<"), {QStringLiteral("64<<1"), QStringLiteral("-128")}},
+            {QStringLiteral(">>"), {QStringLiteral("0x80>>1"), QStringLiteral("-64")}},
+            {QStringLiteral(">>>"), {QStringLiteral("0x80>>>1"), QStringLiteral("64")}}
+        };
+        const auto answer = ProgrammerEngine::evaluate(QStringLiteral("42"), {8, true}).value;
+        QSet<QString> advertised;
+        for (const auto &entry : CalculationCatalog::entries(true))
+        {
+            if (!entry.isCompletion()) continue;
+            QVERIFY(!advertised.contains(entry.name));
+            advertised.insert(entry.name);
+            QVERIFY2(examples.contains(entry.name), qPrintable(entry.name));
+            const auto example = examples.value(entry.name);
+            const auto result = ProgrammerEngine::evaluate(example.first, {8, true}, answer);
+            QVERIFY2(result.ok, qPrintable(example.first + QStringLiteral(": ") + result.text));
+            QCOMPARE(result.value.text(), example.second);
+            QCOMPARE(result.value.sources(), entry.name == QStringLiteral("<<") ? uint(ProgrammerValue::Wrap8) : 0u);
+        }
+        QCOMPARE(advertised.size(), examples.size());
+        // 帮助中的两种 ^ 语义分别从实际求值入口验证。
+        QCOMPARE(ExpressionEngine::evaluate(QStringLiteral("2^3")).value.text(), QStringLiteral("8"));
+        QString error;
+        CalculationHistory history;
+        const auto custom = history.calculateCustom(QStringLiteral("A=x^3"), QStringLiteral("x=2"), error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QVERIFY(custom.result.ok);
+        QCOMPARE(custom.result.value.text(), QStringLiteral("8"));
+    }
 };
 int main(int argc, char **argv)
 {

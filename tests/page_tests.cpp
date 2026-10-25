@@ -772,10 +772,24 @@ private slots:
         QTest::addColumn<QString>("expected");
         QTest::addColumn<int>("position");
         QTest::addColumn<int>("key");
-        QTest::newRow("answer-enter") << QStringLiteral("@上次结果") << QStringLiteral("ans") << 3 << int(Qt::Key_Return);
-        QTest::newRow("complement-tab") << QStringLiteral("@取反") << QStringLiteral("~()") << 2 << int(Qt::Key_Tab);
-        QTest::newRow("and-after-value") << QStringLiteral("0xFF @按位与") << QStringLiteral("0xFF & ") << 7 << int(Qt::Key_Return);
-        QTest::newRow("logical-right") << QStringLiteral("0x80 @逻辑右移") << QStringLiteral("0x80 >>> ") << 9 << int(Qt::Key_Tab);
+        QTest::addColumn<QString>("operand");
+        QTest::addColumn<QString>("result");
+        QTest::newRow("answer-enter") << QStringLiteral("@上次结果") << QStringLiteral("ans") << 3 << int(Qt::Key_Return)
+            << QString() << QStringLiteral("0");
+        QTest::newRow("complement-tab") << QStringLiteral("@取反") << QStringLiteral("~()") << 2 << int(Qt::Key_Tab)
+            << QStringLiteral("0x0F") << QStringLiteral("-16");
+        QTest::newRow("and-after-value") << QStringLiteral("0xFF @按位与") << QStringLiteral("0xFF & ") << 7 << int(Qt::Key_Return)
+            << QStringLiteral("0x0F") << QStringLiteral("15");
+        QTest::newRow("or-after-value") << QStringLiteral("0x10 @按位或") << QStringLiteral("0x10 | ") << 7 << int(Qt::Key_Tab)
+            << QStringLiteral("3") << QStringLiteral("19");
+        QTest::newRow("xor-after-value") << QStringLiteral("2 @异或") << QStringLiteral("2 ^ ") << 4 << int(Qt::Key_Return)
+            << QStringLiteral("3") << QStringLiteral("1");
+        QTest::newRow("left-shift") << QStringLiteral("1 @左移") << QStringLiteral("1 << ") << 5 << int(Qt::Key_Tab)
+            << QStringLiteral("3") << QStringLiteral("8");
+        QTest::newRow("arithmetic-right") << QStringLiteral("0x80 @算术右移") << QStringLiteral("0x80 >> ") << 8 << int(Qt::Key_Return)
+            << QStringLiteral("1") << QStringLiteral("-64");
+        QTest::newRow("logical-right") << QStringLiteral("0x80 @逻辑右移") << QStringLiteral("0x80 >>> ") << 9 << int(Qt::Key_Tab)
+            << QStringLiteral("1") << QStringLiteral("64");
     }
     void programmerCompletionTemplates()
     {
@@ -783,9 +797,12 @@ private slots:
         QFETCH(QString, expected);
         QFETCH(int, position);
         QFETCH(int, key);
+        QFETCH(QString, operand);
+        QFETCH(QString, result);
         CalculatorPage page;
         prepare(page, QString());
         page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, 8, true);
         page.input()->setPlainText(query);
         page.input()->moveCursor(QTextCursor::End);
         QTRY_VERIFY(completion(page)->isVisible());
@@ -797,10 +814,107 @@ private slots:
         QCOMPARE(page.input()->toPlainText(), expected);
         QCOMPARE(page.input()->textCursor().position(), position);
         QCOMPARE(page.history().count(), 0);
+        QTest::keyClicks(page.input(), operand);
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().count(), 1);
+        const auto record = page.history().records().first();
+        QVERIFY2(record.result.ok, qPrintable(record.result.text));
+        QCOMPARE(record.programmerConfig, (ProgrammerConfig{8, true}));
+        QCOMPARE(record.programmerValue.text(), result);
+        QCOMPARE(record.programmerValue.sources(), 0u);
+        // 另行验证文字撤销／重做；Qt 重做后的光标不等同于首次模板插入位置。
+        page.input()->setPlainText(query);
+        page.input()->moveCursor(QTextCursor::End);
+        QTRY_VERIFY(completion(page)->isVisible());
+        QTest::keyClick(page.input(), Qt::Key(key));
         page.input()->undo();
         QCOMPARE(page.input()->toPlainText(), query);
         page.input()->redo();
         QCOMPARE(page.input()->toPlainText(), expected);
+        QCOMPARE(page.history().count(), 1);
+    }
+    void modeSpecificHelpSearch_data()
+    {
+        QTest::addColumn<bool>("programmer");
+        QTest::addColumn<bool>("dark");
+        for (bool programmer : {false, true})
+            for (bool dark : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(programmer).arg(dark))) << programmer << dark;
+    }
+    void modeSpecificHelpSearch()
+    {
+        QFETCH(bool, programmer);
+        QFETCH(bool, dark);
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        if (programmer)
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setDraft(page, QStringLiteral("123+456"), 1, 5);
+        QPalette colors = page.palette();
+        colors.setColor(QPalette::Window, QColor(dark ? "#202329" : "#f0f0f0"));
+        colors.setColor(QPalette::Base, QColor(dark ? "#202329" : "#ffffff"));
+        colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
+        colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
+        page.setPalette(colors);
+        page.findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+        auto *help = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+        QVERIFY(help && help->isVisible() && !help->isModal());
+        auto *mode = help->findChild<QComboBox *>(QStringLiteral("helpMode"));
+        auto *search = help->findChild<QLineEdit *>(QStringLiteral("helpSearch"));
+        auto *operations = help->findChild<QTextBrowser *>(QStringLiteral("operationsHelp"));
+        auto *precision = help->findChild<QTextBrowser *>(QStringLiteral("precisionHelp"));
+        auto *tabs = help->findChild<QTabWidget *>(QStringLiteral("helpTabs"));
+        auto *count = help->findChild<QLabel *>(QStringLiteral("helpMatchCount"));
+        QVERIFY(mode && search && operations && precision && tabs && count);
+        QCOMPARE(mode->currentIndex(), programmer ? 1 : 0);
+        for (bool integerMode : {programmer, !programmer})
+        {
+            mode->setCurrentIndex(integerMode ? 1 : 0);
+            search->clear();
+            QVERIFY(search->placeholderText().contains(integerMode ? QStringLiteral("位运算") : QStringLiteral("sqrt")));
+            QCOMPARE(tabs->tabText(0), integerMode ? QStringLiteral("整数与位运算") : QStringLiteral("运算速查"));
+            QCOMPARE(tabs->tabText(1), integerMode ? QStringLiteral("范围与回绕") : QStringLiteral("精度与限制"));
+            for (const auto &entry : CalculationCatalog::entries(integerMode))
+                QVERIFY2((entry.kind == CalculationCatalog::Kind::Precision ? precision : operations)
+                    ->toPlainText().contains(entry.signature), qPrintable(entry.signature));
+            search->setText(integerMode ? QStringLiteral("回绕") : QStringLiteral("非正规数"));
+            QVERIFY(!precision->toPlainText().contains(QStringLiteral("没有匹配项")));
+            QVERIFY(count->text().contains(integerMode ? QStringLiteral("范围") : QStringLiteral("精度")));
+            search->setText(integerMode ? QStringLiteral("会话文件保护") : QStringLiteral("平方根"));
+            QVERIFY(operations->toPlainText().contains(integerMode ? QStringLiteral("另存新文件") : QStringLiteral("sqrt(x)")));
+            if (integerMode)
+            {
+                QVERIFY(operations->toPlainText().contains(QStringLiteral("10000")));
+                QVERIFY(!operations->toPlainText().contains(QStringLiteral("sqrt(")));
+            }
+            search->setText(QStringLiteral("no-such-capability"));
+            for (auto *browser : {operations, precision})
+            {
+                QVERIFY(browser->toPlainText().contains(QStringLiteral("没有匹配项")));
+                QVERIFY(browser->toPlainText().contains(integerMode ? QStringLiteral("位运算名称") : QStringLiteral("英文函数名")));
+            }
+        }
+        // 菜单和页面共用窗口，再次打开时使用计算器当前模式。
+        showCalculatorHelp(&page, programmer);
+        QCOMPARE(page.findChildren<QDialog *>(QStringLiteral("calctabddHelpDialog")).size(), 1);
+        QCOMPARE(mode->currentIndex(), programmer ? 1 : 0);
+        search->clear();
+        const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
+        if (programmer && !directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            QVERIFY(help->grab().save(directory + (dark ? QStringLiteral("/help-programmer-dark.png")
+                                                       : QStringLiteral("/help-programmer-light.png"))));
+        }
+        help->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("123+456"));
+        QCOMPARE(page.input()->textCursor().anchor(), 1);
+        QCOMPARE(page.input()->textCursor().position(), 5);
+        QCOMPARE(page.history().count(), 1);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("42"));
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("0"));
     }
     void programmerCompletionImeAndHelp()
     {
@@ -864,6 +978,83 @@ private slots:
         page.input()->moveCursor(QTextCursor::End);
         QTRY_VERIFY(completion(page)->isVisible());
         QCOMPARE(completion(page)->model()->rowCount(), 17);
+    }
+    void programmerHelpWorkflowSurvivesSessionRestore()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("三模式.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("2^3"));
+            page.submit();
+            QVERIFY(defineFormula(page, QStringLiteral("A=x^3")));
+            page.input()->setPlainText(QStringLiteral("x=2"));
+            page.submit();
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            setProgrammerConfig(page, 8, false);
+            page.findChild<QPushButton *>(QStringLiteral("helpButton"))->click();
+            auto *help = page.findChild<QDialog *>(QStringLiteral("calctabddHelpDialog"));
+            QVERIFY(help);
+            help->findChild<QLineEdit *>(QStringLiteral("helpSearch"))->setText(QStringLiteral("异或"));
+            QVERIFY(help->findChild<QTextBrowser *>(QStringLiteral("operationsHelp"))->toPlainText()
+                .contains(QStringLiteral("程序员 2^3 → 1")));
+            help->close();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            page.activateWindow();
+            page.focusInput();
+            QTRY_VERIFY(page.input()->hasFocus());
+            page.input()->setPlainText(QStringLiteral("0xFF @按位与"));
+            page.input()->moveCursor(QTextCursor::End);
+            QTRY_VERIFY(completion(page)->isVisible());
+            QTest::keyClick(page.input(), Qt::Key_Tab);
+            QTest::keyClicks(page.input(), "0x0F");
+            QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+            QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("15"));
+            page.input()->setPlainText(QStringLiteral("(255+1)/2"));
+            page.submit();
+            QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("0"));
+            QCOMPARE(page.history().programmerAnswer().sources(), uint(ProgrammerValue::Wrap8));
+            setProgrammerConfig(page, 64, false);
+            page.input()->setPlainText(QStringLiteral("0xFFFFFFFFFFFFFFFF"));
+            page.submit();
+            page.input()->setPlainText(QStringLiteral("1<<64"));
+            page.submit();
+            QCOMPARE(page.history().count(), 6);
+            QVERIFY(!page.history().records().last().result.ok);
+            setDraft(page, QStringLiteral("ans+1"), 1, 4);
+            QVERIFY(selectSession(page, path, false));
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QCOMPARE(restored.history().count(), 6);
+        QCOMPARE(restored.history().answer().text(), QStringLiteral("8"));
+        QCOMPARE(restored.history().programmerAnswer().text(), QStringLiteral("18446744073709551615"));
+        QCOMPARE(restored.history().records().at(0).result.value.text(), QStringLiteral("8"));
+        QCOMPARE(restored.history().records().at(1).result.value.text(), QStringLiteral("8"));
+        QCOMPARE(restored.history().records().at(2).programmerValue.text(), QStringLiteral("15"));
+        QCOMPARE(restored.history().records().at(3).sourceText(), QStringLiteral("含 8 位回绕"));
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ans+1"));
+        QCOMPARE(restored.input()->textCursor().anchor(), 1);
+        QCOMPARE(restored.input()->textCursor().position(), 4);
+        for (auto format : {CalculationExport::Format::Text, CalculationExport::Format::Markdown})
+        {
+            const auto bytes = CalculationExport::serialize(restored.history().records(), format);
+            const auto text = QString::fromUtf8(bytes);
+            for (const auto &record : restored.history().records())
+                QVERIFY2(text.contains(record.calculationText()), qPrintable(record.expression));
+            QVERIFY(text.contains(QStringLiteral("18446744073709551615")));
+            QVERIFY(text.contains(QStringLiteral("含 8 位回绕")));
+        }
+        restored.input()->setPlainText(QStringLiteral("ans+1"));
+        restored.submit();
+        QCOMPARE(restored.history().count(), 7);
+        QCOMPARE(restored.history().programmerAnswer().text(), QStringLiteral("0"));
+        QCOMPARE(restored.history().programmerAnswer().sources(), uint(ProgrammerValue::Wrap64));
+        QCOMPARE(restored.history().answer().text(), QStringLiteral("8"));
+        QCOMPARE(restored.history().records().at(4).programmerValue.text(), QStringLiteral("18446744073709551615"));
+        QCOMPARE(readSession(path).history.count(), 7);
     }
     void savedSessionAllowsProgrammerModeAndFurtherMath()
     {

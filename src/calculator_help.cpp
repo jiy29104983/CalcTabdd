@@ -98,7 +98,6 @@ void showCalculatorHelp(QWidget *owner, bool programmer)
     auto *search = new QLineEdit(dialog);
     search->setObjectName(QStringLiteral("helpSearch"));
     search->setAccessibleName(QStringLiteral("搜索运算与精度"));
-    search->setPlaceholderText(QStringLiteral("搜索函数、中文关键词或精度，例如 sqrt、平方根、取余、精度"));
     search->setClearButtonEnabled(true);
     searchRow->addWidget(search, 1);
     auto *count = new QLabel(dialog);
@@ -119,7 +118,13 @@ void showCalculatorHelp(QWidget *owner, bool programmer)
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     layout->addWidget(buttons);
     CalculatorStyle::prepareButton(buttons->button(QDialogButtonBox::Close));
-    const auto filter = [dialog, mode, operations, precision, tabs, count](const QString &query) {
+    const auto filter = [dialog, mode, search, operations, precision, tabs, count](const QString &query) {
+        const bool integerMode = mode->currentIndex() == 1;
+        search->setPlaceholderText(integerMode
+            ? QStringLiteral("搜索位运算、进制或操作，例如 异或、回绕、ans、会话")
+            : QStringLiteral("搜索函数、中文关键词或精度，例如 sqrt、平方根、取余、精度"));
+        tabs->setTabText(0, integerMode ? QStringLiteral("整数与位运算") : QStringLiteral("运算速查"));
+        tabs->setTabText(1, integerMode ? QStringLiteral("范围与回绕") : QStringLiteral("精度与限制"));
         const QPalette pal = CalculatorStyle::palette(dialog->palette());
         const QColor base = pal.color(QPalette::Base);
         const QColor text = pal.color(QPalette::Text);
@@ -134,7 +139,7 @@ void showCalculatorHelp(QWidget *owner, bool programmer)
         QString html[2];
         QString category[2];
         int matches[2] = {0, 0};
-        for (const auto &entry : CalculationCatalog::entries(mode->currentIndex() == 1))
+        for (const auto &entry : CalculationCatalog::entries(integerMode))
         {
             if (!entry.matches(query)) continue;
             const int page = entry.kind == CalculationCatalog::Kind::Precision ? 1 : 0;
@@ -160,13 +165,17 @@ void showCalculatorHelp(QWidget *owner, bool programmer)
                      entry.example.toHtmlEscaped());
             ++matches[page];
         }
-        const QString empty = QStringLiteral("<p>没有匹配项。可尝试英文函数名、中文关键词，或清空搜索查看全部内容。</p>");
+        const QString empty = integerMode
+            ? QStringLiteral("<p>没有匹配项。可尝试位运算名称、进制、回绕或会话，或清空搜索查看全部内容。</p>")
+            : QStringLiteral("<p>没有匹配项。可尝试英文函数名、中文关键词，或清空搜索查看全部内容。</p>");
         const QString style = QStringLiteral(
             "<style>h2 { margin-top: 14px; margin-bottom: 8px; }"
             "p { margin-top: 4px; margin-bottom: 8px; line-height: 1.4; }</style>");
         operations->setHtml(style + (matches[0] ? html[0] : empty));
         precision->setHtml(style + (matches[1] ? html[1] : empty));
-        count->setText(QStringLiteral("运算 %1 项 · 精度 %2 项").arg(matches[0]).arg(matches[1]));
+        count->setText((integerMode ? QStringLiteral("运算 %1 项 · 范围 %2 项")
+                                   : QStringLiteral("运算 %1 项 · 精度 %2 项"))
+            .arg(matches[0]).arg(matches[1]));
         if (!matches[tabs->currentIndex()] && matches[1 - tabs->currentIndex()])
             tabs->setCurrentIndex(1 - tabs->currentIndex());
     };
