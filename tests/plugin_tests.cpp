@@ -1119,6 +1119,94 @@ private slots:
         QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
         QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
     }
+    void programmerCopyAndCrossModeInsertionStayInsideCalculator()
+    {
+        Host first, second;
+        QCOMPARE(initialize(first), 0);
+        QCOMPARE(initialize(second), 0);
+        first.openAction()->trigger();
+        second.openAction()->trigger();
+        first.activateWindow();
+        first.input()->setFocus();
+        QTRY_VERIFY(first.input()->hasFocus());
+        const auto submit = [&first](const QString &text) {
+            first.input()->setPlainText(text);
+            first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        };
+        submit(QStringLiteral("18446744073709549568+sin(0)"));
+        auto *mathInsert = first.page()->findChild<QAction *>(QStringLiteral("insertResult"));
+        QVERIFY(mathInsert);
+        first.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        auto *width = first.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        auto *type = first.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+        width->setCurrentIndex(width->findData(64));
+        first.input()->setPlainText(QStringLiteral("0+"));
+        first.input()->moveCursor(QTextCursor::End);
+        mathInsert->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("0+18446744073709549568"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionundo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("0+"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionredo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("0+18446744073709549568"));
+        first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(),
+                 QStringLiteral("= 18446744073709549568"));
+        width->setCurrentIndex(width->findData(8));
+        type->setCurrentIndex(1);
+        submit(QStringLiteral("127+1"));
+        auto *more = first.page()->findChildren<QToolButton *>(QStringLiteral("recordActions")).last();
+        QVERIFY(more && more->isVisible());
+        more->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("-128"));
+        more->findChild<QAction *>(QStringLiteral("copyHex"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0x80"));
+        more->findChild<QAction *>(QStringLiteral("copyBin"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0b10000000"));
+        more->findChild<QAction *>(QStringLiteral("copyOct"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0o200"));
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(),
+                 QStringLiteral("程序员 · 8 位 · 有符号\n127+1\nDEC  -128\nHEX  0x80\nBIN  1000 0000\nOCT  0o200\n含 8 位回绕"));
+        auto *insert = more->findChild<QAction *>(QStringLiteral("insertResult"));
+        QVERIFY(insert);
+        first.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        first.input()->setPlainText(QStringLiteral("99^2"));
+        QTextCursor cursor = first.input()->textCursor();
+        cursor.setPosition(2);
+        cursor.setPosition(0, QTextCursor::KeepAnchor);
+        first.input()->setTextCursor(cursor);
+        insert->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("(-128)^2"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionundo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("99^2"));
+        first.findChild<QAction *>(QStringLiteral("calctabddRoute_actionredo"))->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("(-128)^2"));
+        first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 16384"));
+        first.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        width->setCurrentIndex(width->findData(16));
+        type->setCurrentIndex(0);
+        first.input()->setPlainText(QStringLiteral("123"));
+        first.input()->selectAll();
+        insert->trigger();
+        QCOMPARE(first.input()->toPlainText(), QStringLiteral("123"));
+        QCOMPARE(first.input()->textCursor().selectedText(), QStringLiteral("123"));
+        QCOMPARE(first.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).size(), 4);
+        QVERIFY(first.page()->findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("无法插入")));
+        QVERIFY(second.input()->toPlainText().isEmpty());
+        QVERIFY(second.page()->findChildren<QTextBrowser *>(QStringLiteral("recordResult")).isEmpty());
+        auto *native = qobject_cast<QsciScintilla *>(first.tabs->currentWidget());
+        QVERIFY(native->text().isEmpty());
+        QVERIFY(!native->isModified());
+        QCOMPARE(first.hostEditCalls, 0);
+        QCOMPARE(first.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QCOMPARE(second.ordinary->text(), QStringLiteral("普通文档，不得改动"));
+        QPointer<QToolButton> owner = more;
+        first.closeCurrent();
+        QVERIFY(owner.isNull());
+        first.openAction()->trigger();
+        QVERIFY(first.page()->findChildren<QToolButton *>(QStringLiteral("recordActions")).isEmpty());
+    }
     void diagnosticRangesStayInsideCalculatorInput()
     {
         Host first;
@@ -1371,8 +1459,15 @@ private slots:
         QCoreApplication::processEvents();
         QVERIFY(dialog.isNull());
     }
+    void exportUsesCurrentWindowAndKeepsNativeBuffersClean_data()
+    {
+        QTest::addColumn<bool>("programmer");
+        QTest::newRow("math") << false;
+        QTest::newRow("mixed") << true;
+    }
     void exportUsesCurrentWindowAndKeepsNativeBuffersClean()
     {
+        QFETCH(bool, programmer);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         Host first;
@@ -1383,6 +1478,17 @@ private slots:
         second.openAction()->trigger();
         first.input()->setPlainText(QStringLiteral("42"));
         first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        if (programmer)
+        {
+            first.page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            auto *width = first.page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+            width->setCurrentIndex(width->findData(8));
+            first.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->setCurrentIndex(1);
+            first.input()->setPlainText(QStringLiteral("0xFF"));
+            first.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+            width->setCurrentIndex(width->findData(64));
+            first.page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->setCurrentIndex(0);
+        }
         second.input()->setPlainText(QStringLiteral("100"));
         second.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         first.input()->setPlainText(QStringLiteral("ans+1"));
@@ -1411,10 +1517,17 @@ private slots:
         const QByteArray contents = file.readAll();
         QVERIFY(contents.startsWith("# CalcTabdd"));
         QVERIFY(contents.contains("42\n= 42"));
+        if (programmer)
+            QVERIFY(QString::fromUtf8(contents).contains(QStringLiteral("程序员 · 8 位 · 有符号\n0xFF\nDEC  -1\nHEX  0xFF\nBIN  1111 1111\nOCT  0o377")));
         QVERIFY(!contents.contains("100"));
         QVERIFY(!contents.contains("102"));
         QVERIFY(!contents.contains("ans+1"));
         QCOMPARE(first.input()->toPlainText(), QStringLiteral("ans+1"));
+        if (programmer)
+        {
+            first.page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+            first.input()->setPlainText(QStringLiteral("ans+1"));
+        }
         first.findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
         QCOMPARE(first.findChildren<QTextBrowser *>(QStringLiteral("recordResult")).last()->toPlainText(), QStringLiteral("= 43"));
         QCOMPARE(second.input()->toPlainText(), QStringLiteral("第二窗口草稿"));

@@ -38,6 +38,9 @@ public:
     unsigned sources() const { return m_sources; }
     // 统一、区域无关的完整正文与独立来源说明。
     QString text() const;
+    // 保存值本身为整数时返回精确十进制正文（零为 0），否则返回空字符串。
+    // 不使用近似显示的 17 位舍入文本，也不携带计算来源。
+    QString integerText() const;
     QString sourceText() const;
     QString binaryHex() const;
     // 只接受规范存储形式及合法来源组合，失败不修改输出。

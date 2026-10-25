@@ -361,6 +361,19 @@ QString NumericValue::text() const
     return formatDigits(digits, exponent, std::signbit(m_binary));
 }
 
+QString NumericValue::integerText() const
+{
+    if (!isInteger()) return {};
+    if (isZero()) return QStringLiteral("0");
+    QByteArray digits;
+    int exponent;
+    if (m_isBinary) exactBinaryDigits(m_binary, digits, exponent);
+    else { digits = m_decimal.coefficient(); exponent = m_decimal.exponent(); }
+    digits.append(QByteArray(exponent, '0'));
+    if (isNegative()) digits.prepend('-');
+    return QString::fromLatin1(digits);
+}
+
 QString NumericValue::sourceText() const
 {
     QStringList names;

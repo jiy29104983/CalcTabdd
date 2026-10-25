@@ -114,6 +114,235 @@ class PageTests : public QObject
         page.input()->setTextCursor(cursor);
     }
 private slots:
+    void programmerCopyFormats_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<bool>("maximumBits");
+        for (int width : {8, 16, 32, 64})
+            for (bool signedMode : {false, true})
+                for (bool maximumBits : {false, true})
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(width).arg(signedMode).arg(maximumBits)))
+                        << width << signedMode << maximumBits;
+    }
+    void programmerCopyFormats()
+    {
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(bool, maximumBits);
+        CalculatorPage page;
+        prepare(page, QString());
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, width, signedMode);
+        const QString hex = QStringLiteral("0x") + QString(width / 4, maximumBits ? QLatin1Char('F') : QLatin1Char('0'));
+        page.input()->setPlainText(hex);
+        page.submit();
+        const auto record = page.history().records().first();
+        const quint64 magnitude = maximumBits ? ~quint64(0) >> (64 - width) : 0;
+        const QString decimal = maximumBits && signedMode ? QStringLiteral("-1") : QString::number(magnitude);
+        const QString binary = QStringLiteral("0b") + QString(width, maximumBits ? QLatin1Char('1') : QLatin1Char('0'));
+        const QString octal = QStringLiteral("0o") + QString::number(magnitude, 8);
+        // 当前设置与显示文本均改变后，菜单仍从原记录读取；详情保持折叠。
+        setProgrammerConfig(page, width == 8 ? 64 : 8, !signedMode);
+        page.findChild<RecordText *>(QStringLiteral("recordResult"))->setPlainText(QStringLiteral("= changed"));
+        setDraft(page, QStringLiteral("未提交草稿😀"), 7, 1);
+        auto *more = page.findChild<QToolButton *>(QStringLiteral("recordActions"));
+        QVERIFY(more && more->isVisible());
+        const QStringList names = {QStringLiteral("copyValue"), QStringLiteral("copyHex"), QStringLiteral("copyBin"), QStringLiteral("copyOct")};
+        const QStringList expected = {decimal, hex, binary, octal};
+        for (int index = 0; index < names.size(); ++index)
+        {
+            auto *action = more->findChild<QAction *>(names.at(index));
+            QVERIFY(action);
+            if (index == 2 && width == 8 && signedMode && maximumBits)
+                QVERIFY(chooseRecordAction(more, action));
+            else action->trigger();
+            QCOMPARE(QApplication::clipboard()->text(), expected.at(index));
+        }
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), record.calculationText());
+        QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("DEC  ") + decimal));
+        QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("BIN  ")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("未提交草稿😀"));
+        QCOMPARE(page.input()->textCursor().anchor(), 7);
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.history().count(), 1);
+        QCOMPARE(page.history().programmerAnswer(), record.programmerValue);
+        QVERIFY(!page.findChild<QWidget *>(QStringLiteral("radixDetails"))->isVisible());
+    }
+    void crossModeResultInsertion_data()
+    {
+        QTest::addColumn<bool>("sourceProgrammer");
+        QTest::addColumn<int>("sourceWidth");
+        QTest::addColumn<bool>("sourceSigned");
+        QTest::addColumn<QString>("expression");
+        QTest::addColumn<int>("targetMode"); // 0 普通，1 自定义，2 程序员。
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<QString>("expected");
+        const auto row = [](const char *name, const QString &expression, int width, bool sign, const QString &expected) {
+            QTest::newRow(name) << false << 32 << false << expression << 2 << width << sign << expected;
+        };
+        row("u8-max", QStringLiteral("255"), 8, false, QStringLiteral("255"));
+        row("u8-overflow", QStringLiteral("256"), 8, false, {});
+        row("s8-max", QStringLiteral("127"), 8, true, QStringLiteral("127"));
+        row("s8-overflow", QStringLiteral("128"), 8, true, {});
+        row("s8-min", QStringLiteral("-128"), 8, true, QStringLiteral("(-128)"));
+        row("s8-underflow", QStringLiteral("-129"), 8, true, {});
+        row("negative-unsigned", QStringLiteral("-1"), 16, false, {});
+        row("fraction", QStringLiteral("1.5"), 64, true, {});
+        row("near-integer-fraction", QStringLiteral("127.999999999999999999999999999999999999999999999"), 8, true, {});
+        row("tiny-fraction", QStringLiteral("1e-999"), 64, false, {});
+        row("negative-zero", QStringLiteral("-0"), 8, false, QStringLiteral("0"));
+        row("rounded-integer", QStringLiteral("floor(1/3)"), 8, false, QStringLiteral("0"));
+        row("approximate-integer", QStringLiteral("sin(0)"), 8, false, QStringLiteral("0"));
+        row("conversion-loss", QStringLiteral("floor(sin(0)+0.1)"), 8, false, QStringLiteral("0"));
+        row("approximate-fraction", QStringLiteral("sin(1)"), 64, false, {});
+        row("above-binary-precision", QStringLiteral("9007199254740993"), 64, false, QStringLiteral("9007199254740993"));
+        row("u64-max", QStringLiteral("18446744073709551615"), 64, false, QStringLiteral("18446744073709551615"));
+        row("u64-overflow", QStringLiteral("18446744073709551616"), 64, false, {});
+        row("s64-max", QStringLiteral("9223372036854775807"), 64, true, QStringLiteral("9223372036854775807"));
+        row("s64-overflow", QStringLiteral("9223372036854775808"), 64, true, {});
+        row("s64-min", QStringLiteral("-9223372036854775808"), 64, true, QStringLiteral("(-9223372036854775808)"));
+        row("s64-underflow", QStringLiteral("-9223372036854775809"), 64, true, {});
+        row("binary-integer-full-value", QStringLiteral("18446744073709549568+sin(0)"), 64, false, QStringLiteral("18446744073709549568"));
+        row("binary-uint64-overflow", QStringLiteral("18446744073709551615+sin(0)"), 64, false, {});
+        row("scientific-overflow", QStringLiteral("1e21"), 64, false, {});
+        QTest::newRow("integer-to-math") << true << 8 << true << QStringLiteral("0xFF") << 0 << 32 << false << QStringLiteral("(-1)");
+        QTest::newRow("integer-to-parameter") << true << 8 << true << QStringLiteral("0xFF") << 1 << 32 << false << QStringLiteral("-1");
+        QTest::newRow("integer-to-signed-wide") << true << 8 << true << QStringLiteral("0xFF") << 2 << 16 << true << QStringLiteral("(-1)");
+        QTest::newRow("integer-to-unsigned") << true << 8 << true << QStringLiteral("0xFF") << 2 << 16 << false << QString();
+        QTest::newRow("integer-sign-overflow") << true << 8 << false << QStringLiteral("255") << 2 << 8 << true << QString();
+        QTest::newRow("integer-narrow-overflow") << true << 16 << false << QStringLiteral("256") << 2 << 8 << false << QString();
+        QTest::newRow("wrapped-integer-new-input") << true << 8 << false << QStringLiteral("255+1") << 2 << 16 << false << QStringLiteral("0");
+        QTest::newRow("integer-uint64-to-math") << true << 64 << false << QStringLiteral("18446744073709551615") << 0 << 32 << false << QStringLiteral("18446744073709551615");
+    }
+    void crossModeResultInsertion()
+    {
+        QFETCH(bool, sourceProgrammer);
+        QFETCH(int, sourceWidth);
+        QFETCH(bool, sourceSigned);
+        QFETCH(QString, expression);
+        QFETCH(int, targetMode);
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(QString, expected);
+        CalculatorPage page;
+        prepare(page, QString());
+        if (sourceProgrammer)
+        {
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            setProgrammerConfig(page, sourceWidth, sourceSigned);
+        }
+        page.input()->setPlainText(expression);
+        page.submit();
+        QVERIFY(page.history().record(1)->result.ok);
+        const auto original = page.history().records().first();
+        const auto math = page.history().answer();
+        const auto integer = page.history().programmerAnswer();
+        if (targetMode == 1) QVERIFY(defineFormula(page, QStringLiteral("A=x")));
+        else page.findChild<QAction *>(targetMode == 2 ? QStringLiteral("programmerCalculationMode") : QStringLiteral("normalCalculationMode"))->trigger();
+        if (targetMode == 2) setProgrammerConfig(page, width, signedMode);
+        const QString prefix = targetMode == 1 ? QStringLiteral("x=") : QStringLiteral("0+");
+        page.input()->setPlainText(prefix);
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClicks(page.input(), "99");
+        const QString draft = prefix + QStringLiteral("99");
+        setDraft(page, draft, 4, 2);
+        // setDraft 重置撤销栈；留下一个实际编辑以检查失败路径不破坏撤销。
+        page.input()->moveCursor(QTextCursor::End);
+        QTest::keyClicks(page.input(), "0");
+        QTextCursor cursor = page.input()->textCursor();
+        cursor.setPosition(5);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(cursor);
+        QApplication::clipboard()->setText(QStringLiteral("clipboard unchanged"));
+        auto *insert = page.findChild<QAction *>(QStringLiteral("insertResult"));
+        QVERIFY(insert);
+        insert->trigger();
+        QCOMPARE(page.input()->toPlainText(), expected.isEmpty() ? prefix + QStringLiteral("990") : prefix + expected);
+        QCOMPARE(page.history().count(), 1);
+        QCOMPARE(page.history().answer(), math);
+        QCOMPARE(page.history().programmerAnswer(), integer);
+        QCOMPARE(page.history().record(1)->calculationText(), original.calculationText());
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("clipboard unchanged"));
+        if (expected.isEmpty())
+        {
+            QCOMPARE(page.input()->textCursor().anchor(), 5);
+            QCOMPARE(page.input()->textCursor().position(), 2);
+            QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("无法插入")));
+            page.input()->undo();
+            QCOMPARE(page.input()->toPlainText(), draft);
+            return;
+        }
+        QTRY_VERIFY(page.input()->hasFocus());
+        page.routeEdit(QStringLiteral("actionundo"));
+        QCOMPARE(page.input()->toPlainText(), prefix + QStringLiteral("990"));
+        page.routeEdit(QStringLiteral("actionredo"));
+        QCOMPARE(page.input()->toPlainText(), prefix + expected);
+        page.submit();
+        QCOMPARE(page.history().count(), 2);
+        const auto &result = page.history().records().last();
+        QVERIFY2(result.result.ok, qPrintable(result.result.text));
+        QVERIFY(result.sourceText().isEmpty());
+        QCOMPARE(result.valueText(), QString(expected).remove(QLatin1Char('(')).remove(QLatin1Char(')')));
+    }
+    void programmerFailureCopyAndMixedExport_data()
+    {
+        QTest::addColumn<bool>("markdown");
+        QTest::newRow("txt") << false;
+        QTest::newRow("markdown") << true;
+    }
+    void programmerFailureCopyAndMixedExport()
+    {
+        QFETCH(bool, markdown);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        CalculatorPage page;
+        prepare(page, QStringLiteral("1/3"));
+        page.submit();
+        QVERIFY(defineFormula(page, QStringLiteral("A=x+sin(0)")));
+        page.input()->setPlainText(QStringLiteral("x=2"));
+        page.submit();
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, 8, false);
+        page.input()->setPlainText(QStringLiteral("255+1"));
+        page.submit();
+        setProgrammerConfig(page, 16, true);
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        page.input()->setPlainText(QStringLiteral("1/0"));
+        page.submit();
+        auto *more = page.findChildren<QToolButton *>(QStringLiteral("recordActions")).last();
+        QVERIFY(more->isVisible());
+        QCOMPARE(more->menu()->actions().size(), 1);
+        more->findChild<QAction *>(QStringLiteral("copyCalculation"))->trigger();
+        const auto failure = page.history().records().last();
+        QCOMPARE(QApplication::clipboard()->text(), failure.calculationText());
+        QVERIFY(!QApplication::clipboard()->text().contains(QStringLiteral("DEC")));
+        const auto snapshot = CalculationExport::serialize(page.history().records(),
+            markdown ? CalculationExport::Format::Markdown : CalculationExport::Format::Text);
+        const auto math = page.history().answer();
+        const auto integer = page.history().programmerAnswer();
+        setProgrammerConfig(page, 64, false);
+        setDraft(page, QStringLiteral("未提交草稿"), 4, 1);
+        page.findChild<QAction *>(markdown ? QStringLiteral("exportMarkdown") : QStringLiteral("exportText"))->trigger();
+        auto *dialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(dialog && dialog->isVisible());
+        dialog->setDirectory(directory.path());
+        dialog->findChild<QLineEdit *>(QStringLiteral("fileNameEdit"))->setText(QStringLiteral("mixed"));
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+        QFile file(directory.filePath(markdown ? QStringLiteral("mixed.md") : QStringLiteral("mixed.txt")));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), snapshot);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("未提交草稿"));
+        QCOMPARE(page.input()->textCursor().anchor(), 4);
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.history().count(), 5);
+        QCOMPARE(page.history().answer(), math);
+        QCOMPARE(page.history().programmerAnswer(), integer);
+        QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 64);
+    }
     void programmerAnswerConversion_data()
     {
         QTest::addColumn<QString>("expression");
@@ -634,7 +863,7 @@ private slots:
         QTRY_VERIFY(completion(page)->isVisible());
         QCOMPARE(completion(page)->model()->rowCount(), 17);
     }
-    void programmerPreviewProtectsMathFilesAndReuse()
+    void programmerPreviewProtectsMathSessionFiles()
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -655,11 +884,14 @@ private slots:
         page.input()->setPlainText(QStringLiteral("0xFF"));
         page.submit();
         page.input()->setPlainText(QStringLiteral("10+"));
+        page.input()->moveCursor(QTextCursor::End);
         page.findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
-        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+42"));
         page.findChild<QAction *>(QStringLiteral("exportText"))->trigger();
-        QVERIFY(!page.findChild<QFileDialog *>());
-        QVERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().contains(QStringLiteral("暂不支持导出")));
+        auto *exportDialog = page.findChild<QFileDialog *>(QStringLiteral("exportHistoryDialog"));
+        QVERIFY(exportDialog);
+        exportDialog->reject();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         for (const auto *action : {"saveSessionAs", "restoreSession"})
         {
             page.findChild<QAction *>(QString::fromLatin1(action))->trigger();

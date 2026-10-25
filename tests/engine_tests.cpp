@@ -47,6 +47,108 @@ class EngineTests : public QObject
 {
     Q_OBJECT
 private slots:
+    void integerTextUsesSavedValue_data()
+    {
+        QTest::addColumn<QString>("expression");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("decimal") << QStringLiteral("9007199254740993") << QStringLiteral("9007199254740993");
+        QTest::newRow("fraction") << QStringLiteral("1.5") << QString();
+        QTest::newRow("small") << QStringLiteral("1e-999") << QString();
+        QTest::newRow("negative-zero") << QStringLiteral("-0") << QStringLiteral("0");
+        QTest::newRow("rounded-integer") << QStringLiteral("floor(1/3)") << QStringLiteral("0");
+        QTest::newRow("approximate-zero") << QStringLiteral("sin(0)") << QStringLiteral("0");
+        QTest::newRow("conversion-loss-integer") << QStringLiteral("floor(sin(0)+0.1)") << QStringLiteral("0");
+        QTest::newRow("approximate-fraction") << QStringLiteral("sin(1)") << QString();
+        QTest::newRow("exact-binary-integer") << QStringLiteral("18446744073709549568+sin(0)") << QStringLiteral("18446744073709549568");
+        QTest::newRow("binary-over-uint64") << QStringLiteral("18446744073709551615+sin(0)") << QStringLiteral("18446744073709551616");
+        QTest::newRow("signed-minimum") << QStringLiteral("-9223372036854775808+sin(0)") << QStringLiteral("-9223372036854775808");
+        QTest::newRow("scientific-integer") << QStringLiteral("1e21") << QStringLiteral("1000000000000000000000");
+    }
+    void integerTextUsesSavedValue()
+    {
+        QFETCH(QString, expression);
+        QFETCH(QString, expected);
+        const auto result = ExpressionEngine::evaluate(expression);
+        QVERIFY2(result.ok, qPrintable(result.text));
+        const auto before = result.value;
+        QCOMPARE(result.value.integerText(), expected);
+        QCOMPARE(result.value, before);
+        if (expression == QStringLiteral("18446744073709549568+sin(0)"))
+            QVERIFY(result.value.text() != expected);
+        // 整数正文不依赖区域或浮点舍入模式；调用后保留原环境。
+        RestoreLocale locale;
+        QLocale::setDefault(QLocale(QLocale::German));
+        const int rounding = std::fegetround();
+        for (int mode : {FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO, FE_TONEAREST})
+        {
+            std::fesetround(mode);
+            const auto actual = result.value.integerText();
+            const int after = std::fegetround();
+            std::fesetround(rounding);
+            QCOMPARE(actual, expected);
+            QCOMPARE(after, mode);
+        }
+    }
+    void mixedExportKeepsIntegerContexts_data()
+    {
+        QTest::addColumn<bool>("markdown");
+        QTest::newRow("txt") << false;
+        QTest::newRow("markdown") << true;
+    }
+    void mixedExportKeepsIntegerContexts()
+    {
+        QFETCH(bool, markdown);
+        CalculationHistory history;
+        const auto math = history.calculate(QStringLiteral("1/3"));
+        QString error;
+        const auto custom = history.calculateCustom(QStringLiteral("A=x+sin(0)"), QStringLiteral("x=2"), error);
+        QVERIFY(error.isEmpty());
+        const auto negative = history.calculateProgrammer(QStringLiteral("0xFF"), {8, true});
+        QCOMPARE(negative.calculationText(), QStringLiteral("程序员 · 8 位 · 有符号\n0xFF\nDEC  -1\nHEX  0xFF\nBIN  1111 1111\nOCT  0o377"));
+        history.calculateProgrammer(QStringLiteral("255+1"), {8, false});
+        history.calculateProgrammer(QStringLiteral("ans+65535+1"), {16, false});
+        history.calculateProgrammer(QStringLiteral("ans+4294967295+1"), {32, false});
+        const auto wrapped = history.calculateProgrammer(QStringLiteral("ans+18446744073709551615+1"), {64, false});
+        QCOMPARE(wrapped.sourceText(), QStringLiteral("含 8 位回绕；含 16 位回绕；含 32 位回绕；含 64 位回绕"));
+        const auto maximum = history.calculateProgrammer(QStringLiteral("18446744073709551615"), {64, false});
+        const auto minimum = history.calculateProgrammer(QStringLiteral("-9223372036854775808"), {64, true});
+        const auto failure = history.calculateProgrammer(QStringLiteral("1/0\n```\n中文😀"), {16, true});
+        QVERIFY(!failure.result.ok);
+        QCOMPARE(failure.calculationText(), QStringLiteral("程序员 · 16 位 · 有符号\n") + failure.expression
+                 + QStringLiteral("\n无法计算：") + failure.result.text);
+        QVERIFY(!failure.calculationText().contains(QStringLiteral("DEC")));
+        const auto snapshot = history.records();
+        const auto answer = history.answer();
+        const auto integer = history.programmerAnswer();
+        const auto format = markdown ? CalculationExport::Format::Markdown : CalculationExport::Format::Text;
+        const auto bytes = CalculationExport::serialize(snapshot, format);
+        const auto text = QString::fromUtf8(bytes);
+        QVERIFY(!bytes.startsWith(QByteArray::fromHex("efbbbf")));
+        QVERIFY(!bytes.contains('\r'));
+        QCOMPARE(text.toUtf8(), bytes);
+        QVERIFY(text.contains(math.calculationText()));
+        QVERIFY(text.contains(custom.calculationText()));
+        QVERIFY(text.contains(wrapped.calculationText()));
+        QVERIFY(text.contains(maximum.calculationText()));
+        QVERIFY(text.contains(minimum.calculationText()));
+        QVERIFY(text.contains(failure.calculationText()));
+        QVERIFY(text.contains(QStringLiteral("DEC  18446744073709551615\nHEX  0xFFFFFFFFFFFFFFFF")));
+        QVERIFY(text.contains(QStringLiteral("DEC  -9223372036854775808\nHEX  0x8000000000000000")));
+        int previous = -1;
+        for (const auto &record : snapshot)
+        {
+            const int position = text.indexOf(record.calculationText(), previous + 1);
+            QVERIFY(position > previous);
+            previous = position;
+        }
+        if (markdown) QVERIFY(text.contains(QStringLiteral("````text\n") + failure.calculationText()));
+        QCOMPARE(history.count(), snapshot.size());
+        QCOMPARE(history.answer(), answer);
+        QCOMPARE(history.programmerAnswer(), integer);
+        history.calculateProgrammer(QStringLiteral("7"), {8, false});
+        history.calculate(QStringLiteral("999"));
+        QCOMPARE(CalculationExport::serialize(snapshot, format), bytes);
+    }
     void mixedHistoryKeepsAnswersAndFrozenContexts()
     {
         CalculationHistory history, other;
@@ -174,8 +276,8 @@ private slots:
         QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("1"));
         QCOMPARE(second.programmerAnswerBefore, first.programmerValue);
         QVERIFY(SessionFormat::encode(session).isEmpty());
-        QVERIFY(CalculationExport::serialize(session.history.records(), CalculationExport::Format::Text).isEmpty());
-        QVERIFY(CalculationExport::serialize(session.history.records(), CalculationExport::Format::Markdown).isEmpty());
+        QVERIFY(!CalculationExport::serialize(session.history.records(), CalculationExport::Format::Text).isEmpty());
+        QVERIFY(!CalculationExport::serialize(session.history.records(), CalculationExport::Format::Markdown).isEmpty());
         CalculationHistory math;
         math.calculate(QStringLiteral("42"));
         QVERIFY(!math.restoreRecords(session.history.records()));

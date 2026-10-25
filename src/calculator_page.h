@@ -104,7 +104,7 @@ private:
     void clearSession();
     void appendRecord(const CalculationRecord &entry);
     void reuseFormula(quint64 id);
-    void copyRecord(quint64 id, bool valueOnly);
+    void copyRecord(quint64 id, bool valueOnly, int radix = 10);
     void insertResult(quint64 id);
     void showInputError(const CalculationResult &result, int offset, bool moveCursor = true);
     void clearInputError();

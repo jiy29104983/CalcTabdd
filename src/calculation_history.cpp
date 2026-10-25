@@ -16,8 +16,17 @@ QString CalculationRecord::sourceText() const
 
 QString CalculationRecord::calculationText() const
 {
-    // 程序员完整文本由后续复用／导出任务接入，不能生成丢失配置的数学记录。
-    if (programmer) return {};
+    if (programmer)
+    {
+        QString text = QStringLiteral("程序员 · %1 位 · %2\n").arg(programmerConfig.bitWidth)
+            .arg(programmerConfig.isSigned ? QStringLiteral("有符号") : QStringLiteral("无符号")) + expression;
+        if (!result.ok) return text + QStringLiteral("\n无法计算：") + result.text;
+        text += QStringLiteral("\nDEC  ") + valueText() + QStringLiteral("\nHEX  ") + programmerValue.hexText()
+            + QStringLiteral("\nBIN  ") + programmerValue.binaryText() + QStringLiteral("\nOCT  ") + programmerValue.octalText();
+        const QString sources = sourceText();
+        if (!sources.isEmpty()) text += QLatin1Char('\n') + sources;
+        return text;
+    }
     if (!result.ok) return expression + QStringLiteral("\n无法计算：") + result.text;
     const QString sources = result.value.sourceText();
     return expression + QStringLiteral("\n= ") + valueText() + (sources.isEmpty() ? QString() : QLatin1Char('\n') + sources);
@@ -49,9 +58,9 @@ bool CalculationHistory::hasProgrammerRecords() const
     return std::any_of(m_records.cbegin(), m_records.cend(), [](const CalculationRecord &record) { return record.programmer; });
 }
 
-QString CalculationRecord::insertionText() const
+QString CalculationRecord::insertionText(bool integerOnly) const
 {
-    const QString value = valueText();
+    const QString value = integerOnly && !programmer && result.ok ? result.value.integerText() : valueText();
     // 一元负号的优先级低于乘方；作为一个操作数插入时必须括起来。
     return value.startsWith(QLatin1Char('-')) ? QStringLiteral("(%1)").arg(value) : value;
 }

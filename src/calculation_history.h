@@ -22,7 +22,8 @@ struct CalculationRecord
     // 数值复用读取内部值；失败记录没有可复制或插入的数值。
     QString valueText() const;
     QString calculationText() const;
-    QString insertionText() const;
+    // 程序员输入使用保存值的完整整数正文；非整数返回空字符串。
+    QString insertionText(bool integerOnly = false) const;
     QString sourceText() const;
 };
 

@@ -10,7 +10,6 @@ QByteArray serialize(const QVector<CalculationRecord> &records, Format format)
                             : QStringLiteral("CalcTabdd 计算记录\n\n");
     for (const auto &record : records)
     {
-        if (record.programmer) return {}; // 完整整数上下文尚未接入，拒绝部分导出。
         const QString number = QStringLiteral("%1").arg(record.id, 2, 10, QLatin1Char('0'));
         const QString calculation = record.calculationText();
         if (markdown)

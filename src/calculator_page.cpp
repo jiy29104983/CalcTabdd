@@ -4,6 +4,7 @@
 #include "calculator_style.h"
 #include "formula_completion.h"
 #include "custom_formula.h"
+#include "programmer_engine.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -430,7 +431,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     integerHint->setObjectName(QStringLiteral("programmerHint"));
     integerHint->setWordWrap(true);
     programmerLayout->addWidget(integerHint);
-    auto *previewHint = new QLabel(QStringLiteral("程序员会话暂不支持保存、导出及结果插入；关闭标签后不保留。"), m_programmerPanel);
+    auto *previewHint = new QLabel(QStringLiteral("记录可复制或导出；程序员会话暂不支持保存与恢复，关闭标签后不保留。"), m_programmerPanel);
     previewHint->setObjectName(QStringLiteral("programmerAvailabilityHint"));
     previewHint->setWordWrap(true);
     programmerLayout->addWidget(previewHint);
@@ -715,11 +716,6 @@ void CalculatorPage::applyErrorHighlight()
 void CalculatorPage::requestExport(CalculationExport::Format format)
 {
     if (busy() || m_history.count() == 0) return;
-    if (m_history.hasProgrammerRecords())
-    {
-        m_status->setText(QStringLiteral("含程序员记录的会话暂不支持导出，记录仍保留在当前标签。"));
-        return;
-    }
     const bool markdown = format == CalculationExport::Format::Markdown;
     const QByteArray contents = CalculationExport::serialize(m_history.records(), format);
     // 使用可随页面关闭的异步 Qt 对话框。覆盖确认也使用 Qt 控件，保持相同生命周期。
@@ -940,29 +936,36 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     more->setProperty("calculatorMenu", true);
     auto *menu = new QMenu(more);
     more->setMenu(menu);
-    if (result.ok && !entry.programmer)
+    if (result.ok)
     {
         auto *copyValue = menu->addAction(QStringLiteral("复制纯数值"));
         copyValue->setObjectName(QStringLiteral("copyValue"));
         copyValue->setToolTip(QStringLiteral("复制完整数值文本；重新输入作为新十进制数字，不保留原类型和计算来源"));
         connect(copyValue, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, true); });
+        if (entry.programmer)
+        {
+            for (int radix : {16, 2, 8})
+            {
+                const QString name = radix == 16 ? QStringLiteral("Hex") : radix == 2 ? QStringLiteral("Bin") : QStringLiteral("Oct");
+                auto *copy = menu->addAction(QStringLiteral("复制 ") + name.toUpper());
+                copy->setObjectName(QStringLiteral("copy") + name);
+                copy->setToolTip(QStringLiteral("复制原记录的位模式，含进制前缀、无分组；不携带位宽、符号或回绕来源"));
+                connect(copy, &QAction::triggered, this, [this, id = entry.id, radix]() { copyRecord(id, true, radix); });
+            }
+        }
     }
-    if (!entry.programmer)
-    {
-        auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
-        copyCalculation->setObjectName(QStringLiteral("copyCalculation"));
-        connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
-    }
-    if (result.ok && !entry.programmer)
+    auto *copyCalculation = menu->addAction(QStringLiteral("复制整条计算"));
+    copyCalculation->setObjectName(QStringLiteral("copyCalculation"));
+    connect(copyCalculation, &QAction::triggered, this, [this, id = entry.id]() { copyRecord(id, false); });
+    if (result.ok)
     {
         auto *insert = menu->addAction(QStringLiteral("插入结果数值"));
         insert->setObjectName(QStringLiteral("insertResult"));
-        insert->setToolTip(QStringLiteral("插入当时的数值文本；再次计算作为新十进制数字，不保留原类型和计算来源"));
+        insert->setToolTip(QStringLiteral("插入当时的十进制数值；程序员输入须为当前范围内的整数，不保留原类型和计算来源"));
         connect(insert, &QAction::triggered, this, [this, id = entry.id]() { insertResult(id); });
     }
     topBar->addWidget(reuse);
     topBar->addWidget(more);
-    more->setVisible(!entry.programmer);
     cardLayout->addLayout(topBar);
 
     auto *values = new QVBoxLayout;
@@ -1130,14 +1133,22 @@ void CalculatorPage::reuseFormula(quint64 id)
     if (m_history.record(id)) showHistory(int(id - 1));
 }
 
-void CalculatorPage::copyRecord(quint64 id, bool valueOnly)
+void CalculatorPage::copyRecord(quint64 id, bool valueOnly, int radix)
 {
     if (m_exportDialog || m_sessionDialog) return;
     const CalculationRecord *entry = m_history.record(id);
-    if (!entry || entry->programmer || (valueOnly && !entry->result.ok)) return;
-    QApplication::clipboard()->setText(valueOnly ? entry->valueText() : entry->calculationText());
-    m_status->setText(!valueOnly ? QStringLiteral("已复制公式、结果与来源说明")
-        : entry->result.value.sources() ? QStringLiteral("已复制数值文本；重新输入按新数字处理，不保留原计算来源")
+    if (!entry || (valueOnly && !entry->result.ok)) return;
+    QString text = valueOnly ? entry->valueText() : entry->calculationText();
+    if (valueOnly && entry->programmer)
+    {
+        if (radix == 16) text = entry->programmerValue.hexText();
+        else if (radix == 2) text = QStringLiteral("0b") + entry->programmerValue.binaryText().remove(QLatin1Char(' '));
+        else if (radix == 8) text = entry->programmerValue.octalText();
+    }
+    QApplication::clipboard()->setText(text);
+    m_status->setText(!valueOnly ? QStringLiteral("已复制整条计算及说明")
+        : radix != 10 ? QStringLiteral("已复制原记录的位模式；重新输入按目标位宽与符号解释，不保留回绕来源")
+        : !entry->sourceText().isEmpty() ? QStringLiteral("已复制数值文本；重新输入按新数字处理，不保留原计算来源")
                                        : QStringLiteral("已复制完整十进制数值"));
     if (m_status->parentWidget() && m_status->parentWidget()->layout()) m_status->parentWidget()->layout()->activate();
 }
@@ -1147,26 +1158,40 @@ void CalculatorPage::insertResult(quint64 id)
     if (dialogOpen()) return;
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
-    if (programmerMode() || entry->programmer)
-    {
-        m_status->setText(QStringLiteral("程序员结果插入尚未开放，请在输入区输入整数。"));
-        return;
-    }
     if (m_composing)
     {
         m_status->setText(QStringLiteral("请先完成输入法组词，再插入结果数值"));
         return;
     }
+    QString value = entry->valueText();
+    if (programmerMode())
+    {
+        value = entry->programmer ? entry->programmerValue.text() : entry->result.value.integerText();
+        if (value.isEmpty())
+        {
+            m_status->setText(QStringLiteral("无法插入：保存的结果不是整数，当前输入保持不变"));
+            return;
+        }
+        const auto config = programmerConfig();
+        // 无符号表达式的 -1 会回绕；插入要求保持数值，必须先拒绝负数。
+        if ((!config.isSigned && value.startsWith(QLatin1Char('-')))
+            || !ProgrammerEngine::evaluate(value, config).ok)
+        {
+            m_status->setText(QStringLiteral("无法插入：结果超出当前 %1 位%2数值范围，当前输入保持不变")
+                .arg(config.bitWidth).arg(config.isSigned ? QStringLiteral("有符号") : QStringLiteral("无符号")));
+            return;
+        }
+    }
     QTextCursor cursor = m_input->textCursor();
     cursor.beginEditBlock();
-    cursor.insertText(customMode() ? entry->valueText() : entry->insertionText());
+    cursor.insertText(customMode() ? value : entry->insertionText(programmerMode()));
     cursor.endEditBlock();
     m_input->setTextCursor(cursor);
     m_editTarget = m_input;
     focusInput();
     // QAction 在 QMenu 完全关闭前触发；待菜单完成自身的焦点恢复后再聚焦输入区。
     QTimer::singleShot(0, this, [this]() { refocusPage(this); });
-    m_status->setText(entry->result.value.sources()
+    m_status->setText(!entry->sourceText().isEmpty()
         ? QStringLiteral("已插入数值文本；再次计算按新数字处理，不保留原计算来源")
         : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
 }
