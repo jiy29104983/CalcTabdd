@@ -679,6 +679,91 @@ private slots:
         delete host;
     }
 
+    void mixedSessionsSurviveNativePageLifetime_data()
+    {
+        QTest::addColumn<bool>("destroyWindow");
+        QTest::newRow("close-tab") << false;
+        QTest::newRow("destroy-window") << true;
+    }
+    void mixedSessionsSurviveNativePageLifetime()
+    {
+        QFETCH(bool, destroyWindow);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("mixed.calctabdd"));
+        const QString otherPath = directory.filePath(QStringLiteral("other.calctabdd"));
+        std::unique_ptr<Host> first(new Host);
+        Host other;
+        QCOMPARE(initialize(*first), 0);
+        QCOMPARE(initialize(other), 0);
+        first->openAction()->trigger();
+        other.openAction()->trigger();
+        first->input()->setPlainText(QStringLiteral("2^3"));
+        first->page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QVERIFY(selectSession(*first, path, false));
+        other.input()->setPlainText(QStringLiteral("sin(1/3)"));
+        other.page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QVERIFY(selectSession(other, otherPath, false));
+        first->page()->findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        auto *width = first->page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"));
+        auto *type = first->page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
+        width->setCurrentIndex(width->findData(64));
+        first->input()->setPlainText(QStringLiteral("0xFFFFFFFFFFFFFFFF"));
+        first->page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        width->setCurrentIndex(width->findData(8));
+        first->input()->setPlainText(QStringLiteral("255+1"));
+        first->page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        type->setCurrentIndex(1);
+        width->setCurrentIndex(width->findData(16));
+        first->input()->setPlainText(QStringLiteral("  ans+2  "));
+        QTextCursor cursor = first->input()->textCursor();
+        cursor.setPosition(7);
+        cursor.setPosition(2, QTextCursor::KeepAnchor);
+        first->input()->setTextCursor(cursor);
+        auto *native = first->tabs->currentWidget();
+        first->tabs->setCurrentWidget(first->ordinary);
+        const auto saved = readSession(path);
+        QCOMPARE(saved.history.count(), 3);
+        QCOMPARE(saved.history.records().at(1).valueText(), QStringLiteral("18446744073709551615"));
+        QCOMPARE(saved.history.programmerAnswer().sources(), 1u);
+        QCOMPARE(saved.input.programmerConfig, (ProgrammerConfig{16, true}));
+        QCOMPARE(saved.input.position, 2);
+        QCOMPARE(saved.input.anchor, 7);
+        QVERIFY(QFileInfo::exists(path + QStringLiteral(".lock")));
+        const auto otherBefore = SessionFormat::encode(readSession(otherPath));
+        first->tabs->setCurrentWidget(native);
+        if (destroyWindow)
+        {
+            first.reset(new Host);
+            QCOMPARE(initialize(*first), 0);
+        }
+        else first->closeCurrent();
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        first->openAction()->trigger();
+        QVERIFY(first->input()->toPlainText().isEmpty());
+        QVERIFY(selectSession(*first, path, true));
+        QCOMPARE(first->input()->toPlainText(), saved.input.text);
+        QCOMPARE(first->input()->textCursor().position(), 2);
+        QCOMPARE(first->input()->textCursor().anchor(), 7);
+        QCOMPARE(first->page()->findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 16);
+        QCOMPARE(first->page()->findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentIndex(), 1);
+        first->input()->setPlainText(QStringLiteral("ans+1"));
+        first->page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(readSession(path).history.programmerAnswer().text(), QStringLiteral("1"));
+        QCOMPARE(readSession(path).history.programmerAnswer().sources(), 1u);
+        first->page()->findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        first->input()->setPlainText(QStringLiteral("ans+1"));
+        first->page()->findChild<QPushButton *>(QStringLiteral("calculateButton"))->click();
+        QCOMPARE(readSession(path).history.answer().text(), QStringLiteral("9"));
+        QCOMPARE(readSession(path).history.count(), 5);
+        QCOMPARE(SessionFormat::encode(readSession(otherPath)), otherBefore);
+        for (Host *host : {first.get(), &other})
+        {
+            auto *editor = qobject_cast<QsciScintilla *>(host->tabs->currentWidget());
+            QVERIFY(editor && editor->text().isEmpty() && editor->isReadOnly() && !editor->isModified());
+            QCOMPARE(host->ordinary->text(), QStringLiteral("普通文档，不得改动"));
+            QCOMPARE(host->hostEditCalls, 0);
+        }
+    }
     void savedSessionsSurviveTabAndWindowLifetimeIndependently()
     {
         QTemporaryDir directory;

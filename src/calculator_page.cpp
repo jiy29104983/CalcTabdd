@@ -431,7 +431,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     integerHint->setObjectName(QStringLiteral("programmerHint"));
     integerHint->setWordWrap(true);
     programmerLayout->addWidget(integerHint);
-    auto *previewHint = new QLabel(QStringLiteral("记录可复制或导出；程序员会话暂不支持保存与恢复，关闭标签后不保留。"), m_programmerPanel);
+    auto *previewHint = new QLabel(QStringLiteral("可通过“本地会话”保存记录、两类 ans、三份草稿与设置；默认不保存。"), m_programmerPanel);
     previewHint->setObjectName(QStringLiteral("programmerAvailabilityHint"));
     previewHint->setWordWrap(true);
     programmerLayout->addWidget(previewHint);
@@ -439,6 +439,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     const auto configChanged = [this]() {
         clearInputError();
         m_status->setText(QStringLiteral("设置已更新 · Ctrl+Enter 按新设置计算；已有结果保持原配置"));
+        scheduleSave();
     };
     connect(m_bitWidth, QOverload<int>::of(&QComboBox::currentIndexChanged), this, configChanged);
     connect(m_integerType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, configChanged);
@@ -1388,7 +1389,8 @@ CalculationSession CalculatorPage::captureSession() const
     session.customInput = m_customInput;
     session.programmerInput = m_programmerInput;
     if (m_historyPosition < 0)
-        (programmerMode() ? session.programmerInput : customMode() ? session.customInput : session.normalInput) = session.input;
+        (session.input.programmer ? session.programmerInput
+            : !session.input.customDefinition.isEmpty() ? session.customInput : session.normalInput) = session.input;
     session.historyPosition = m_historyPosition;
     if (m_historyPosition >= 0)
     {
@@ -1404,6 +1406,7 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
     clearSession();
     m_normalInput = session.normalInput;
     m_customInput = session.customInput;
+    m_programmerInput = session.programmerInput;
     m_history = session.history;
     for (const auto &entry : m_history.records()) appendRecord(entry);
     m_historyPosition = session.historyPosition;
@@ -1413,7 +1416,9 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
     const CalculationRecord *entry = m_historyPosition >= 0
         ? &m_history.records().at(m_historyPosition)
         : (m_history.count() > 0 ? &m_history.records().last() : nullptr);
-    if (!customMode() && entry && !entry->result.ok && session.input.text.trimmed() == entry->expression)
+    if (!customMode() && entry && !entry->result.ok && session.input.text.trimmed() == entry->expression
+        && entry->programmer == programmerMode()
+        && (!entry->programmer || entry->programmerConfig == programmerConfig()))
         showInputError(entry->result, skippedWhitespace(session.input.text), false);
     else m_status->setText(QStringLiteral("已恢复历史结果与草稿，未重新计算旧公式"));
 }
@@ -1446,11 +1451,6 @@ bool CalculatorPage::saveSession()
 {
     m_saveTimer->stop();
     if (!m_sessionFile) return true;
-    if (hasProgrammerState())
-    {
-        updateSessionStatus(QStringLiteral("程序员会话暂不支持保存，当前文件未修改。"));
-        return false;
-    }
     const QString error = m_sessionFile->save(captureSession());
     m_sessionDirty = !error.isEmpty();
     updateSessionStatus(error.isEmpty() ? QString() : QStringLiteral("保存失败：%1").arg(error));
@@ -1469,13 +1469,9 @@ void CalculatorPage::stopSaving()
 void CalculatorPage::requestSessionFile(bool restore)
 {
     if (busy()) return;
-    if (hasProgrammerState())
-    {
-        updateSessionStatus(QStringLiteral("程序员会话暂不支持保存或恢复，请在新的空白计算器中使用数学会话文件。"));
-        return;
-    }
     if (restore && (m_history.count() > 0 || !m_input->toPlainText().isEmpty() || m_sessionFile
-        || !m_customInput.customDefinition.isEmpty() || customMode() || hasPendingDefinition() || !m_normalInput.text.isEmpty()))
+        || !m_customInput.customDefinition.isEmpty() || customMode() || hasPendingDefinition() || !m_normalInput.text.isEmpty()
+        || m_programmerMode || !m_programmerInput.text.isEmpty() || m_programmerInput.programmerConfig != ProgrammerConfig()))
     {
         updateSessionStatus(QStringLiteral("请在没有记录、没有草稿且未开启保存的空白计算器中恢复会话。"));
         return;
@@ -1583,23 +1579,11 @@ ProgrammerConfig CalculatorPage::programmerConfig() const
     return {m_bitWidth->currentData().toInt(), m_integerType->currentData().toBool()};
 }
 
-bool CalculatorPage::hasProgrammerState() const
-{
-    return m_programmerMode || m_programmerInput.programmer || m_history.hasProgrammerRecords()
-        || m_draft.programmer;
-}
-
 void CalculatorPage::switchMode(Mode mode)
 {
     if (busy()) return;
     const bool custom = mode == Mode::Custom;
     const bool programmer = mode == Mode::Programmer;
-    if (programmer && m_sessionFile)
-    {
-        updateModeUi();
-        m_status->setText(QStringLiteral("请先停止本地保存，再使用程序员模式；当前文件仅支持普通／自定义会话。"));
-        return;
-    }
     if (!custom) m_defining = false;
     if (custom == customMode() && programmer == programmerMode() && m_historyPosition < 0)
     {

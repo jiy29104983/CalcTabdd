@@ -109,11 +109,20 @@ const CalculationRecord *CalculationHistory::record(quint64 id) const
 bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &records)
 {
     NumericValue answer;
+    ProgrammerValue programmerAnswer;
     quint64 nextId = 1;
     for (const auto &entry : records)
     {
-        // 当前文件格式仅支持数学记录；整数快照恢复在 version 4 中接入。
-        if (entry.programmer) return false;
+        if (entry.programmer)
+        {
+            if (!entry.programmerConfig.isValid() || !entry.customDefinition.isEmpty()
+                || !entry.parameterInput.isEmpty() || entry.programmerAnswerBefore != programmerAnswer
+                || entry.result.value != NumericValue()
+                || (entry.result.ok && entry.programmerValue.config() != entry.programmerConfig)
+                || (!entry.result.ok && entry.programmerValue != ProgrammerValue())) return false;
+        }
+        else if (entry.programmerConfig != ProgrammerConfig() || entry.programmerValue != ProgrammerValue()
+                 || entry.programmerAnswerBefore != ProgrammerValue()) return false;
         if (!entry.customDefinition.isEmpty())
         {
             CustomFormula formula;
@@ -131,7 +140,8 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
         {
             if (result.error != CalculationError::None || result.errorPosition != -1 || result.errorLength != 0)
                 return false;
-            answer = result.value;
+            if (entry.programmer) programmerAnswer = entry.programmerValue;
+            else answer = result.value;
         }
         else if (result.value != NumericValue() || result.error <= CalculationError::None || result.error > CalculationError::Limit
                  || result.errorPosition < 0 || result.errorPosition > entry.expression.size()
@@ -140,8 +150,8 @@ bool CalculationHistory::restoreRecords(const QVector<CalculationRecord> &record
     }
     m_records = records;
     for (auto &entry : m_records)
-        if (entry.result.ok) entry.result.text = entry.result.value.text();
+        if (entry.result.ok) entry.result.text = entry.valueText();
     m_answer = answer;
-    m_programmerAnswer = ProgrammerValue();
+    m_programmerAnswer = programmerAnswer;
     return true;
 }

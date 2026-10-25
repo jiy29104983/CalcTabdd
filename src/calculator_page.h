@@ -55,14 +55,13 @@ private:
     void switchMode(Mode mode);
     InputState &modeDraft();
     ProgrammerConfig programmerConfig() const;
-    bool hasProgrammerState() const;
     void updateModeUi();
     void updateDefinitionStateUi();
     void updateRecordUi();
     QString m_definition;
     InputState m_normalInput;
     InputState m_customInput;
-    InputState m_programmerInput;
+    InputState m_programmerInput = {{}, 0, 0, {}, {}, true, {}};
     bool m_programmerMode = false;
     QWidget *m_programmerPanel = nullptr;
     QComboBox *m_bitWidth = nullptr;

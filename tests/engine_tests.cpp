@@ -260,7 +260,7 @@ private slots:
         if (maximumBits && signedMode) QCOMPARE(result.value.text(), QStringLiteral("-1"));
         if (!maximumBits) QCOMPARE(result.value.octalText(), QStringLiteral("0o0"));
     }
-    void programmerUiRecordSnapshotAndUnsupportedSerialization()
+    void programmerRecordSnapshotAndSessionSerialization()
     {
         CalculationSession session;
         session.history.calculate(QStringLiteral("2^3"));
@@ -275,20 +275,26 @@ private slots:
         QCOMPARE(session.history.answer().text(), QStringLiteral("8"));
         QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("1"));
         QCOMPARE(second.programmerAnswerBefore, first.programmerValue);
-        QVERIFY(SessionFormat::encode(session).isEmpty());
+        CalculationSession restored;
+        const auto bytes = SessionFormat::encode(session);
+        QVERIFY(SessionFormat::decode(bytes, restored).isEmpty());
+        QCOMPARE(SessionFormat::encode(restored), bytes);
+        QCOMPARE(restored.history.programmerAnswer(), second.programmerValue);
         QVERIFY(!CalculationExport::serialize(session.history.records(), CalculationExport::Format::Text).isEmpty());
         QVERIFY(!CalculationExport::serialize(session.history.records(), CalculationExport::Format::Markdown).isEmpty());
         CalculationHistory math;
         math.calculate(QStringLiteral("42"));
-        QVERIFY(!math.restoreRecords(session.history.records()));
-        QCOMPARE(math.answer().text(), QStringLiteral("42"));
+        QVERIFY(math.restoreRecords(session.history.records()));
+        QCOMPARE(math.answer(), session.history.answer());
+        QCOMPARE(math.programmerAnswer(), session.history.programmerAnswer());
         session.history.clear();
         QCOMPARE(session.history.answer().text(), QStringLiteral("0"));
         QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("0"));
         QVERIFY(!SessionFormat::encode(session).isEmpty());
         session.programmerInput.programmer = true;
         session.programmerInput.text = QStringLiteral("0xF+");
-        QVERIFY(SessionFormat::encode(session).isEmpty());
+        QVERIFY(SessionFormat::decode(SessionFormat::encode(session), restored).isEmpty());
+        QCOMPARE(restored.programmerInput.text, session.programmerInput.text);
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
         const QString path = directory.filePath(QStringLiteral("protected.calctabdd"));
@@ -299,9 +305,209 @@ private slots:
         QVERIFY(read.open(QIODevice::ReadOnly));
         const auto contents = read.readAll();
         read.close();
-        QVERIFY(!file.save(session).isEmpty());
+        QVERIFY(file.save(session).isEmpty());
         QVERIFY(read.open(QIODevice::ReadOnly));
-        QCOMPARE(read.readAll(), contents);
+        const auto saved = read.readAll();
+        QVERIFY(saved != contents);
+        QVERIFY(SessionFormat::decode(saved, restored).isEmpty());
+        QCOMPARE(restored.programmerInput.text, QStringLiteral("0xF+"));
+    }
+    void programmerSessionBitsAndSources_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<bool>("signedMode");
+        QTest::addColumn<qulonglong>("raw");
+        QTest::addColumn<uint>("sources");
+        for (int width : {8, 16, 32, 64})
+            for (bool signedMode : {false, true})
+                for (quint64 raw : {quint64(0), quint64(1) << (width - 1),
+                     std::numeric_limits<quint64>::max() >> (64 - width)})
+                    for (unsigned sources : {0u, 1u, 10u, 15u})
+                    {
+                        const auto name = QStringLiteral("%1%2-%3-%4").arg(signedMode ? 'S' : 'U').arg(width).arg(raw).arg(sources);
+                        QTest::newRow(qPrintable(name)) << width << signedMode << qulonglong(raw) << sources;
+                    }
+        QTest::newRow("above-2-to-53") << 64 << false << qulonglong(9007199254740993ULL) << 1u;
+    }
+    void programmerSessionBitsAndSources()
+    {
+        QFETCH(int, width);
+        QFETCH(bool, signedMode);
+        QFETCH(qulonglong, raw);
+        QFETCH(uint, sources);
+        const ProgrammerConfig config{width, signedMode};
+        const auto hex = QString::number(raw, 16).rightJustified(width / 4, QLatin1Char('0'));
+        ProgrammerValue value;
+        QVERIFY(ProgrammerValue::restore(hex, config, sources, value));
+        CalculationRecord record;
+        record.id = 1;
+        record.programmer = true;
+        record.programmerConfig = config;
+        record.programmerValue = value;
+        // 与实际求值刻意不同：恢复读取保存值，不能重新计算这个除零表达式。
+        record.expression = QStringLiteral("1/0");
+        record.result.ok = true;
+        CalculationSession original;
+        QVERIFY(original.history.restoreRecords({record}));
+        original.programmerInput = {QStringLiteral("  ans+😀 "), 3, 8, {}, {}, true, config};
+        original.input = original.programmerInput;
+        const auto bytes = SessionFormat::encode(original);
+        const auto root = QJsonDocument::fromJson(bytes).object();
+        QCOMPARE(root.value("version").toInt(), 4);
+        QCOMPARE(root.value("programmerAnswer").toObject().value("bits"), QJsonValue(hex));
+        QVERIFY(root.value("records").toArray().first().toObject().value("value").toObject().value("bits").isString());
+        CalculationSession restored;
+        QVERIFY2(SessionFormat::decode(bytes, restored).isEmpty(), bytes.constData());
+        QCOMPARE(restored.history.programmerAnswer(), value);
+        QCOMPARE(restored.history.records().first().result.text, value.text());
+        QCOMPARE(restored.input.programmerConfig, config);
+        QCOMPARE(restored.input.position, 3);
+        QCOMPARE(restored.input.anchor, 8);
+        QCOMPARE(SessionFormat::encode(restored), bytes);
+        const auto before = value;
+        QVERIFY(!ProgrammerValue::restore(QStringLiteral("bad"), config, sources, value));
+        QCOMPARE(value, before);
+        QVERIFY(!ProgrammerValue::restore(hex, config, 16u, value));
+        QCOMPARE(value, before);
+    }
+    void mixedSessionRestoresBothAnswerChains()
+    {
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("sin(1/3)"));
+        QString error;
+        original.history.calculateCustom(QStringLiteral("A=x+ans"), QStringLiteral("x=1"), error);
+        QVERIFY(error.isEmpty());
+        for (int width : {8, 16, 32, 64})
+        {
+            const auto record = original.history.calculateProgrammer(QStringLiteral("ans+(~0)+1"), {width, false});
+            QVERIFY(record.result.ok);
+        }
+        original.history.calculateProgrammer(QStringLiteral("1<<64"), {64, false});
+        original.history.calculate(QStringLiteral("ln(0)"));
+        original.normalInput = {QStringLiteral("普通😀\n"), 1, 5};
+        original.customInput = {QStringLiteral("x=7"), 3, 1, QStringLiteral("A=x+ans"), QStringLiteral("unconfirmed(")};
+        original.programmerInput = {QStringLiteral("ans+"), 4, 2, {}, {}, true, {16, true}};
+        original.draft = original.customInput;
+        original.input = {QStringLiteral("ans+2"), 3, 5, {}, {}, true, {32, true}};
+        original.historyPosition = 2;
+        original.recalledInputs.insert(3, original.input);
+        original.recalledInputs.insert(2, {QStringLiteral("x=11"), 2, 4, QStringLiteral("A=x+ans")});
+        const auto bytes = SessionFormat::encode(original);
+        CalculationSession restored;
+        QVERIFY2(SessionFormat::decode(bytes, restored).isEmpty(), bytes.constData());
+        QCOMPARE(SessionFormat::encode(restored), bytes);
+        QCOMPARE(restored.history.answer(), original.history.answer());
+        QCOMPARE(restored.history.programmerAnswer(), original.history.programmerAnswer());
+        QCOMPARE(restored.history.programmerAnswer().sources(), 15u);
+        QCOMPARE(restored.history.records().at(6).result.error, CalculationError::Domain);
+        QCOMPARE(restored.history.records().last().result.error, CalculationError::Domain);
+        QCOMPARE(restored.recalledInputs.value(3).programmerConfig, (ProgrammerConfig{32, true}));
+        QCOMPARE(restored.draft.customDefinition, original.customInput.customDefinition);
+        QVERIFY(restored.draft.definitionDraft.isNull());
+        QVERIFY(restored.customInput.definitionDraft.isNull());
+        for (int i = 0; i < original.history.count(); ++i)
+        {
+            const auto &a = original.history.records().at(i), &b = restored.history.records().at(i);
+            QCOMPARE(a.calculationText(), b.calculationText());
+            QCOMPARE(a.answerBefore, b.answerBefore);
+            QCOMPARE(a.programmerAnswerBefore, b.programmerAnswerBefore);
+        }
+        QCOMPARE(restored.history.calculateProgrammer(QStringLiteral("ans+1"), {16, false}).valueText(), QStringLiteral("1"));
+        QCOMPARE(restored.history.programmerAnswer().sources(), 15u);
+        QCOMPARE(restored.history.calculate(QStringLiteral("ans")).result.value, original.history.answer());
+    }
+    void corruptProgrammerSessionsAreAtomic_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<QJsonValue>("replacement");
+        const auto row = [](const char *name, const char *path, const QJsonValue &value) {
+            QTest::newRow(name) << QString::fromLatin1(path) << value;
+        };
+        for (const auto *target : {"programmerAnswer", "record.value", "record.programmerAnswerBefore"})
+        {
+            const QString prefix = QString::fromLatin1(target);
+            const auto add = [&prefix](const char *name, const char *field, const QJsonValue &value) {
+                const auto title = prefix + QLatin1Char('-') + QString::fromLatin1(name);
+                QTest::newRow(qPrintable(title)) << prefix + QLatin1Char('.') + QString::fromLatin1(field) << value;
+            };
+            add("numeric-bits", "bits", 9007199254740992.0);
+            add("missing-bits", "bits", QJsonValue(QJsonValue::Undefined));
+            add("short-bits", "bits", "0");
+            add("long-bits", "bits", "00000000000000000");
+            add("uppercase-bits", "bits", "FFFFFFFFFFFFFFFF");
+            add("prefix-bits", "bits", "0xffffffffffffffff");
+            add("nonhex-bits", "bits", "zzzzzzzzzzzzzzzz");
+            add("signed-bits", "bits", "-000000000000001");
+            add("unknown-kind", "kind", "binary64");
+            add("unknown-width", "config.bitWidth", 24);
+            add("string-width", "config.bitWidth", "64");
+            add("fractional-width", "config.bitWidth", 63.5);
+            add("numeric-sign", "config.isSigned", 1);
+            add("missing-sign", "config.isSigned", QJsonValue(QJsonValue::Undefined));
+            add("unknown-source", "sources", QJsonArray{8, 24});
+            add("duplicate-source", "sources", QJsonArray{8, 8});
+            add("unsorted-source", "sources", QJsonArray{64, 8});
+            add("string-source", "sources", QJsonArray{"8"});
+            add("fractional-source", "sources", QJsonArray{8.5});
+            add("nonarray-source", "sources", "8");
+            add("unexpected-field", "extra", true);
+        }
+        row("answer-value-mismatch", "programmerAnswer.bits", "0000000000000001");
+        row("answer-sign-mismatch", "programmerAnswer.config.isSigned", true);
+        row("answer-source-mismatch", "programmerAnswer.sources", QJsonArray{8});
+        row("before-value-mismatch", "record.programmerAnswerBefore.bits", "00000001");
+        row("before-source-mismatch", "record.programmerAnswerBefore.sources", QJsonArray{8});
+        row("record-config-mismatch", "record.programmerConfig.isSigned", true);
+        row("unknown-record-mode", "record.mode", "future");
+        row("wrong-record-mode", "record.mode", "normal");
+        row("integer-custom-definition", "record.customDefinition", "A=x");
+        row("integer-parameters", "record.parameterInput", "x=1");
+        row("missing-programmer-buffer", "programmerInput", QJsonValue(QJsonValue::Undefined));
+        row("wrong-buffer-mode", "programmerInput.mode", "normal");
+        row("math-buffer-mode", "normalInput.mode", "programmer");
+        row("custom-buffer-mode", "customInput.mode", "programmer");
+        row("invalid-input-mode", "input.mode", "future");
+        row("invalid-input-config", "input.programmerConfig.bitWidth", 7);
+        row("invalid-input-selection", "input.anchor", 100);
+        row("math-config-contamination", "normalInput.programmerConfig.isSigned", true);
+        row("unexpected-root-field", "extra", true);
+        row("recalled-missing-current", "recalledInputs", QJsonObject());
+        row("recalled-input-mismatch", "input.text", "ans-1");
+        row("recalled-mode-mismatch", "recalledInputs.1.mode", "normal");
+        row("unknown-recalled-id", "recalledInputs.2", QJsonObject());
+    }
+    void corruptProgrammerSessionsAreAtomic()
+    {
+        QFETCH(QString, path);
+        QFETCH(QJsonValue, replacement);
+        CalculationSession original;
+        original.history.calculateProgrammer(QStringLiteral("0xFFFFFFFFFFFFFFFF"), {64, false});
+        original.input = {QStringLiteral("ans+1"), 5, 2, {}, {}, true, {64, false}};
+        original.historyPosition = 0;
+        original.recalledInputs.insert(1, original.input);
+        auto root = QJsonDocument::fromJson(SessionFormat::encode(original)).object();
+        const bool recordTarget = path.startsWith(QStringLiteral("record."));
+        const auto fields = (recordTarget ? path.mid(7) : path).split(QLatin1Char('.'));
+        const auto patch = [&](QJsonObject object, const auto &self, int depth) -> QJsonObject {
+            const QString field = fields.at(depth);
+            if (depth == fields.size() - 1) object.insert(field, replacement);
+            else object.insert(field, self(object.value(field).toObject(), self, depth + 1));
+            return object;
+        };
+        if (recordTarget)
+        {
+            auto records = root.value("records").toArray();
+            records[0] = patch(records.first().toObject(), patch, 0);
+            root.insert("records", records);
+        }
+        else root = patch(root, patch, 0);
+        CalculationSession destination;
+        destination.history.calculate(QStringLiteral("42"));
+        destination.history.calculateProgrammer(QStringLiteral("255+1"), {8, false});
+        destination.programmerInput = {QStringLiteral("草稿😀"), 1, 4, {}, {}, true, {16, true}};
+        const auto before = SessionFormat::encode(destination);
+        QVERIFY2(!SessionFormat::decode(QJsonDocument(root).toJson(), destination).isEmpty(), qPrintable(path));
+        QCOMPARE(SessionFormat::encode(destination), before);
     }
     void programmerReference_data()
     {
@@ -785,7 +991,7 @@ private slots:
         session.customInput = {parameters, parameters.size(), 0, definition};
         const auto bytes = SessionFormat::encode(session);
         const auto json = QJsonDocument::fromJson(bytes).object();
-        QCOMPARE(json.value("version").toInt(), 3);
+        QCOMPARE(json.value("version").toInt(), 4);
         QVERIFY(json.value("answer").isObject());
         QVERIFY(!json.value("records").toArray().first().toObject().contains("text"));
         CalculationSession restored;
@@ -1800,7 +2006,8 @@ private slots:
         QTest::addColumn<int>("version");
         QTest::newRow("unsupported-1") << 1;
         QTest::newRow("unsupported-2") << 2;
-        QTest::newRow("unsupported-4") << 4;
+        QTest::newRow("unsupported-3") << 3;
+        QTest::newRow("unsupported-5") << 5;
     }
     void unsupportedVersionFileStaysUnchanged()
     {
@@ -1850,8 +2057,11 @@ private slots:
         QVERIFY(process.waitForFinished(5000));
         if (!crash) QCOMPARE(process.exitCode(), 0);
         QVERIFY2(file.load(path, session).isEmpty(), "Session should be available after its process exits");
-        QCOMPARE(session.history.count(), 2);
+        QCOMPARE(session.history.count(), 4);
         QCOMPARE(asDouble(session.history.answer()), 42.0);
+        QCOMPARE(session.history.programmerAnswer().text(), QStringLiteral("18446744073709551615"));
+        QCOMPARE(session.programmerInput.programmerConfig, (ProgrammerConfig{16, true}));
+        QCOMPARE(session.programmerInput.text, QStringLiteral("ans+1"));
         QCOMPARE(session.input.text, QStringLiteral("跨进程草稿😀"));
         QCOMPARE(session.history.records().last().result.error, CalculationError::DivisionByZero);
     }
@@ -1931,7 +2141,8 @@ private slots:
     {
         QTest::addColumn<QString>("field");
         QTest::addColumn<QJsonValue>("replacement");
-        QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(4);
+        QTest::newRow("future-version") << QStringLiteral("version") << QJsonValue(5);
+        QTest::newRow("previous-version") << QStringLiteral("version") << QJsonValue(3);
         QTest::newRow("other-version") << QStringLiteral("version") << QJsonValue(1);
         QTest::newRow("zero-version") << QStringLiteral("version") << QJsonValue(0);
         QTest::newRow("missing-version") << QStringLiteral("version") << QJsonValue();
@@ -2029,12 +2240,24 @@ private slots:
         QVERIFY(reopened.save(restored).isEmpty());
         QVERIFY(QFileInfo::exists(path + QStringLiteral(".lock")));
     }
+    void sessionFailureKeepsOldBytesAndCanRetryOrSaveElsewhere_data()
+    {
+        QTest::addColumn<bool>("programmer");
+        QTest::newRow("math") << false;
+        QTest::newRow("mixed") << true;
+    }
     void sessionFailureKeepsOldBytesAndCanRetryOrSaveElsewhere()
     {
+        QFETCH(bool, programmer);
         QTemporaryDir directory;
         const QString path = directory.filePath(QStringLiteral("session.calctabdd"));
         CalculationSession session;
         session.history.calculate(QStringLiteral("9"));
+        if (programmer)
+        {
+            session.history.calculateProgrammer(QStringLiteral("0xFFFFFFFFFFFFFFFF"), {64, false});
+            session.programmerInput = {QStringLiteral("ans+1"), 3, 1, {}, {}, true, {16, true}};
+        }
         CalculationSessionFile file;
         QVERIFY(file.create(path, session).isEmpty());
         QFile saved(path);
@@ -2061,7 +2284,40 @@ private slots:
         saved.close();
         CalculationSessionFile rescue;
         QVERIFY(rescue.create(directory.filePath(QStringLiteral("rescue.calctabdd")), session).isEmpty());
-        QCOMPARE(session.history.count(), 2);
+        QCOMPARE(session.history.count(), programmer ? 3 : 2);
+    }
+    void mixedSessionLimitsPreserveLastCompleteFile_data()
+    {
+        QTest::addColumn<bool>("recordLimit");
+        QTest::newRow("16-MiB") << false;
+        QTest::newRow("10000-records") << true;
+    }
+    void mixedSessionLimitsPreserveLastCompleteFile()
+    {
+        QFETCH(bool, recordLimit);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("limits.calctabdd"));
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("-0"));
+        session.history.calculateProgrammer(QStringLiteral("0xFFFFFFFFFFFFFFFF"), {64, false});
+        if (recordLimit)
+            while (session.history.count() < SessionFormat::maximumRecords)
+                session.history.calculateProgrammer(QStringLiteral("ans"), {64, false});
+        CalculationSessionFile file;
+        const QString error = file.create(path, session);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        const auto before = SessionFormat::encode(session);
+        if (recordLimit) session.history.calculateProgrammer(QStringLiteral("ans"), {64, false});
+        else session.programmerInput.text = QString(SessionFormat::maximumBytes, QLatin1Char('a'));
+        QVERIFY(!file.save(session).isEmpty());
+        QFile saved(path);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), before);
+        QVERIFY(QFileInfo::exists(path + QStringLiteral(".lock")));
+        saved.close();
+        session.programmerInput.text.clear();
+        if (recordLimit) session.history.clear();
+        QVERIFY(file.save(session).isEmpty());
     }
     void existingOrDamagedSessionIsNeverTruncated()
     {
@@ -2578,7 +2834,10 @@ int main(int argc, char **argv)
         CalculationSession session;
         session.history.calculate(QStringLiteral("42"));
         session.history.calculate(QStringLiteral("1/0"));
+        session.history.calculateProgrammer(QStringLiteral("0xFFFFFFFFFFFFFFFF"), {64, false});
+        session.history.calculateProgrammer(QStringLiteral("1/0"), {8, true});
         session.input = {QStringLiteral("跨进程草稿😀"), 2, 0};
+        session.programmerInput = {QStringLiteral("ans+1"), 4, 2, {}, {}, true, {16, true}};
         CalculationSessionFile file;
         if (!file.create(QString::fromLocal8Bit(argv[2]), session).isEmpty()) return 2;
         std::fputs("LOCKED\n", stdout);

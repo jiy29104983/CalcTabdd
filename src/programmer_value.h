@@ -27,6 +27,8 @@ public:
 
     // 默认值为 U32 的 0。失败保持 output；所有输出参数均支持与输入别名。
     static ProgrammerError fromBits(quint64 bits, ProgrammerConfig config, ProgrammerValue &output);
+    // 会话位模式为小写、无前缀、补满位宽的十六进制；校验后恢复来源，不重新计算。
+    static bool restore(const QString &bits, ProgrammerConfig config, unsigned sources, ProgrammerValue &output);
     static ProgrammerError operate(IntegerUnary operation, const ProgrammerValue &value, ProgrammerValue &output);
     static ProgrammerError operate(IntegerBinary operation, const ProgrammerValue &left,
                                    const ProgrammerValue &right, ProgrammerValue &output);

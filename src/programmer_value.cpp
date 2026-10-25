@@ -59,6 +59,20 @@ ProgrammerError ProgrammerValue::fromBits(quint64 bits, ProgrammerConfig config,
     return ProgrammerError::None;
 }
 
+bool ProgrammerValue::restore(const QString &bits, ProgrammerConfig config, unsigned sources, ProgrammerValue &output)
+{
+    if (!config.isValid() || (sources & ~(Wrap8 | Wrap16 | Wrap32 | Wrap64))
+        || bits.size() != config.bitWidth / 4) return false;
+    bool ok = false;
+    const quint64 raw = bits.toULongLong(&ok, 16);
+    if (!ok || QString::number(raw, 16).rightJustified(config.bitWidth / 4, QLatin1Char('0')) != bits) return false;
+    ProgrammerValue result;
+    if (fromBits(raw, config, result) != ProgrammerError::None) return false;
+    result.m_sources = sources;
+    output = result;
+    return true;
+}
+
 bool ProgrammerValue::isNegative() const
 {
     return m_config.isSigned && (m_bits & (quint64(1) << (m_config.bitWidth - 1)));

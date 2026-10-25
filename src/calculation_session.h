@@ -12,11 +12,11 @@ struct CalculationInputState
     QString text;
     int position = 0;
     int anchor = 0;
-    // 空定义表示普通模式；历史浏览也携带当时的模式和定义。
+    // 数学模式中，空定义表示普通模式；历史浏览也携带当时的模式和定义。
     QString customDefinition;
     // 未确认的定义仅在窗口内随模式／历史草稿保留；文件仍只保存已确认定义。
     QString definitionDraft = {};
-    // 程序员状态目前仅在窗口内保存，不写入 version 3。
+    // 程序员模式及其计算设置独立于数学自定义定义。
     bool programmer = false;
     ProgrammerConfig programmerConfig = {};
 };
@@ -28,12 +28,12 @@ struct CalculationSession
     CalculationInputState draft;
     CalculationInputState normalInput;
     CalculationInputState customInput;
-    CalculationInputState programmerInput;
+    CalculationInputState programmerInput = {{}, 0, 0, {}, {}, true, {}};
     int historyPosition = -1;
     QMap<quint64, CalculationInputState> recalledInputs;
 };
 
-// 当前 version 3 使用 UTF-8 JSON；十进制正文／binary64位模式与来源独立保存，编号为字符串。
+// 当前 version 4 使用 UTF-8 JSON；数值与来源独立保存，整数位模式及编号为字符串。
 namespace SessionFormat {
 constexpr int maximumBytes = 16 * 1024 * 1024;
 constexpr int maximumRecords = 10000;

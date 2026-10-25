@@ -20,6 +20,8 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QInputMethodEvent>
 #include <QLabel>
@@ -863,7 +865,7 @@ private slots:
         QTRY_VERIFY(completion(page)->isVisible());
         QCOMPARE(completion(page)->model()->rowCount(), 17);
     }
-    void programmerPreviewProtectsMathSessionFiles()
+    void savedSessionAllowsProgrammerModeAndFurtherMath()
     {
         QTemporaryDir directory;
         QVERIFY(directory.isValid());
@@ -873,16 +875,12 @@ private slots:
         page.submit();
         QVERIFY(selectSession(page, path, false));
         page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
-        QVERIFY(!page.programmerMode());
-        QCOMPARE(readSession(path).history.answer().text(), QStringLiteral("42"));
-        page.findChild<QAction *>(QStringLiteral("stopSavingSession"))->trigger();
-        QFile file(path);
-        QVERIFY(file.open(QIODevice::ReadOnly));
-        const QByteArray before = file.readAll();
-        file.close();
-        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
-        page.input()->setPlainText(QStringLiteral("0xFF"));
+        QVERIFY(page.programmerMode());
+        setProgrammerConfig(page, 64, false);
+        page.input()->setPlainText(QStringLiteral("0xFFFFFFFFFFFFFFFF"));
         page.submit();
+        QCOMPARE(readSession(path).history.answer().text(), QStringLiteral("42"));
+        QCOMPARE(readSession(path).history.programmerAnswer().text(), QStringLiteral("18446744073709551615"));
         page.input()->setPlainText(QStringLiteral("10+"));
         page.input()->moveCursor(QTextCursor::End);
         page.findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
@@ -892,17 +890,283 @@ private slots:
         QVERIFY(exportDialog);
         exportDialog->reject();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        for (const auto *action : {"saveSessionAs", "restoreSession"})
-        {
-            page.findChild<QAction *>(QString::fromLatin1(action))->trigger();
-            QVERIFY(!page.findChild<QFileDialog *>());
-        }
         page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
-        page.findChild<QAction *>(QStringLiteral("saveSessionAs"))->trigger();
-        QVERIFY(!page.findChild<QFileDialog *>());
+        page.input()->setPlainText(QStringLiteral("ans+1"));
+        page.submit();
+        QCOMPARE(readSession(path).history.answer().text(), QStringLiteral("43"));
+        QCOMPARE(readSession(path).history.programmerAnswer().text(), QStringLiteral("18446744073709551615"));
+        page.findChild<QAction *>(QStringLiteral("stopSavingSession"))->trigger();
+        const auto before = SessionFormat::encode(readSession(path));
+        page.input()->setPlainText(QStringLiteral("100"));
+        page.submit();
+        QCOMPARE(SessionFormat::encode(readSession(path)), before);
+        const QString other = directory.filePath(QStringLiteral("mixed.calctabdd"));
+        QVERIFY(selectSession(page, other, false));
+        QCOMPARE(readSession(other).history.count(), 4);
+    }
+    void mixedSessionRestoresThreeDraftsAndBrowsing_data()
+    {
+        QTest::addColumn<int>("origin");
+        QTest::addColumn<int>("browse");
+        for (int origin = 0; origin < 3; ++origin)
+            for (int browse = -1; browse < 3; ++browse)
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(origin).arg(browse))) << origin << browse;
+    }
+    void mixedSessionRestoresThreeDraftsAndBrowsing()
+    {
+        QFETCH(int, origin);
+        QFETCH(int, browse);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("混合😀.calctabdd"));
+        const QStringList modes{QStringLiteral("normalCalculationMode"), QStringLiteral("customCalculationMode"),
+                                QStringLiteral("programmerCalculationMode")};
+        const QStringList drafts{QStringLiteral("普通草稿😀+"), QStringLiteral("x=3"), QStringLiteral("  ans+😀")};
+        CalculationSession saved;
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("0.1+0.2"));
+            page.submit();
+            QVERIFY(defineFormula(page, QStringLiteral("A=x+ans")));
+            page.input()->setPlainText(QStringLiteral("x=2"));
+            page.submit();
+            page.findChild<QAction *>(modes.at(2))->trigger();
+            setProgrammerConfig(page, 8, false);
+            page.input()->setPlainText(QStringLiteral("255+1"));
+            page.submit();
+            setProgrammerConfig(page, 16, false);
+            page.input()->setPlainText(QStringLiteral("ans+2"));
+            page.submit();
+            page.input()->setPlainText(QStringLiteral("1/0"));
+            page.submit();
+            page.findChild<QAction *>(modes.at(0))->trigger();
+            page.input()->setPlainText(QStringLiteral("ln(0)"));
+            page.submit();
+            for (int mode = 0; mode < 3; ++mode)
+            {
+                page.findChild<QAction *>(modes.at(mode))->trigger();
+                if (mode == 2) setProgrammerConfig(page, 16, true);
+                setDraft(page, drafts.at(mode), 1, 3);
+            }
+            page.findChild<QAction *>(modes.at(origin))->trigger();
+            if (browse >= 0)
+            {
+                page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(browse)->click();
+                if (browse == 2) setProgrammerConfig(page, 32, true);
+                setDraft(page, browse == 1 ? QStringLiteral("x=11") : QStringLiteral("ans+7"), 4, 2);
+                page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(3)->click();
+                setDraft(page, QStringLiteral("ans+9"), 5, 1);
+                page.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(browse)->click();
+            }
+            QVERIFY(selectSession(page, path, false));
+            saved = readSession(path);
+            QCOMPARE(saved.historyPosition, browse);
+            QCOMPARE(saved.history.count(), 6);
+            QCOMPARE(saved.history.programmerAnswer().sources(), 1u);
+        }
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QCOMPARE(restored.history().answer(), saved.history.answer());
+        QCOMPARE(restored.history().programmerAnswer(), saved.history.programmerAnswer());
+        QCOMPARE(restored.history().count(), 6);
+        QCOMPARE(restored.programmerMode(), saved.input.programmer);
+        QCOMPARE(restored.input()->toPlainText(), saved.input.text);
+        QCOMPARE(restored.input()->textCursor().position(), saved.input.position);
+        QCOMPARE(restored.input()->textCursor().anchor(), saved.input.anchor);
+        QCOMPARE(SessionFormat::encode(readSession(path)), SessionFormat::encode(saved));
+        const auto results = restored.findChildren<RecordText *>(QStringLiteral("recordResult"));
+        QCOMPARE(results.at(0)->toPlainText(), QStringLiteral("= 0.3"));
+        QCOMPARE(results.at(2)->toPlainText(), QStringLiteral("= 0"));
+        QCOMPARE(results.at(3)->toPlainText(), QStringLiteral("= 2"));
+        if (browse >= 0)
+        {
+            restored.findChildren<QPushButton *>(QStringLiteral("reuseFormula")).at(3)->click();
+            QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ans+9"));
+            for (int i = 3; i < 6; ++i)
+                QTest::keyClick(restored.input(), Qt::Key_Down, Qt::AltModifier);
+        }
+        QCOMPARE(restored.input()->toPlainText(), drafts.at(origin));
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            restored.findChild<QAction *>(modes.at(mode))->trigger();
+            QCOMPARE(restored.input()->toPlainText(), drafts.at(mode));
+            QCOMPARE(restored.input()->textCursor().anchor(), 1);
+            QCOMPARE(restored.input()->textCursor().position(), 3);
+            if (mode == 2)
+            {
+                QCOMPARE(restored.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 16);
+                QCOMPARE(restored.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentIndex(), 1);
+            }
+        }
+        restored.input()->setPlainText(QStringLiteral("ans+1"));
+        restored.submit();
+        QCOMPARE(restored.history().records().last().id, quint64(7));
+        QCOMPARE(restored.history().programmerAnswer().text(), QStringLiteral("3"));
+        QCOMPARE(restored.history().programmerAnswer().sources(), 1u);
+        restored.findChild<QAction *>(modes.at(0))->trigger();
+        restored.input()->setPlainText(QStringLiteral("ans+1"));
+        restored.submit();
+        QCOMPARE(restored.history().answer().text(), QStringLiteral("3.3"));
+    }
+    void programmerSessionRestoresDiagnosticsOnlyForOriginalConfig_data()
+    {
+        QTest::addColumn<bool>("changed");
+        QTest::newRow("same-config") << false;
+        QTest::newRow("changed-config") << true;
+    }
+    void programmerSessionRestoresDiagnosticsOnlyForOriginalConfig()
+    {
+        QFETCH(bool, changed);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("error.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QString());
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            setProgrammerConfig(page, 8, false);
+            page.input()->setPlainText(QStringLiteral("256"));
+            page.submit();
+            if (changed) setProgrammerConfig(page, 16, false);
+            QVERIFY(selectSession(page, path, false));
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QCOMPARE(restored.input()->extraSelections().isEmpty(), changed);
+        QCOMPARE(restored.history().count(), 1);
+        if (changed)
+        {
+            restored.submit();
+            QCOMPARE(restored.history().programmerAnswer().text(), QStringLiteral("256"));
+        }
+    }
+    void rejectedSessionFilesPreserveBlankPageAndBytes_data()
+    {
+        QTest::addColumn<bool>("oldVersion");
+        QTest::newRow("version-3") << true;
+        QTest::newRow("damaged-integer") << false;
+    }
+    void rejectedSessionFilesPreserveBlankPageAndBytes()
+    {
+        QFETCH(bool, oldVersion);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("old.calctabdd"));
+        CalculationSession source;
+        source.history.calculateProgrammer(QStringLiteral("0xFFFFFFFFFFFFFFFF"), {64, false});
+        auto root = QJsonDocument::fromJson(SessionFormat::encode(source)).object();
+        if (oldVersion) root.insert(QStringLiteral("version"), 3);
+        else
+        {
+            auto answer = root.value(QStringLiteral("programmerAnswer")).toObject();
+            answer.insert(QStringLiteral("bits"), 18446744073709551615.0);
+            root.insert(QStringLiteral("programmerAnswer"), answer);
+        }
+        const auto bytes = QJsonDocument(root).toJson();
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        QVERIFY(!page.programmerMode());
+        QVERIFY(page.input()->toPlainText().isEmpty());
+        QCOMPARE(page.history().count(), 0);
+        QVERIFY(!page.findChild<QAction *>(QStringLiteral("saveSessionNow"))->isEnabled());
+        QVERIFY(!QFileInfo::exists(path + QStringLiteral(".lock")));
         QVERIFY(file.open(QIODevice::ReadOnly));
-        QCOMPARE(file.readAll(), before);
-        QCOMPARE(page.history().count(), 2);
+        QCOMPARE(file.readAll(), bytes);
+    }
+    void savedProgrammerConfigUpdatesWithoutEditingText()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("config.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QString());
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            setProgrammerConfig(page, 16, false);
+            page.input()->setPlainText(QStringLiteral("256"));
+            page.submit();
+            QVERIFY(selectSession(page, path, false));
+            setProgrammerConfig(page, 8, true);
+            QTRY_COMPARE(readSession(path).input.programmerConfig, (ProgrammerConfig{8, true}));
+            QCOMPARE(readSession(path).history.programmerAnswer().config(), (ProgrammerConfig{16, false}));
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        restored.input()->setPlainText(QStringLiteral("ans"));
+        restored.submit();
+        QVERIFY(!restored.history().records().last().result.ok);
+        QCOMPARE(restored.history().programmerAnswer().text(), QStringLiteral("256"));
+        setProgrammerConfig(restored, 16, true);
+        restored.submit();
+        QVERIFY(restored.history().records().last().result.ok);
+        QCOMPARE(readSession(path).history.programmerAnswer().config(), (ProgrammerConfig{16, true}));
+        QCOMPARE(readSession(path).history.programmerAnswer().text(), QStringLiteral("256"));
+    }
+    void pendingFirstDefinitionSavesPreviousProgrammerDraft()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("pending.calctabdd"));
+        {
+            CalculatorPage page;
+            prepare(page, QStringLiteral("ordinary"));
+            page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+            setProgrammerConfig(page, 8, true);
+            setDraft(page, QStringLiteral("5+"), 2, 1);
+            page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+            page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->setPlainText(QStringLiteral("A=x+"));
+            QVERIFY(selectSession(page, path, false));
+            const auto saved = readSession(path);
+            QVERIFY(saved.input.programmer);
+            QCOMPARE(saved.input.programmerConfig, (ProgrammerConfig{8, true}));
+            QCOMPARE(saved.normalInput.text, QStringLiteral("ordinary"));
+            QVERIFY(saved.customInput.customDefinition.isEmpty());
+        }
+        CalculatorPage restored;
+        prepare(restored, QString());
+        QVERIFY(selectSession(restored, path, true));
+        QVERIFY(restored.programmerMode());
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("5+"));
+        QCOMPARE(restored.input()->textCursor().position(), 1);
+        QCOMPARE(restored.input()->textCursor().anchor(), 2);
+        restored.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(restored.input()->toPlainText(), QStringLiteral("ordinary"));
+    }
+    void clearSavedMixedSessionResetsAnswersAndPreservesDrafts()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("clear.calctabdd"));
+        CalculatorPage page;
+        prepare(page, QStringLiteral("42"));
+        page.submit();
+        setDraft(page, QStringLiteral("normal"), 3, 1);
+        QVERIFY(defineFormula(page, QStringLiteral("A=x")));
+        setDraft(page, QStringLiteral("x=2"), 2, 1);
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        setProgrammerConfig(page, 8, false);
+        page.input()->setPlainText(QStringLiteral("255+1"));
+        page.submit();
+        setProgrammerConfig(page, 16, true);
+        setDraft(page, QStringLiteral("ans+1"), 5, 2);
+        QVERIFY(selectSession(page, path, false));
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *dialog = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        QVERIFY(dialog);
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        const auto saved = readSession(path);
+        QCOMPARE(saved.history.count(), 0);
+        QCOMPARE(saved.history.answer(), NumericValue());
+        QCOMPARE(saved.history.programmerAnswer(), ProgrammerValue());
+        QCOMPARE(saved.normalInput.text, QStringLiteral("normal"));
+        QCOMPARE(saved.customInput.text, QStringLiteral("x=2"));
+        QCOMPARE(saved.programmerInput.text, QStringLiteral("ans+1"));
+        QCOMPARE(saved.input.programmerConfig, (ProgrammerConfig{16, true}));
+        QCOMPARE(saved.input.position, 2);
+        QCOMPARE(saved.input.anchor, 5);
     }
     void programmerConstrainedLayouts_data()
     {

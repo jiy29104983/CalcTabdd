@@ -54,25 +54,93 @@ bool readInteger(const QJsonValue &value, int &result, int minimum, int maximum)
 {
     if (!value.isDouble()) return false;
     const double numeric = value.toDouble();
-    if (numeric < minimum || numeric > maximum || std::floor(numeric) != numeric) return false;
+    if (!std::isfinite(numeric) || numeric < minimum || numeric > maximum || std::floor(numeric) != numeric) return false;
     result = static_cast<int>(numeric);
     return true;
+}
+
+QJsonObject configJson(ProgrammerConfig config)
+{
+    return {{QStringLiteral("bitWidth"), config.bitWidth}, {QStringLiteral("isSigned"), config.isSigned}};
+}
+
+bool readConfig(const QJsonValue &value, ProgrammerConfig &config)
+{
+    if (!value.isObject()) return false;
+    const auto object = value.toObject();
+    if (object.size() != 2 || !object.value(QStringLiteral("isSigned")).isBool()
+        || !readInteger(object.value(QStringLiteral("bitWidth")), config.bitWidth, 8, 64)) return false;
+    config.isSigned = object.value(QStringLiteral("isSigned")).toBool();
+    return config.isValid();
+}
+
+QJsonObject integerJson(const ProgrammerValue &value)
+{
+    QJsonArray sources;
+    unsigned flag = ProgrammerValue::Wrap8;
+    for (int width : {8, 16, 32, 64})
+    {
+        if (value.sources() & flag) sources.append(width);
+        flag <<= 1;
+    }
+    return {{QStringLiteral("kind"), QStringLiteral("integer")},
+            {QStringLiteral("bits"), value.hexText().mid(2).toLower()},
+            {QStringLiteral("config"), configJson(value.config())}, {QStringLiteral("sources"), sources}};
+}
+
+bool readProgrammerValue(const QJsonValue &value, ProgrammerValue &result)
+{
+    if (!value.isObject()) return false;
+    const auto object = value.toObject();
+    ProgrammerConfig config;
+    if (object.size() != 4 || object.value(QStringLiteral("kind")) != QStringLiteral("integer")
+        || !object.value(QStringLiteral("bits")).isString()
+        || !readConfig(object.value(QStringLiteral("config")), config)
+        || !object.value(QStringLiteral("sources")).isArray()) return false;
+    unsigned sources = 0;
+    int previous = 0;
+    for (const auto &item : object.value(QStringLiteral("sources")).toArray())
+    {
+        int width = 0;
+        if (!readInteger(item, width, 8, 64) || width <= previous) return false;
+        const unsigned flag = width == 8 ? ProgrammerValue::Wrap8 : width == 16 ? ProgrammerValue::Wrap16
+            : width == 32 ? ProgrammerValue::Wrap32 : width == 64 ? ProgrammerValue::Wrap64 : 0u;
+        if (!flag) return false;
+        sources |= flag;
+        previous = width;
+    }
+    return ProgrammerValue::restore(object.value(QStringLiteral("bits")).toString(), config, sources, result);
+}
+
+QString modeName(bool programmer, const QString &definition)
+{
+    return programmer ? QStringLiteral("programmer")
+        : definition.isEmpty() ? QStringLiteral("normal") : QStringLiteral("custom");
 }
 
 QJsonObject inputJson(const CalculationInputState &input)
 {
     return {{QStringLiteral("text"), input.text}, {QStringLiteral("position"), input.position},
-            {QStringLiteral("anchor"), input.anchor}, {QStringLiteral("customDefinition"), input.customDefinition}};
+            {QStringLiteral("anchor"), input.anchor}, {QStringLiteral("customDefinition"), input.customDefinition},
+            {QStringLiteral("mode"), modeName(input.programmer, input.customDefinition)},
+            {QStringLiteral("programmerConfig"), configJson(input.programmerConfig)}};
 }
 
 bool readInput(const QJsonValue &value, CalculationInputState &input)
 {
     if (!value.isObject()) return false;
     const auto object = value.toObject();
-    if (!object.value(QStringLiteral("text")).isString()) return false;
+    if (object.size() != 6 || !object.value(QStringLiteral("text")).isString()
+        || !object.value(QStringLiteral("mode")).isString()
+        || !readConfig(object.value(QStringLiteral("programmerConfig")), input.programmerConfig)) return false;
+    const QString mode = object.value(QStringLiteral("mode")).toString();
+    input.programmer = mode == QStringLiteral("programmer");
     input.text = object.value(QStringLiteral("text")).toString();
     if (!object.value(QStringLiteral("customDefinition")).isString()) return false;
     input.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
+    if (mode != modeName(input.programmer, input.customDefinition)
+        || (input.programmer && !input.customDefinition.isEmpty())
+        || (!input.programmer && input.programmerConfig != ProgrammerConfig())) return false;
     CustomFormula formula;
     if (!input.customDefinition.isEmpty() && !CustomFormula::parse(input.customDefinition, formula).isEmpty()) return false;
     return readInteger(object.value(QStringLiteral("position")), input.position, 0, input.text.size())
@@ -99,16 +167,6 @@ QString readFile(const QString &path, QByteArray &bytes)
 
 QByteArray SessionFormat::encode(const CalculationSession &session)
 {
-    // 拒绝不完整快照，不能把整数记录误存成数学值或静默丢弃第三份草稿。
-    const auto integerState = [](const CalculationInputState &input) {
-        return input.programmer || input.programmerConfig != ProgrammerConfig();
-    };
-    if (session.history.hasProgrammerRecords() || integerState(session.input) || integerState(session.draft)
-        || integerState(session.normalInput) || integerState(session.customInput)
-        || integerState(session.programmerInput) || !session.programmerInput.text.isEmpty())
-        return {};
-    for (const auto &input : session.recalledInputs)
-        if (integerState(input)) return {};
     QJsonArray records;
     for (const auto &entry : session.history.records())
     {
@@ -117,10 +175,18 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
             {QStringLiteral("id"), QString::number(entry.id)},
             {QStringLiteral("expression"), entry.expression},
             {QStringLiteral("customDefinition"), entry.customDefinition}, {QStringLiteral("parameterInput"), entry.parameterInput},
+            {QStringLiteral("mode"), modeName(entry.programmer, entry.customDefinition)},
             {QStringLiteral("answerBefore"), number(entry.answerBefore)},
-            {QStringLiteral("ok"), result.ok}, {QStringLiteral("value"), result.ok ? QJsonValue(number(result.value)) : QJsonValue(QJsonValue::Null)},
+            {QStringLiteral("ok"), result.ok},
+            {QStringLiteral("value"), result.ok ? QJsonValue(entry.programmer ? integerJson(entry.programmerValue) : number(result.value))
+                                               : QJsonValue(QJsonValue::Null)},
             {QStringLiteral("error"), static_cast<int>(result.error)},
             {QStringLiteral("errorPosition"), result.errorPosition}, {QStringLiteral("errorLength"), result.errorLength}};
+        if (entry.programmer)
+        {
+            record.insert(QStringLiteral("programmerConfig"), configJson(entry.programmerConfig));
+            record.insert(QStringLiteral("programmerAnswerBefore"), integerJson(entry.programmerAnswerBefore));
+        }
         if (!result.ok) record.insert(QStringLiteral("text"), result.text);
         records.append(record);
     }
@@ -128,10 +194,12 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
     for (auto it = session.recalledInputs.cbegin(); it != session.recalledInputs.cend(); ++it)
         recalled.insert(QString::number(it.key()), inputJson(it.value()));
     return QJsonDocument(QJsonObject{
-        {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 3},
+        {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 4},
         {QStringLiteral("records"), records},
         {QStringLiteral("answer"), number(session.history.answer())},
+        {QStringLiteral("programmerAnswer"), integerJson(session.history.programmerAnswer())},
         {QStringLiteral("normalInput"), inputJson(session.normalInput)}, {QStringLiteral("customInput"), inputJson(session.customInput)},
+        {QStringLiteral("programmerInput"), inputJson(session.programmerInput)},
         {QStringLiteral("input"), inputJson(session.input)}, {QStringLiteral("draft"), inputJson(session.draft)},
         {QStringLiteral("historyPosition"), session.historyPosition}, {QStringLiteral("recalledInputs"), recalled}
     }).toJson(QJsonDocument::Indented);
@@ -146,8 +214,9 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) return invalid;
     const auto root = document.object();
     if (root.value(QStringLiteral("format")) != QStringLiteral("CalcTabdd.Session")) return invalid;
-    if (root.value(QStringLiteral("version")) != QJsonValue(3))
+    if (root.value(QStringLiteral("version")) != QJsonValue(4))
         return QStringLiteral("不支持此会话格式版本，原文件未修改。");
+    if (root.size() != 12) return invalid;
     CalculationSession restored;
     if (!root.value(QStringLiteral("records")).isArray()) return invalid;
     const auto array = root.value(QStringLiteral("records")).toArray();
@@ -167,6 +236,15 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
             || !object.value(QStringLiteral("parameterInput")).isString()) return invalid;
         entry.customDefinition = object.value(QStringLiteral("customDefinition")).toString();
         entry.parameterInput = object.value(QStringLiteral("parameterInput")).toString();
+        entry.programmer = object.value(QStringLiteral("mode")) == QStringLiteral("programmer");
+        if (object.value(QStringLiteral("mode")) != modeName(entry.programmer, entry.customDefinition)
+            || object.size() != 11 + (entry.programmer ? 2 : 0) + (object.value(QStringLiteral("ok")).toBool() ? 0 : 1))
+            return invalid;
+        if (entry.programmer && (!readConfig(object.value(QStringLiteral("programmerConfig")), entry.programmerConfig)
+            || !readProgrammerValue(object.value(QStringLiteral("programmerAnswerBefore")), entry.programmerAnswerBefore)))
+            return invalid;
+        if (!entry.programmer && (object.contains(QStringLiteral("programmerConfig"))
+            || object.contains(QStringLiteral("programmerAnswerBefore")))) return invalid;
         entry.expression = object.value(QStringLiteral("expression")).toString();
         entry.result.ok = object.value(QStringLiteral("ok")).toBool();
         int kind = 0;
@@ -177,8 +255,13 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
             return invalid;
         if (entry.result.ok)
         {
-            if (object.contains(QStringLiteral("text")) || !readNumber(object.value(QStringLiteral("value")), entry.result.value)) return invalid;
-            entry.result.text = entry.result.value.text();
+            if (object.contains(QStringLiteral("text"))) return invalid;
+            if (entry.programmer)
+            {
+                if (!readProgrammerValue(object.value(QStringLiteral("value")), entry.programmerValue)) return invalid;
+            }
+            else if (!readNumber(object.value(QStringLiteral("value")), entry.result.value)) return invalid;
+            entry.result.text = entry.valueText();
         }
         else
         {
@@ -190,27 +273,44 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
     }
     if (!restored.history.restoreRecords(records)) return invalid;
     NumericValue answer;
+    ProgrammerValue programmerAnswer;
     if (!readNumber(root.value(QStringLiteral("answer")), answer)
         || answer != restored.history.answer()
+        || !readProgrammerValue(root.value(QStringLiteral("programmerAnswer")), programmerAnswer)
+        || programmerAnswer != restored.history.programmerAnswer()
         || !readInput(root.value(QStringLiteral("input")), restored.input)
         || !readInput(root.value(QStringLiteral("draft")), restored.draft)
         || !readInteger(root.value(QStringLiteral("historyPosition")), restored.historyPosition, -1, records.size() - 1)
         || !root.value(QStringLiteral("recalledInputs")).isObject()) return invalid;
     if (!readInput(root.value(QStringLiteral("normalInput")), restored.normalInput)
-        || !restored.normalInput.customDefinition.isEmpty()
+        || restored.normalInput.programmer || !restored.normalInput.customDefinition.isEmpty()
         || !readInput(root.value(QStringLiteral("customInput")), restored.customInput)
-        || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())) return invalid;
+        || restored.customInput.programmer
+        || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())
+        || !readInput(root.value(QStringLiteral("programmerInput")), restored.programmerInput)
+        || !restored.programmerInput.programmer) return invalid;
     const auto recalled = root.value(QStringLiteral("recalledInputs")).toObject();
     for (auto it = recalled.begin(); it != recalled.end(); ++it)
     {
         bool ok = false;
         const quint64 id = it.key().toULongLong(&ok);
         CalculationInputState input;
-        if (!ok || QString::number(id) != it.key() || !restored.history.record(id) || !readInput(it.value(), input))
+        const auto *record = restored.history.record(id);
+        if (!ok || QString::number(id) != it.key() || !record || !readInput(it.value(), input)
+            || input.programmer != record->programmer || input.customDefinition != record->customDefinition)
             return invalid;
         restored.recalledInputs.insert(id, input);
     }
-    if (restored.historyPosition < 0 && (!recalled.isEmpty() || !restored.draft.text.isEmpty() || !restored.draft.customDefinition.isEmpty())) return invalid;
+    if (restored.historyPosition < 0)
+    {
+        if (!recalled.isEmpty() || inputJson(restored.draft) != inputJson(CalculationInputState())) return invalid;
+    }
+    else
+    {
+        const quint64 id = records.at(restored.historyPosition).id;
+        if (!restored.recalledInputs.contains(id) || inputJson(restored.input) != inputJson(restored.recalledInputs.value(id)))
+            return invalid;
+    }
     session = restored;
     return {};
 }
