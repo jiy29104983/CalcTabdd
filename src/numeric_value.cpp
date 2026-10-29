@@ -265,27 +265,96 @@ NumericStatus NumericValue::operate(char operation, const NumericValue &left, co
     return finishBinary(value, sources, nonzero || environment.underflow(), output);
 }
 
-int NumericValue::argumentCount(const QString &name)
+int NumericValue::minimumArgumentCount(const QString &name)
 {
-    if (name == QStringLiteral("min") || name == QStringLiteral("max") || name == QStringLiteral("pow")) return 2;
-    for (const auto *function : {"sqrt", "abs", "sin", "cos", "tan", "ln", "log", "exp", "floor", "ceil", "round"})
+    for (const auto *function : {"min", "max", "pow", "atan2", "hypot"})
+        if (name == QLatin1String(function)) return 2;
+    for (const auto *function : {"sqrt", "abs", "sin", "cos", "tan", "ln", "log", "exp", "floor", "ceil", "round",
+                                 "trunc", "asin", "acos", "atan", "cbrt", "rad", "deg", "log2", "sum", "avg"})
         if (name == QLatin1String(function)) return 1;
     return 0;
 }
 
+int NumericValue::maximumArgumentCount(const QString &name)
+{
+    if (name == QStringLiteral("sum") || name == QStringLiteral("avg")
+        || name == QStringLiteral("min") || name == QStringLiteral("max")) return 256;
+    if (name == QStringLiteral("round") || name == QStringLiteral("log")) return 2;
+    return minimumArgumentCount(name);
+}
+
+int NumericValue::argumentCount(const QString &name) { return minimumArgumentCount(name); }
+
+bool NumericValue::isLegacyFunction(const QString &name)
+{
+    for (const auto *function : {"sqrt", "abs", "sin", "cos", "tan", "ln", "log", "exp", "floor", "ceil", "round",
+                                 "min", "max", "pow"})
+        if (name == QLatin1String(function)) return true;
+    return false;
+}
+
 NumericStatus NumericValue::function(const QString &name, const QVector<NumericValue> &arguments, NumericValue &output)
 {
-    const int count = argumentCount(name);
-    if (!count) return {NumericError::UnknownName};
-    if (arguments.size() != count) return {NumericError::ArgumentCount};
+    const int minimum = minimumArgumentCount(name);
+    if (!minimum) return {NumericError::UnknownName};
+    const int count = arguments.size();
+    if (count < minimum || count > maximumArgumentCount(name)) return {NumericError::ArgumentCount};
     if (name == QStringLiteral("pow")) return operate('^', arguments.at(0), arguments.at(1), output);
     const auto &first = arguments.first();
-    if (name == QStringLiteral("sqrt") && first.isNegative() && !first.isZero()) return {NumericError::Domain, 0};
-    if ((name == QStringLiteral("ln") || name == QStringLiteral("log")) && (first.isNegative() || first.isZero()))
-        return {NumericError::Domain, 0};
     unsigned sources = 0;
     bool binary = false;
     for (const auto &argument : arguments) { sources |= argument.m_sources; binary |= argument.m_isBinary; }
+
+    // 聚合按输入顺序逐步求值，每一步仍遵守原有精度和数值范围限制。
+    if (name == QStringLiteral("sum") || name == QStringLiteral("avg"))
+    {
+        NumericValue result = first;
+        for (int i = 1; i < count; ++i)
+        {
+            const auto status = operate('+', result, arguments.at(i), result);
+            if (!status.ok()) return {status.error, status.argument == 1 ? i : -1};
+        }
+        if (name == QStringLiteral("avg"))
+        {
+            NumericValue divisor;
+            parse(QString::number(count), divisor);
+            const auto status = operate('/', result, divisor, result);
+            if (!status.ok()) return {status.error, -1};
+        }
+        output = result;
+        return {};
+    }
+
+    int places = 0;
+    if (name == QStringLiteral("round") && count == 2)
+    {
+        if (!arguments.at(1).isInteger()) return {NumericError::Domain, 1};
+        bool ok = false;
+        places = arguments.at(1).integerText().toInt(&ok);
+        if (!ok || places < -999 || places > 999) return {NumericError::ResourceLimit, 1};
+    }
+    DecimalValue one;
+    DecimalValue::parse(QStringLiteral("1"), one);
+    const auto equalsOne = [&one](const NumericValue &value) {
+        return value.m_isBinary ? value.m_binary == 1 : DecimalValue::compare(value.m_decimal, one) == 0;
+    };
+    if (name == QStringLiteral("sqrt") && first.isNegative() && !first.isZero()) return {NumericError::Domain, 0};
+    if ((name == QStringLiteral("ln") || name == QStringLiteral("log") || name == QStringLiteral("log2"))
+        && (first.isNegative() || first.isZero())) return {NumericError::Domain, 0};
+    if (name == QStringLiteral("log") && count == 2)
+    {
+        const auto &base = arguments.at(1);
+        if (base.isNegative() || base.isZero() || equalsOne(base)) return {NumericError::Domain, 1};
+    }
+    if (name == QStringLiteral("asin") || name == QStringLiteral("acos"))
+    {
+        const bool outside = first.m_isBinary ? std::abs(first.m_binary) > 1
+            : DecimalValue::compare(first.m_decimal.absolute(), one) > 0;
+        if (outside) return {NumericError::Domain, 0};
+    }
+    if (name == QStringLiteral("atan2") && first.isZero() && arguments.at(1).isZero())
+        return {NumericError::Domain, -1};
+
     if (!binary)
     {
         NumericValue result;
@@ -294,45 +363,122 @@ NumericStatus NumericValue::function(const QString &name, const QVector<NumericV
         if (name == QStringLiteral("abs")) result.m_decimal = first.m_decimal.absolute();
         else if (name == QStringLiteral("min") || name == QStringLiteral("max"))
         {
-            const int comparison = DecimalValue::compare(first.m_decimal, arguments.at(1).m_decimal);
-            result = (name == QStringLiteral("min") ? comparison <= 0 : comparison >= 0) ? first : arguments.at(1);
+            result = first;
+            for (int i = 1; i < count; ++i)
+            {
+                const int comparison = DecimalValue::compare(result.m_decimal, arguments.at(i).m_decimal);
+                if (name == QStringLiteral("min") ? comparison > 0 : comparison < 0) result = arguments.at(i);
+            }
         }
-        else if (name == QStringLiteral("floor") || name == QStringLiteral("ceil") || name == QStringLiteral("round"))
+        else if (name == QStringLiteral("round")) error = DecimalValue::round(first.m_decimal, places, result.m_decimal);
+        else if (name == QStringLiteral("floor") || name == QStringLiteral("ceil") || name == QStringLiteral("trunc"))
             error = DecimalValue::integral(first.m_decimal, name == QStringLiteral("floor") ? DecimalValue::IntegralRounding::Floor
-                : name == QStringLiteral("ceil") ? DecimalValue::IntegralRounding::Ceiling : DecimalValue::IntegralRounding::HalfAwayFromZero,
+                : name == QStringLiteral("ceil") ? DecimalValue::IntegralRounding::Ceiling : DecimalValue::IntegralRounding::TowardZero,
                 result.m_decimal);
         else if (name == QStringLiteral("sqrt")) error = DecimalValue::squareRootExact(first.m_decimal, result.m_decimal, exact);
+        else if (name == QStringLiteral("cbrt")) error = DecimalValue::cubeRootExact(first.m_decimal, result.m_decimal, exact);
         else exact = false;
         if (error != DecimalError::None) return decimalStatus(error);
         if (exact) { result.m_sources = sources; output = result; return {}; }
     }
+
     double a = 0, b = 0;
     auto status = convert(first, 0, a, sources);
     if (!status.ok()) return status;
-    if (count == 2)
+    if (name == QStringLiteral("min") || name == QStringLiteral("max"))
+    {
+        double value = a;
+        for (int i = 1; i < count; ++i)
+        {
+            status = convert(arguments.at(i), i, b, sources);
+            if (!status.ok()) return status;
+            // 首次相等值保留其位模式，尤其是 +0/-0；所有参数的来源仍合并。
+            if (name == QStringLiteral("min") ? value > b : value < b) value = b;
+        }
+        return finishBinary(value, sources, false, output);
+    }
+    if (count == 2 && name != QStringLiteral("round"))
     {
         status = convert(arguments.at(1), 1, b, sources);
         if (!status.ok()) return status;
     }
     const FloatingEnvironment environment;
-    // 相等时必须按左参数保留位模式，尤其是 +0/-0；不让 min/max 指令的平局规则替代此契约。
-    if ((name == QStringLiteral("min") || name == QStringLiteral("max")) && a == b)
-        return finishBinary(a, sources, false, output);
     double value;
-    if (name == QStringLiteral("min")) value = a <= b ? a : b;
-    else if (name == QStringLiteral("max")) value = a >= b ? a : b;
-    else if (name == QStringLiteral("sqrt")) value = std::sqrt(a);
+    bool nonzero = false;
+    if (name == QStringLiteral("sqrt")) value = std::sqrt(a);
+    else if (name == QStringLiteral("cbrt")) value = std::cbrt(a);
     else if (name == QStringLiteral("abs")) value = std::abs(a);
     else if (name == QStringLiteral("sin")) value = std::sin(a);
     else if (name == QStringLiteral("cos")) value = std::cos(a);
     else if (name == QStringLiteral("tan")) value = std::tan(a);
+    else if (name == QStringLiteral("asin")) value = std::asin(a);
+    else if (name == QStringLiteral("acos")) value = std::acos(a);
+    else if (name == QStringLiteral("atan")) value = std::atan(a);
+    else if (name == QStringLiteral("atan2")) { value = std::atan2(a, b); nonzero = a != 0; }
+    else if (name == QStringLiteral("hypot")) { value = std::hypot(a, b); nonzero = a != 0 || b != 0; }
+    else if (name == QStringLiteral("rad")) { value = a * (std::acos(-1.0) / 180.0); nonzero = a != 0; }
+    else if (name == QStringLiteral("deg")) { value = a * (180.0 / std::acos(-1.0)); nonzero = a != 0; }
     else if (name == QStringLiteral("ln")) value = std::log(a);
-    else if (name == QStringLiteral("log")) value = std::log10(a);
-    else if (name == QStringLiteral("exp")) value = std::exp(a);
+    else if (name == QStringLiteral("log2")) value = std::log2(a);
+    else if (name == QStringLiteral("log") && count == 1) value = std::log10(a);
+    else if (name == QStringLiteral("log"))
+    {
+        // 十进制底数接近 1 时不能先转成 binary64 的 1 再除以 log(1)。
+        const auto logarithm = [&one, &sources](const NumericValue &input, double converted, double &result) {
+            if (!input.m_isBinary && converted >= 0.5 && converted <= 1.5)
+            {
+                DecimalValue difference;
+                auto checked = decimalStatus(DecimalValue::subtract(input.m_decimal, one, difference));
+                if (!checked.ok()) return checked;
+                double delta = 0;
+                checked = convert(NumericValue(difference), -1, delta, sources);
+                if (!checked.ok()) return checked;
+                result = std::log1p(delta);
+            }
+            else result = std::log(converted);
+            return NumericStatus{};
+        };
+        double numerator = 0, denominator = 0;
+        status = logarithm(first, a, numerator);
+        if (!status.ok()) return {status.error, 0};
+        status = logarithm(arguments.at(1), b, denominator);
+        if (!status.ok()) return {status.error, 1};
+        value = numerator / denominator;
+        nonzero = !equalsOne(first);
+    }
+    else if (name == QStringLiteral("exp")) { value = std::exp(a); nonzero = true; }
     else if (name == QStringLiteral("floor")) value = std::floor(a);
     else if (name == QStringLiteral("ceil")) value = std::ceil(a);
-    else value = std::round(a);
-    return finishBinary(value, sources, name == QStringLiteral("exp") || environment.underflow(), output);
+    else if (name == QStringLiteral("trunc")) value = std::trunc(a);
+    else
+    {
+        // 按保存的 binary64 实际值量化，不先乘 10^n，避免溢出和中点翻转。
+        QByteArray digits;
+        int exponent = 0;
+        exactBinaryDigits(a, digits, exponent);
+        const int targetExponent = -places;
+        if (digits == "0" || exponent >= targetExponent) value = a;
+        else
+        {
+            const int kept = digits.size() - (targetExponent - exponent);
+            const bool up = kept >= 0 && digits.at(kept) >= '5';
+            digits = kept > 0 ? digits.left(kept) : QByteArray("0");
+            if (up)
+            {
+                int i = digits.size() - 1;
+                while (i >= 0 && digits.at(i) == '9') digits[i--] = '0';
+                if (i < 0) digits.prepend('1');
+                else digits[i] = char(digits.at(i) + 1);
+            }
+            const QString literal = (std::signbit(a) ? QStringLiteral("-") : QString())
+                + QString::fromLatin1(digits) + QLatin1Char('e') + QString::number(targetExponent);
+            value = QLocale::c().toDouble(literal);
+            // 有意舍入到零不属于下溢；非零量化值转换失败仍应报告。
+            nonzero = digits != "0";
+        }
+        return finishBinary(value, sources, nonzero && value == 0, output);
+    }
+    return finishBinary(value, sources, nonzero || environment.underflow(), output);
 }
 
 QString NumericValue::text() const

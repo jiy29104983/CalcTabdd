@@ -32,6 +32,7 @@
 #include <QLayout>
 #include <QtMath>
 #include <QtTest>
+#include <cmath>
 
 class PageTests : public QObject
 {
@@ -1384,7 +1385,7 @@ private slots:
         page.input()->setPlainText(QStringLiteral("@"));
         page.input()->moveCursor(QTextCursor::End);
         QTRY_VERIFY(completion(page)->isVisible());
-        QCOMPARE(completion(page)->model()->rowCount(), 17);
+        QCOMPARE(completion(page)->model()->rowCount(), 29);
     }
     void programmerHelpWorkflowSurvivesSessionRestore()
     {
@@ -4403,6 +4404,10 @@ private slots:
         QTest::newRow("existing-call-space") << QStringLiteral("@sq (9)") << 3 << QStringLiteral("sqrt (9)") << 6;
         QTest::newRow("binary-function") << QStringLiteral("@pow") << 4 << QStringLiteral("pow(, )") << 4;
         QTest::newRow("chinese-root") << QStringLiteral("@平方根") << 4 << QStringLiteral("sqrt()") << 5;
+        QTest::newRow("chinese-cube-root") << QStringLiteral("@立方根") << 4 << QStringLiteral("cbrt()") << 5;
+        QTest::newRow("chinese-average") << QStringLiteral("@平均值") << 4 << QStringLiteral("avg()") << 4;
+        QTest::newRow("digit-function") << QStringLiteral("@atan2") << 6 << QStringLiteral("atan2(, )") << 6;
+        QTest::newRow("digit-function-existing-call") << QStringLiteral("@log2(8)") << 5 << QStringLiteral("log2(8)") << 5;
         QTest::newRow("chinese-answer") << QStringLiteral("@上次") << 3 << QStringLiteral("ans") << 3;
         QTest::newRow("uppercase") << QStringLiteral("@SQ") << 3 << QStringLiteral("sqrt()") << 5;
         QTest::newRow("division-argument") << QStringLiteral("2/@pi") << 5 << QStringLiteral("2/pi") << 4;
@@ -4433,9 +4438,13 @@ private slots:
         prepare(page, QString());
         QTest::keyClicks(page.input(), "@");
         QTRY_VERIFY(completion(page)->isVisible());
-        QCOMPARE(completion(page)->model()->rowCount(), 17);
+        QCOMPARE(completion(page)->model()->rowCount(), 29);
         QTest::keyClicks(page.input(), "s");
-        QCOMPARE(completion(page)->model()->rowCount(), 2);
+        QStringList candidates;
+        for (int i = 0; i < completion(page)->model()->rowCount(); ++i)
+            candidates.append(completion(page)->model()->index(i, 0).data().toString());
+        for (const QString &name : {QStringLiteral("sqrt("), QStringLiteral("sin("), QStringLiteral("sum(")})
+            QVERIFY2(candidates.join(QLatin1Char('\n')).contains(name), qPrintable(name));
         QTest::keyClicks(page.input(), "q");
         QCOMPARE(completion(page)->model()->rowCount(), 1);
         QTest::keyClick(page.input(), Qt::Key_Tab);
@@ -4447,7 +4456,35 @@ private slots:
         page.input()->setPlainText(QStringLiteral("@对数"));
         page.input()->moveCursor(QTextCursor::End);
         QTRY_VERIFY(completion(page)->isVisible());
-        QCOMPARE(completion(page)->model()->rowCount(), 2);
+        QCOMPARE(completion(page)->model()->rowCount(), 3);
+    }
+    void extendedFunctionsWorkAcrossNormalAndCustomInputs()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("sum(round(12.345,2),trunc(-2.9),cbrt(-8),avg(2,4,6))"));
+        page.submit();
+        QCOMPARE(page.history().count(), 1);
+        QVERIFY(page.history().records().last().result.ok);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("12.35"));
+        QVERIFY(page.history().answer().sourceText().isEmpty());
+
+        page.input()->setPlainText(QStringLiteral("atan2(1,1)+log2(8)"));
+        page.submit();
+        QCOMPARE(page.history().count(), 2);
+        QVERIFY(page.history().records().last().result.ok);
+        QVERIFY(qAbs(asDouble(page.history().answer()) - (std::atan2(1.0, 1.0) + 3.0)) < 1e-14);
+        QVERIFY(page.findChild<RecordText *>(QStringLiteral("recordSources"))->toPlainText()
+                    .contains(QStringLiteral("近似计算")));
+
+        // 新增名称作为裸参数仍可使用，同时定义中可调用新增函数及重载。
+        QVERIFY(defineFormula(page, QStringLiteral("R=round(avg(x,y,z),2)+sum")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=\ny=\nz=\nsum="));
+        page.input()->setPlainText(QStringLiteral("x=1\ny=2\nz=3\nsum=4"));
+        QTest::keyClick(page.input(), Qt::Key_Return, Qt::ControlModifier);
+        QCOMPARE(page.history().count(), 3);
+        QCOMPARE(page.history().records().last().customDefinition, QStringLiteral("R=round(avg(x,y,z),2)+sum"));
+        QCOMPARE(page.history().answer().text(), QStringLiteral("6"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=1\ny=2\nz=3\nsum=4"));
     }
     void completionNavigationCancellationAndMouse()
     {
@@ -4574,6 +4611,15 @@ private slots:
         search->setText(QStringLiteral("平方根"));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("sqrt(x)")));
         QVERIFY(!operations->toPlainText().contains(QStringLiteral("cos(x)")));
+        search->setText(QStringLiteral("立方根"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("cbrt(")));
+        search->setText(QStringLiteral("平均值"));
+        QVERIFY(operations->toPlainText().contains(QStringLiteral("avg(")));
+        for (const QString &name : {QStringLiteral("atan2"), QStringLiteral("log2"), QStringLiteral("hypot")})
+        {
+            search->setText(name);
+            QVERIFY2(operations->toPlainText().contains(name + QLatin1Char('(')), qPrintable(name));
+        }
         search->setText(QStringLiteral("草稿"));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("Alt+↑ / Alt+↓")));
         QVERIFY(operations->toPlainText().contains(QStringLiteral("光标和选区")));

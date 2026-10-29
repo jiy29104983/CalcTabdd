@@ -58,6 +58,25 @@ QByteArray multiplySmall(const QByteArray &value, int factor)
     return stripLeadingZeros(std::move(result));
 }
 
+// 立方根试商中的 root 最多 18 位，平方不受十进制结果的规范化精度检查影响。
+QByteArray squareMagnitude(const QByteArray &value)
+{
+    QByteArray result(2 * value.size(), '0');
+    for (int i = value.size() - 1; i >= 0; --i)
+    {
+        int carry = 0;
+        for (int j = value.size() - 1; j >= 0; --j)
+        {
+            const int product = (value.at(i) - '0') * (value.at(j) - '0')
+                + result.at(i + j + 1) - '0' + carry;
+            result[i + j + 1] = char('0' + product % 10);
+            carry = product / 10;
+        }
+        result[i] = char('0' + carry);
+    }
+    return stripLeadingZeros(std::move(result));
+}
+
 // 两个无前导零的正整数，要求 left >= right。
 QByteArray subtractMagnitude(const QByteArray &left, const QByteArray &right)
 {
@@ -319,6 +338,23 @@ DecimalError DecimalValue::integral(const DecimalValue &value, IntegralRounding 
     return finish(std::move(integer), 0, value.m_negative, output);
 }
 
+DecimalError DecimalValue::round(const DecimalValue &value, int decimalPlaces, DecimalValue &output)
+{
+    if (decimalPlaces < -999 || decimalPlaces > 999) return DecimalError::ResourceLimit;
+    const int exponent = -decimalPlaces;
+    if (value.isZero() || value.m_exponent >= exponent)
+    {
+        output = value;
+        return DecimalError::None;
+    }
+    const int retained = value.m_coefficient.size() + value.m_exponent - exponent;
+    QByteArray coefficient = retained > 0 ? value.m_coefficient.left(retained) : QByteArray("0");
+    // 第一舍弃位已足够判定半值远离零；不缩放数值，避免乘除中间结果超限。
+    if (retained >= 0 && value.m_coefficient.at(retained) >= '5')
+        coefficient = addMagnitude(coefficient, "1");
+    return finish(std::move(coefficient), exponent, value.m_negative, output);
+}
+
 DecimalError DecimalValue::integerPower(const DecimalValue &base, const DecimalValue &power,
                                       DecimalValue &output, bool &inexact)
 {
@@ -384,6 +420,39 @@ DecimalError DecimalValue::squareRootExact(const DecimalValue &value, DecimalVal
     }
     if (remainder != "0") { exact = false; return DecimalError::None; }
     const auto error = finish(std::move(root), exponent / 2, false, output);
+    if (error == DecimalError::None) exact = true;
+    return error;
+}
+
+DecimalError DecimalValue::cubeRootExact(const DecimalValue &value, DecimalValue &output, bool &exact)
+{
+    if (value.isZero()) { output = value; exact = true; return DecimalError::None; }
+    QByteArray digits = value.m_coefficient;
+    int exponent = value.m_exponent;
+    const int trailing = (exponent % 3 + 3) % 3;
+    digits.append(QByteArray(trailing, '0'));
+    exponent -= trailing;
+    if (digits.size() % 3) digits.prepend(QByteArray(3 - digits.size() % 3, '0'));
+    QByteArray root("0"), remainder("0");
+    // 每次处理三位：(300*r*r + 30*r*d + d*d)*d 是新一位 d 的立方增量。
+    // 最多 18 组、每组 10 个候选，分配量与原数值的指数大小无关。
+    for (int i = 0; i < digits.size(); i += 3)
+    {
+        remainder = stripLeadingZeros(remainder + digits.mid(i, 3));
+        const QByteArray squared = multiplySmall(squareMagnitude(root), 300);
+        int next = 9;
+        QByteArray candidate;
+        for (;; --next)
+        {
+            candidate = multiplySmall(addMagnitude(addMagnitude(squared, multiplySmall(root, 30 * next)),
+                                                   QByteArray::number(next * next)), next);
+            if (compareMagnitude(candidate, remainder) <= 0) break;
+        }
+        remainder = subtractMagnitude(remainder, candidate);
+        root = stripLeadingZeros(root + char('0' + next));
+    }
+    if (remainder != "0") { exact = false; return DecimalError::None; }
+    const auto error = finish(std::move(root), exponent / 3, value.m_negative, output);
     if (error == DecimalError::None) exact = true;
     return error;
 }

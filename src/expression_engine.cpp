@@ -196,9 +196,9 @@ private:
         const int start = m_position;
         if (m_position < m_text.size() && (m_parameters ? identifierStart(m_text.at(m_position)) : m_text.at(m_position).isLetter()))
         {
-            while (m_position < m_text.size() && (m_parameters
-                ? identifierStart(m_text.at(m_position)) || isDigit(m_text.at(m_position))
-                : m_text.at(m_position).isLetter())) ++m_position;
+            while (m_position < m_text.size() && ((m_parameters
+                ? identifierStart(m_text.at(m_position)) : m_text.at(m_position).isLetter())
+                || isDigit(m_text.at(m_position)))) ++m_position;
             const SourceRange nameRange{start, m_position - start};
             const QString name = m_text.mid(start, nameRange.length).toLower();
             if (name == QStringLiteral("pi") || name == QStringLiteral("e"))
@@ -209,26 +209,29 @@ private:
                 return result;
             }
             if (name == QStringLiteral("ans")) return m_answer;
-            const int count = NumericValue::argumentCount(name);
-            if (count == 0 && m_parameters)
+            const int minimum = NumericValue::minimumArgumentCount(name);
+            const int maximum = NumericValue::maximumArgumentCount(name);
+            skipSpace();
+            const bool call = m_position < m_text.size() && m_text.at(m_position) == QLatin1Char('(');
+            // 新增函数仅在调用位置占用名称，既有会话中的同名参数仍可恢复。
+            if (m_parameters && !call && !NumericValue::isLegacyFunction(name))
             {
-                skipSpace();
-                if (m_position < m_text.size() && m_text.at(m_position) == QLatin1Char('('))
-                    fail(QStringLiteral("未知函数：%1").arg(name), CalculationError::UnknownName, nameRange);
                 m_parameters->append({m_text.mid(start, nameRange.length), start, nameRange.length});
                 return {};
             }
-            if (count == 0)
+            if (minimum == 0)
                 fail(QStringLiteral("未知函数或常量：%1").arg(name), CalculationError::UnknownName, nameRange);
             if (!take(QLatin1Char('('))) failHere(QStringLiteral("%1 函数缺少左括号 (").arg(name));
+            const QString expected = minimum == maximum ? QStringLiteral("%1 个参数").arg(minimum)
+                : QStringLiteral("%1 至 %2 个参数").arg(minimum).arg(maximum);
             QVector<Argument> arguments;
             if (!take(QLatin1Char(')')))
             {
                 do
                 {
                     skipSpace();
-                    if (arguments.size() >= count)
-                        failHere(QStringLiteral("%1 需要 %2 个参数，参数过多").arg(name).arg(count), CalculationError::ArgumentCount);
+                    if (arguments.size() >= maximum)
+                        failHere(QStringLiteral("%1 需要 %2，参数过多").arg(name, expected), CalculationError::ArgumentCount);
                     if (m_position == m_text.size() || m_text.at(m_position) == QLatin1Char(',') || m_text.at(m_position) == QLatin1Char(')'))
                         failHere(QStringLiteral("%1 缺少第 %2 个参数").arg(name).arg(arguments.size() + 1), CalculationError::ArgumentCount);
                     const int argumentStart = m_position;
@@ -237,8 +240,8 @@ private:
                 } while (take(QLatin1Char(',')));
                 if (!take(QLatin1Char(')'))) failHere(QStringLiteral("%1 函数缺少右括号 )").arg(name));
             }
-            if (arguments.size() != count)
-                fail(QStringLiteral("%1 需要 %2 个参数，实际为 %3 个").arg(name).arg(count).arg(arguments.size()),
+            if (arguments.size() < minimum)
+                fail(QStringLiteral("%1 需要 %2，实际为 %3 个").arg(name, expected).arg(arguments.size()),
                      CalculationError::ArgumentCount, {m_position - 1, 1});
             return function(name, arguments, nameRange);
         }
@@ -280,10 +283,20 @@ private:
         for (const auto &argument : args) values.append(argument.value);
         NumericValue result;
         const auto status = NumericValue::function(name, values, result);
+        if (status.error == NumericError::ResourceLimit && name == QStringLiteral("round") && args.size() == 2)
+            fail(QStringLiteral("round(x,n) 的小数位数超限（-999 至 999）"), CalculationError::Limit, args.at(1).range);
         if (status.error == NumericError::Domain && name == QStringLiteral("sqrt"))
             fail(QStringLiteral("sqrt(x) 的参数必须大于或等于 0"), CalculationError::Domain, args.first().range);
-        if (status.error == NumericError::Domain && (name == QStringLiteral("ln") || name == QStringLiteral("log")))
+        if (status.error == NumericError::Domain && name == QStringLiteral("round") && args.size() == 2)
+            fail(QStringLiteral("round(x,n) 的小数位数 n 必须是 -999 至 999 的整数"), CalculationError::Domain, args.at(1).range);
+        if (status.error == NumericError::Domain && name == QStringLiteral("log") && status.argument == 1)
+            fail(QStringLiteral("log(x,base) 的底数必须大于 0 且不能等于 1"), CalculationError::Domain, args.at(1).range);
+        if (status.error == NumericError::Domain && (name == QStringLiteral("ln") || name == QStringLiteral("log") || name == QStringLiteral("log2")))
             fail(QStringLiteral("%1(x) 的参数必须大于 0；0 和负数没有实数对数").arg(name), CalculationError::Domain, args.first().range);
+        if (status.error == NumericError::Domain && (name == QStringLiteral("asin") || name == QStringLiteral("acos")))
+            fail(QStringLiteral("%1(x) 的参数必须在 -1 至 1 之间").arg(name), CalculationError::Domain, args.first().range);
+        if (status.error == NumericError::Domain && name == QStringLiteral("atan2"))
+            fail(QStringLiteral("atan2(y,x) 的两个参数不能同时为 0"), CalculationError::Domain, nameRange);
         numericCheck(status, status.argument >= 0 ? args.at(status.argument).range : nameRange);
         return result;
     }
@@ -312,6 +325,7 @@ CalculationResult ExpressionEngine::inspect(const QString &expression, QVector<E
 bool ExpressionEngine::isReservedName(const QString &name)
 {
     const QString lower = name.toLower();
-    return NumericValue::argumentCount(lower) != 0 || lower == QStringLiteral("pi")
+    // 保留原有名称约束；扩展函数通过括号区分，避免使旧定义或参数失效。
+    return NumericValue::isLegacyFunction(lower) || lower == QStringLiteral("pi")
         || lower == QStringLiteral("e") || lower == QStringLiteral("ans");
 }

@@ -37,16 +37,20 @@ public:
     static DecimalError divide(const DecimalValue &left, const DecimalValue &right,
                                DecimalValue &output, bool &inexact);
 
-    enum class IntegralRounding { Floor, Ceiling, HalfAwayFromZero };
+    enum class IntegralRounding { Floor, Ceiling, HalfAwayFromZero, TowardZero };
     static constexpr int maximumIntegerPower = 10000;
     // 比较不经过浮点；正负零相等。各输出仅成功时更新，并支持输入／输出别名。
     static int compare(const DecimalValue &left, const DecimalValue &right);
     static DecimalError remainder(const DecimalValue &left, const DecimalValue &right, DecimalValue &output);
     static DecimalError integral(const DecimalValue &value, IntegralRounding rounding, DecimalValue &output);
+    // 按小数位舍入，半值远离零；负位数表示十位、百位等，范围为 [-999,999]。
+    static DecimalError round(const DecimalValue &value, int decimalPlaces, DecimalValue &output);
     static DecimalError integerPower(const DecimalValue &base, const DecimalValue &power,
                                      DecimalValue &output, bool &inexact);
     // 非完全平方成功返回 exact=false，保持 output；定义域失败时保持两项输出。
     static DecimalError squareRootExact(const DecimalValue &value, DecimalValue &output, bool &exact);
+    // 负数取实数立方根；非完全立方成功返回 exact=false，保持 output。
+    static DecimalError cubeRootExact(const DecimalValue &value, DecimalValue &output, bool &exact);
     bool isInteger() const { return isZero() || m_exponent >= 0; }
     DecimalValue absolute() const;
 

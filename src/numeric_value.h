@@ -12,7 +12,7 @@ enum class NumericError
 struct NumericStatus
 {
     NumericError error = NumericError::None;
-    // -1 指运算节点；0/1 指出错参数。转换错误保留参数定位。
+    // -1 指运算节点；非负值为出错参数索引。转换错误保留参数定位。
     int argument = -1;
     bool ok() const { return error == NumericError::None; }
 };
@@ -31,7 +31,11 @@ public:
     static NumericStatus operate(char operation, const NumericValue &left, const NumericValue &right,
                                  NumericValue &output);
     static NumericStatus function(const QString &name, const QVector<NumericValue> &arguments, NumericValue &output);
+    static int minimumArgumentCount(const QString &name);
+    static int maximumArgumentCount(const QString &name);
+    // 补全模板使用最少参数；旧函数名单用于自定义公式名称兼容。
     static int argumentCount(const QString &name);
+    static bool isLegacyFunction(const QString &name);
     // 有限非零次正规数可接受；成功同时更新两输出，失败都保持。
     NumericStatus toBinary(double &output, bool &changed) const;
     bool isBinary() const { return m_isBinary; }
