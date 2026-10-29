@@ -151,7 +151,7 @@ FormulaCompletion::FormulaCompletion(QPlainTextEdit *input, bool definition)
             [this](const QModelIndex &index) {
         if (!index.isValid()) return;
         const auto &entry = CalculationCatalog::entries(m_programmer).at(index.data(EntryRole).toInt());
-        emit hintChanged(entry.signature + QStringLiteral(" · ") + entry.description + QStringLiteral(" 示例：") + entry.example);
+        emit hintChanged(entry.signature + QStringLiteral(" · ") + entry.title);
     });
 }
 
@@ -276,7 +276,7 @@ void FormulaCompletion::insertCurrent(int entryIndex)
     m_input->setTextCursor(cursor);
     hide();
     m_inserting = false;
-    emit hintChanged(entry.signature + QStringLiteral(" · ") + entry.description);
+    emit hintChanged(entry.signature + QStringLiteral(" · ") + entry.title);
 }
 
 bool FormulaCompletion::eventFilter(QObject *object, QEvent *event)

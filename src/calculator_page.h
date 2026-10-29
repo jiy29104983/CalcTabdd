@@ -57,6 +57,8 @@ private:
     ProgrammerConfig programmerConfig() const;
     void updateModeUi();
     void updateDefinitionStateUi();
+    void updateInputHeights();
+    void showStatus(const QString &text, bool transient = false);
     void updateRecordUi();
     QString m_definition;
     InputState m_normalInput;
@@ -70,13 +72,10 @@ private:
     QPlainTextEdit *m_definitionInput = nullptr;
     FormulaCompletion *m_definitionCompletion = nullptr;
     QLabel *m_definitionStateBadge = nullptr;
-    QLabel *m_definitionHint = nullptr;
     QLabel *m_definitionError = nullptr;
     QPushButton *m_applyDefinitionButton = nullptr;
     QWidget *m_parameterHeader = nullptr;
-    ElidedLabel *m_parameterChipsBadge = nullptr;
     bool m_defining = false;
-    QLabel *m_inputLabel = nullptr;
     QLabel *m_historyBadge = nullptr;
     QToolButton *m_normalModeButton = nullptr;
     QToolButton *m_customModeButton = nullptr;
@@ -132,6 +131,7 @@ private:
     QString m_markdownExportPath;
     QLabel *m_empty = nullptr;
     QLabel *m_status = nullptr;
+    QTimer *m_statusTimer = nullptr;
     CalculationHistory m_history;
     // -1 表示原草稿；仅保存本轮浏览过的记录的临时编辑，不改历史模型。
     int m_historyPosition = -1;

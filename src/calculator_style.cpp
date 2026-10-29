@@ -100,10 +100,9 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         RecordText#recordFormula, RecordText#recordResult, RecordText#recordHex,
         RecordText#recordBin, RecordText#recordOct { color: @text; background: transparent; border: none; padding: 0; margin: 0; }
         RecordText#recordSources { color: @muted; background: transparent; border: none; padding: 0; margin: 0; }
-        QLabel#recordCount, QLabel#recordNumber, QLabel#inputHint, QLabel#customDefinitionHint,
+        QLabel#recordCount, QLabel#recordNumber,
         QLabel#emptyHistory, QLabel#helpMatchCount, QLabel#clearSessionDetails,
-        QLabel#sessionSaveStatus, QLabel#programmerAvailabilityHint { color: @muted; }
-        QLabel#programmerHint { color: @text; font-weight: bold; }
+        QLabel#sessionSaveStatus, QLabel#programmerHint { color: @muted; }
         QLabel#sessionSaveStatus { border-bottom: 1px solid @border; }
         QLabel#sessionSaveStatus[error="true"] { color: @error; border-bottom-color: @errorBorder; }
         QLabel#recordCount { background: @hover; border-radius: 10px; padding: 3px 10px; font-size: @captionSize; }
@@ -137,11 +136,10 @@ QString CalculatorStyle::sheet(const QPalette &source, const QFont &font)
         QLabel#customDefinitionStateBadge[pending="true"] {
             background: @warningBackground; color: @warningText; border: 1px solid @warningBorder; font-weight: bold;
         }
-        QLabel#parameterChipsBadge, QLabel#historyRecallBadge {
+        QLabel#historyRecallBadge {
             background: @hover; color: @muted; border: 1px solid @quietBorder;
             border-radius: 4px; padding: 1px 8px; font-size: @captionSize;
         }
-        QLabel#inputHint, QLabel#customDefinitionHint { font-size: @captionSize; }
         QLabel#emptyHistory {
             background: @card; color: @muted; border: 1px dashed @border;
             border-radius: 10px; padding: 22px 20px;

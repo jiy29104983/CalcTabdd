@@ -29,12 +29,14 @@
 #include <QToolButton>
 #include <QTextEdit>
 #include <QTextBlock>
+#include <QTextDocument>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QScopedValueRollback>
 #include <QTimer>
+#include <QtMath>
 #include <QUuid>
 #include <QVBoxLayout>
 
@@ -261,7 +263,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_sessionButton = new QToolButton(this);
     m_sessionButton->setObjectName(QStringLiteral("sessionButton"));
     m_sessionButton->setText(QStringLiteral("本地会话"));
-    m_sessionButton->setToolTip(QStringLiteral("可选保存与恢复；默认不保存，文件由当前窗口独占"));
+    m_sessionButton->setToolTip(QStringLiteral("保存三种模式的记录、ans、草稿与设置；默认不保存，文件由当前窗口独占"));
     m_sessionButton->setPopupMode(QToolButton::InstantPopup);
     m_sessionButton->setProperty("calculatorMenu", true);
     auto *sessionMenu = new QMenu(m_sessionButton);
@@ -334,13 +336,6 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     auto *composeLayout = new QVBoxLayout(composer);
     composeLayout->setContentsMargins(20, 12, 20, 14);
     composeLayout->setSpacing(8);
-    auto *inputHeading = new ButtonFlowLayout;
-    inputHeading->setSpacing(8);
-    m_inputLabel = new QLabel(QStringLiteral("输入公式"), composer);
-    QFont labelFont = font();
-    labelFont.setBold(true);
-    m_inputLabel->setFont(labelFont);
-    inputHeading->addWidget(m_inputLabel);
     m_historyBadge = new QLabel(composer);
     m_historyBadge->setObjectName(QStringLiteral("historyRecallBadge"));
     m_historyBadge->setWordWrap(true);
@@ -395,7 +390,6 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_programmerModeButton->setToolTip(QStringLiteral("固定宽度整数与位运算"));
     connect(m_programmerModeButton, &QToolButton::clicked, m_programmerModeAction, &QAction::trigger);
     modeLayout->addWidget(m_programmerModeButton);
-    composeLayout->addLayout(inputHeading);
     composeLayout->addWidget(modeSwitcher);
     composeLayout->addWidget(m_historyBadge);
 
@@ -426,19 +420,16 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_integerType = setting(QStringLiteral("类型"), QStringLiteral("programmerIntegerType"));
     m_integerType->addItem(QStringLiteral("无符号"), false);
     m_integerType->addItem(QStringLiteral("有符号"), true);
-    programmerLayout->addLayout(settings);
-    auto *integerHint = new QLabel(QStringLiteral("整数运算 · ^ 为异或"), m_programmerPanel);
+    auto *integerHint = new QLabel(QStringLiteral("^ 异或"), m_programmerPanel);
     integerHint->setObjectName(QStringLiteral("programmerHint"));
     integerHint->setWordWrap(true);
-    programmerLayout->addWidget(integerHint);
-    auto *previewHint = new QLabel(QStringLiteral("可通过“本地会话”保存记录、两类 ans、三份草稿与设置；默认不保存。"), m_programmerPanel);
-    previewHint->setObjectName(QStringLiteral("programmerAvailabilityHint"));
-    previewHint->setWordWrap(true);
-    programmerLayout->addWidget(previewHint);
+    integerHint->setToolTip(QStringLiteral("程序员模式 ^ 表示按位异或；普通计算与自定义公式中表示乘方"));
+    settings->addWidget(integerHint);
+    programmerLayout->addLayout(settings);
     composeLayout->addWidget(m_programmerPanel);
     const auto configChanged = [this]() {
         clearInputError();
-        m_status->setText(QStringLiteral("设置已更新 · Ctrl+Enter 按新设置计算；已有结果保持原配置"));
+        showStatus(QStringLiteral("设置已更新"), true);
         scheduleSave();
     };
     connect(m_bitWidth, QOverload<int>::of(&QComboBox::currentIndexChanged), this, configChanged);
@@ -454,31 +445,28 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     auto *definitionLabel = new QLabel(QStringLiteral("公式定义"), m_definitionPanel);
     definitionLabel->setObjectName(QStringLiteral("customDefinitionLabel"));
     definitionHeader->addWidget(definitionLabel);
-    m_definitionStateBadge = new QLabel(QStringLiteral("已应用"), m_definitionPanel);
+    m_definitionStateBadge = new QLabel(QStringLiteral("未应用"), m_definitionPanel);
     m_definitionStateBadge->setObjectName(QStringLiteral("customDefinitionStateBadge"));
     definitionHeader->addWidget(m_definitionStateBadge);
-    m_definitionHint = new QLabel(QStringLiteral("Enter 应用 · @ 补全函数 · Esc 还原"), m_definitionPanel);
-    m_definitionHint->setObjectName(QStringLiteral("customDefinitionHint"));
-    m_definitionHint->setWordWrap(true);
     m_applyDefinitionButton = new QPushButton(QStringLiteral("应用公式"), m_definitionPanel);
     m_applyDefinitionButton->setObjectName(QStringLiteral("applyDefinitionButton"));
     m_applyDefinitionButton->setProperty("role", QStringLiteral("quiet"));
     m_applyDefinitionButton->setProperty("compact", true);
     m_applyDefinitionButton->setFocusPolicy(Qt::TabFocus);
-    m_applyDefinitionButton->setToolTip(QStringLiteral("应用当前自定义公式定义（Enter）"));
+    m_applyDefinitionButton->setToolTip(QStringLiteral("Enter 应用公式；Esc 还原未应用的修改"));
     connect(m_applyDefinitionButton, &QPushButton::clicked, this, &CalculatorPage::applyDefinition);
     definitionHeader->addWidget(m_applyDefinitionButton);
     definitionLayout->addLayout(definitionHeader);
-    definitionLayout->addWidget(m_definitionHint);
     m_definitionInput = new QPlainTextEdit(m_definitionPanel);
     m_definitionInput->setObjectName(QStringLiteral("currentCustomDefinition"));
     m_definitionInput->setAccessibleName(QStringLiteral("自定义公式定义"));
-    m_definitionInput->setPlaceholderText(QStringLiteral("例如 A=x+y；按 Enter 应用公式"));
+    m_definitionInput->setPlaceholderText(QStringLiteral("例如 S=w*h · @ 补全"));
     m_definitionInput->setTabChangesFocus(true);
     m_definitionInput->setLineWrapMode(QPlainTextEdit::NoWrap);
     m_definitionInput->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_definitionInput->installEventFilter(this);
     definitionLayout->addWidget(m_definitionInput);
+    definitionLabel->setBuddy(m_definitionInput);
     m_definitionError = new QLabel(m_definitionPanel);
     m_definitionError->setObjectName(QStringLiteral("customDefinitionError"));
     m_definitionError->setTextFormat(Qt::PlainText);
@@ -494,9 +482,6 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     auto *parameterLabel = new QLabel(QStringLiteral("填写参数"), m_parameterHeader);
     parameterLabel->setObjectName(QStringLiteral("parameterSectionLabel"));
     parameterHeaderLayout->addWidget(parameterLabel);
-    m_parameterChipsBadge = new ElidedLabel(m_parameterHeader);
-    m_parameterChipsBadge->setObjectName(QStringLiteral("parameterChipsBadge"));
-    parameterHeaderLayout->addWidget(m_parameterChipsBadge);
     parameterHeaderLayout->addStretch(1);
     composeLayout->addWidget(m_parameterHeader);
 
@@ -510,7 +495,7 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     m_input->setFont(mono);
     m_definitionInput->setFont(mono);
     m_input->installEventFilter(this);
-    m_inputLabel->setBuddy(m_input);
+    parameterLabel->setBuddy(m_input);
     m_editTarget = m_input;
     connect(qApp, &QApplication::focusChanged, this, [this](QWidget *, QWidget *now) {
         if (!now || !isAncestorOf(now)) return;
@@ -524,18 +509,18 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     });
     composeLayout->addWidget(m_input);
 
-    auto *hint = new QLabel(QStringLiteral("@ 补全函数 · Alt+↑↓ 召回历史／返回草稿 · ans 上次结果"), composer);
-    hint->setWordWrap(true);
-    hint->setObjectName(QStringLiteral("inputHint"));
-    composeLayout->addWidget(hint);
-
     auto *footer = new QHBoxLayout;
     footer->setSpacing(16);
-    m_status = new QLabel(QStringLiteral("Ctrl+Enter 确认计算"), composer);
+    m_status = new QLabel(composer);
     m_status->setObjectName(QStringLiteral("calculationStatus"));
     m_status->setWordWrap(true);
     m_status->setTextFormat(Qt::PlainText);
     footer->addWidget(m_status, 1);
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setObjectName(QStringLiteral("calculationStatusTimer"));
+    m_statusTimer->setSingleShot(true);
+    m_statusTimer->setInterval(4000);
+    connect(m_statusTimer, &QTimer::timeout, this, [this]() { m_status->clear(); });
 
     auto *calculate = new QPushButton(QStringLiteral("计算"), composer);
     calculate->setObjectName(QStringLiteral("calculateButton"));
@@ -547,20 +532,26 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     composeLayout->addLayout(footer);
     layout->addWidget(new ComposerScrollArea(composer, this));
 
-    connect(m_input, &QPlainTextEdit::textChanged, this, &CalculatorPage::clearInputError);
+    connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
+        clearInputError();
+        showStatus(QString());
+        updateInputHeights();
+    });
     m_completion = new FormulaCompletion(m_input);
     connect(m_completion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::submit);
-    connect(m_completion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
-    m_definitionCompletion = new FormulaCompletion(m_definitionInput, true);
-    connect(m_definitionCompletion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::applyDefinition);
-    connect(m_definitionCompletion, &FormulaCompletion::hintChanged, m_status, &QLabel::setText);
+    connect(m_completion, &FormulaCompletion::hintChanged, this,
+            [this](const QString &text) { showStatus(text, true); });
     connect(m_definitionInput, &QPlainTextEdit::textChanged, this, [this]() {
         m_definitionError->clear();
         m_definitionError->hide();
         updateDefinitionStateUi();
-        if (hasPendingDefinition())
-            m_status->setText(QStringLiteral("公式尚未应用 · 按 Enter 确认，或 Esc 还原；本地保存仍使用已确认定义"));
+        showStatus(QString());
+        updateInputHeights();
     });
+    m_definitionCompletion = new FormulaCompletion(m_definitionInput, true);
+    connect(m_definitionCompletion, &FormulaCompletion::calculationRequested, this, &CalculatorPage::applyDefinition);
+    connect(m_definitionCompletion, &FormulaCompletion::hintChanged, this,
+            [this](const QString &text) { showStatus(text, true); });
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
     m_saveTimer->setInterval(200);
@@ -599,12 +590,19 @@ bool CalculatorPage::busy() const
     return m_composing || dialogOpen();
 }
 
+void CalculatorPage::showStatus(const QString &text, bool transient)
+{
+    m_statusTimer->stop();
+    m_status->setText(text);
+    if (transient && !text.isEmpty()) m_statusTimer->start();
+}
+
 void CalculatorPage::submit()
 {
     if (busy()) return;
     if (hasPendingDefinition())
     {
-        m_status->setText(QStringLiteral("请先在公式定义栏按 Enter 应用修改，再计算参数"));
+        showStatus(QStringLiteral("请先在公式定义栏按 Enter 应用修改，再计算参数"));
         focusInput();
         return;
     }
@@ -612,13 +610,13 @@ void CalculatorPage::submit()
     const QString expression = inputText.trimmed();
     if (!customMode() && expression.isEmpty())
     {
-        m_status->setText(QStringLiteral("请先输入公式"));
+        showStatus(QStringLiteral("请先输入公式"));
         focusInput();
         return;
     }
     if (!customMode() && expression.contains(QLatin1Char('@')))
     {
-        m_status->setText(QStringLiteral("请先完成 @ 补全，或删除 @ 查询后再计算"));
+        showStatus(QStringLiteral("请先完成 @ 补全，或删除 @ 查询后再计算"));
         focusInput();
         return;
     }
@@ -627,7 +625,7 @@ void CalculatorPage::submit()
         ? m_history.calculateCustom(m_definition, inputText, validationError) : m_history.calculate(expression);
     if (!validationError.isEmpty())
     {
-        m_status->setText(validationError);
+        showStatus(validationError);
         focusInput();
         return;
     }
@@ -638,19 +636,19 @@ void CalculatorPage::submit()
         if (m_historyPosition >= 0)
         {
             restoreDraft();
-            m_status->setText(QStringLiteral("计算完成 · 已返回召回前的草稿"));
+            showStatus(QStringLiteral("计算完成 · 已返回草稿"), true);
         }
         else
         {
             if (!customMode()) m_input->clear();
-            m_status->setText(customMode() ? QStringLiteral("计算完成 · 参数已保留") : QStringLiteral("计算完成"));
+            showStatus(QStringLiteral("计算完成"), true);
         }
     }
     else if (customMode())
     {
         // 数学错误位置属于历史代入式，不能当成参数输入框的字符偏移。
         clearInputError();
-        m_status->setText(QStringLiteral("无法计算：%1 · 请检查参数或修改定义").arg(result.text));
+        showStatus(QStringLiteral("无法计算：%1 · 请检查参数或修改定义").arg(result.text));
     }
     else
     {
@@ -672,7 +670,7 @@ void CalculatorPage::showInputError(const CalculationResult &result, int offset,
     const int column = cursor.block().text().left(cursor.positionInBlock()).toUcs4().size() + 1;
     const QString location = QStringLiteral("第 %1 行，第 %2 列").arg(cursor.blockNumber() + 1).arg(column);
     const QString message = result.text + QStringLiteral(" · ") + location;
-    m_status->setText(message);
+    showStatus(message);
     m_input->setToolTip(message);
     m_input->setAccessibleDescription(message);
     applyErrorHighlight();
@@ -691,7 +689,7 @@ void CalculatorPage::clearInputError()
     m_input->setExtraSelections({});
     m_input->setToolTip(QString());
     m_input->setAccessibleDescription(QString());
-    m_status->setText(QStringLiteral("继续编辑 · Ctrl+Enter 重新计算"));
+    showStatus(QString());
 }
 
 void CalculatorPage::applyErrorHighlight()
@@ -782,10 +780,10 @@ void CalculatorPage::confirmExport(const QString &path, const QByteArray &conten
 void CalculatorPage::writeExport(const QString &path, const QByteArray &contents)
 {
     const QString error = CalculationExport::writeFile(path, contents);
-    m_status->setText(error.isEmpty()
+    showStatus(error.isEmpty()
         ? QStringLiteral("已导出 %1 条记录：%2").arg(m_history.count()).arg(path)
         : QStringLiteral("导出失败：%1\n%2\n记录仍保留，可再次点击“导出记录”重试或选择其他位置。")
-              .arg(path, error));
+              .arg(path, error), error.isEmpty());
 }
 
 void CalculatorPage::requestClearSession()
@@ -844,7 +842,7 @@ void CalculatorPage::clearSession()
     m_empty->show();
     m_followLatest = true;
     m_scroll->verticalScrollBar()->setValue(0);
-    m_status->setText(QStringLiteral("会话已清空 · 数学与整数 ans = 0 · 草稿及设置已保留"));
+    showStatus(QStringLiteral("会话已清空 · 草稿已保留"), true);
     // 恢复只发生在未开启保存的空白页，因此此处 m_sessionFile 一定为空。
     if (m_sessionFile) saveSession();
 }
@@ -1096,7 +1094,7 @@ void CalculatorPage::showHistory(int position)
     const InputState initial{text, text.size(), text.size(), entry.customDefinition, {},
                              entry.programmer, entry.programmerConfig};
     restoreInput(m_recalledInputs.value(entry.id, initial));
-    m_status->setText(QStringLiteral("已召回第 %1 条公式 · Alt+↑↓ 浏览，向后越过最新记录返回草稿").arg(entry.id));
+    showStatus(QString());
     // 公式和程序员设置均未修改时才使用历史诊断；临时修改须重新提交才能定位。
     if (!customMode() && !entry.result.ok && m_input->toPlainText() == entry.expression
         && (!entry.programmer || programmerConfig() == entry.programmerConfig))
@@ -1123,7 +1121,7 @@ void CalculatorPage::recallHistory(bool older)
     if (position == m_history.count())
     {
         restoreDraft();
-        m_status->setText(QStringLiteral("已返回召回前的草稿"));
+        showStatus(QStringLiteral("已返回草稿"), true);
     }
     else showHistory(position);
 }
@@ -1147,10 +1145,10 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly, int radix)
         else if (radix == 8) text = entry->programmerValue.octalText();
     }
     QApplication::clipboard()->setText(text);
-    m_status->setText(!valueOnly ? QStringLiteral("已复制整条计算及说明")
+    showStatus(!valueOnly ? QStringLiteral("已复制整条计算及说明")
         : radix != 10 ? QStringLiteral("已复制原记录的位模式；重新输入按目标位宽与符号解释，不保留回绕来源")
         : !entry->sourceText().isEmpty() ? QStringLiteral("已复制数值文本；重新输入按新数字处理，不保留原计算来源")
-                                       : QStringLiteral("已复制完整十进制数值"));
+                                       : QStringLiteral("已复制完整十进制数值"), true);
     if (m_status->parentWidget() && m_status->parentWidget()->layout()) m_status->parentWidget()->layout()->activate();
 }
 
@@ -1161,7 +1159,7 @@ void CalculatorPage::insertResult(quint64 id)
     if (!entry || !entry->result.ok) return;
     if (m_composing)
     {
-        m_status->setText(QStringLiteral("请先完成输入法组词，再插入结果数值"));
+        showStatus(QStringLiteral("请先完成输入法组词，再插入结果数值"));
         return;
     }
     QString value = entry->valueText();
@@ -1170,7 +1168,7 @@ void CalculatorPage::insertResult(quint64 id)
         value = entry->programmer ? entry->programmerValue.text() : entry->result.value.integerText();
         if (value.isEmpty())
         {
-            m_status->setText(QStringLiteral("无法插入：保存的结果不是整数，当前输入保持不变"));
+            showStatus(QStringLiteral("无法插入：保存的结果不是整数，当前输入保持不变"));
             return;
         }
         const auto config = programmerConfig();
@@ -1178,7 +1176,7 @@ void CalculatorPage::insertResult(quint64 id)
         if ((!config.isSigned && value.startsWith(QLatin1Char('-')))
             || !ProgrammerEngine::evaluate(value, config).ok)
         {
-            m_status->setText(QStringLiteral("无法插入：结果超出当前 %1 位%2数值范围，当前输入保持不变")
+            showStatus(QStringLiteral("无法插入：结果超出当前 %1 位%2数值范围，当前输入保持不变")
                 .arg(config.bitWidth).arg(config.isSigned ? QStringLiteral("有符号") : QStringLiteral("无符号")));
             return;
         }
@@ -1192,9 +1190,9 @@ void CalculatorPage::insertResult(quint64 id)
     focusInput();
     // QAction 在 QMenu 完全关闭前触发；待菜单完成自身的焦点恢复后再聚焦输入区。
     QTimer::singleShot(0, this, [this]() { refocusPage(this); });
-    m_status->setText(!entry->sourceText().isEmpty()
+    showStatus(!entry->sourceText().isEmpty()
         ? QStringLiteral("已插入数值文本；再次计算按新数字处理，不保留原计算来源")
-        : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"));
+        : QStringLiteral("已插入完整十进制数值，可继续编辑后计算"), true);
 }
 
 void CalculatorPage::routeEdit(const QString &command)
@@ -1254,6 +1252,8 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
 {
     if (object == m_input || object == m_definitionInput)
     {
+        if (event->type() == QEvent::Resize)
+            QTimer::singleShot(0, this, &CalculatorPage::updateInputHeights);
         if (event->type() == QEvent::InputMethod)
         {
             m_composing = !static_cast<QInputMethodEvent *>(event)->preeditString().isEmpty();
@@ -1280,7 +1280,7 @@ bool CalculatorPage::eventFilter(QObject *object, QEvent *event)
                             resetDefinitionEditor(m_definition);
                             updateModeUi();
                             focusInput();
-                            m_status->setText(QStringLiteral("已取消未确认的公式修改"));
+                            showStatus(QStringLiteral("已还原公式"), true);
                         }
                         else if (modifiers == Qt::NoModifier || modifiers == Qt::ControlModifier) applyDefinition();
                     }
@@ -1337,12 +1337,6 @@ void CalculatorPage::changeEvent(QEvent *event)
         mono.setPointSizeF(qMax(11.0, font().pointSizeF() + 1));
         if (m_input) m_input->setFont(mono);
         if (m_definitionInput) m_definitionInput->setFont(mono);
-        if (m_inputLabel)
-        {
-            QFont labelFont = font();
-            labelFont.setBold(true);
-            m_inputLabel->setFont(labelFont);
-        }
         if (auto *title = findChild<QLabel *>(QStringLiteral("calculatorTitle")))
         {
             QFont titleFont = font();
@@ -1420,7 +1414,7 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
         && entry->programmer == programmerMode()
         && (!entry->programmer || entry->programmerConfig == programmerConfig()))
         showInputError(entry->result, skippedWhitespace(session.input.text), false);
-    else m_status->setText(QStringLiteral("已恢复历史结果与草稿，未重新计算旧公式"));
+    else showStatus(QStringLiteral("已恢复会话"), true);
 }
 
 void CalculatorPage::scheduleSave()
@@ -1513,9 +1507,36 @@ void CalculatorPage::updateDefinitionStateUi()
 {
     if (!m_definitionStateBadge) return;
     const bool pending = hasPendingDefinition();
-    m_definitionStateBadge->setText(pending ? QStringLiteral("待按 Enter 应用") : QStringLiteral("已应用"));
+    m_definitionStateBadge->setVisible(pending && (customMode() || m_defining));
     m_definitionStateBadge->setProperty("pending", pending);
     repolishWidget(m_definitionStateBadge);
+}
+
+void CalculatorPage::updateInputHeights()
+{
+    if (!m_input || !m_definitionInput) return;
+    const auto fitPlaceholder = [](QPlainTextEdit *editor, int height) {
+        if (editor->toPlainText().isEmpty() && editor->viewport()->width() > 0)
+        {
+            QTextDocument placeholder;
+            placeholder.setDefaultFont(editor->font());
+            placeholder.setDocumentMargin(editor->document()->documentMargin());
+            placeholder.setPlainText(editor->placeholderText());
+            placeholder.setTextWidth(editor->viewport()->width());
+            // 包含样式表边框与内边距；空白提示换行时仍完整可见。
+            height = qMax(height, qCeil(placeholder.size().height())
+                + editor->height() - editor->viewport()->height());
+        }
+        if (editor->height() != height || editor->minimumHeight() != height)
+            editor->setFixedHeight(height);
+    };
+    fitPlaceholder(m_definitionInput, QFontMetrics(m_definitionInput->font()).lineSpacing() + 26);
+    CustomFormula formula;
+    const bool custom = customMode() || m_defining;
+    const bool validFormula = custom && CustomFormula::parse(m_definition, formula).isEmpty();
+    const int rows = validFormula ? qBound(3, formula.parameters().size(), 6) : 0;
+    fitPlaceholder(m_input, custom ? rows * QFontMetrics(m_input->font()).lineSpacing() + 28
+        : qMax(76, 2 * QFontMetrics(m_input->font()).lineSpacing() + 28));
 }
 
 void CalculatorPage::updateModeUi()
@@ -1529,43 +1550,22 @@ void CalculatorPage::updateModeUi()
     m_programmerModeAction->setChecked(programmer);
     m_programmerModeButton->setChecked(programmer);
     m_programmerPanel->setVisible(programmer);
-    m_inputLabel->setText(m_defining ? QStringLiteral("定义公式")
-        : custom ? QStringLiteral("填写参数") : programmer ? QStringLiteral("输入整数表达式") : QStringLiteral("输入公式"));
     m_input->setAccessibleName(m_defining ? QStringLiteral("定义公式")
         : custom ? QStringLiteral("填写参数") : programmer ? QStringLiteral("输入整数表达式") : QStringLiteral("输入公式"));
-    m_input->setPlaceholderText(custom ? QStringLiteral("每行填写 名称=数字；无参数时可直接确认计算")
-        : programmer ? QStringLiteral("例如 (0x12 & 0x0F) << 4") : QStringLiteral("例如 (128 + 256) / 3"));
+    m_input->setPlaceholderText(custom ? QStringLiteral("每行一个参数，例如 x=3\nAlt+↑↓ 召回历史")
+        : programmer ? QStringLiteral("例如 (0x12 & 0x0F) << 4\n@ 补全 · Alt+↑↓ 召回历史")
+                     : QStringLiteral("例如 (128 + 256) / 3\n@ 补全 · Alt+↑↓ 召回历史"));
     m_definitionPanel->setVisible(custom);
     m_definitionInput->setVisible(custom);
-    m_definitionHint->setVisible(custom);
     m_definitionError->setVisible(custom && !m_definitionError->text().isEmpty());
-    m_definitionInput->setFixedHeight(QFontMetrics(m_definitionInput->font()).lineSpacing() + 26);
     const bool showParams = !m_defining || customMode();
     m_parameterHeader->setVisible(custom && showParams);
     m_input->setVisible(showParams);
     m_definitionCompletion->setEnabled(custom);
     m_completion->setEnabled(!custom);
     m_completion->setProgrammerMode(programmer);
-    CustomFormula formula;
-    const bool validFormula = custom && CustomFormula::parse(m_definition, formula).isEmpty();
-    const int rows = validFormula ? qBound(3, formula.parameters().size(), 6) : 0;
-    m_input->setFixedHeight(custom ? rows * QFontMetrics(m_input->font()).lineSpacing() + 28
-        : qMax(76, 2 * QFontMetrics(m_input->font()).lineSpacing() + 28));
-    if (validFormula)
-    {
-        m_parameterChipsBadge->setFullText(formula.parameters().isEmpty()
-            ? QStringLiteral("无参数 · 可直接计算")
-            : QStringLiteral("参数：%1").arg(formula.parameters().join(QStringLiteral(" · "))));
-    }
-    else
-    {
-        m_parameterChipsBadge->setFullText(QStringLiteral("应用公式后生成参数"));
-    }
+    updateInputHeights();
     updateDefinitionStateUi();
-    findChild<QLabel *>(QStringLiteral("inputHint"))->setText(custom
-        ? QStringLiteral("每行一个参数 · Enter 换行 · Alt+↑↓ 召回历史／返回草稿")
-        : programmer ? QStringLiteral("@ 补全位运算 · Alt+↑↓ 召回历史／返回草稿 · ans 整数上次结果")
-        : QStringLiteral("@ 补全函数 · Alt+↑↓ 召回历史／返回草稿 · ans 上次结果"));
     updateRecordUi();
 }
 
@@ -1600,14 +1600,12 @@ void CalculatorPage::switchMode(Mode mode)
         updateModeUi();
         m_definitionInput->setFocus(Qt::OtherFocusReason);
         m_editTarget = m_definitionInput;
-        m_status->setText(QStringLiteral("输入或修改公式，按 Enter 应用 · @ 补全函数"));
+        showStatus(QString());
         return;
     }
     if (programmer) m_programmerInput.programmer = true;
     restoreInput(programmer ? m_programmerInput : custom ? m_customInput : m_normalInput);
-    m_status->setText(programmer ? QStringLiteral("程序员模式 · Ctrl+Enter 计算 · Enter 不换行")
-        : custom ? QStringLiteral("自定义公式模式 · 填写参数后按 Ctrl+Enter 计算")
-                             : QStringLiteral("普通计算模式 · Ctrl+Enter 计算"));
+    showStatus(QString());
     scheduleSave();
 }
 
@@ -1648,6 +1646,6 @@ void CalculatorPage::applyDefinition()
     const int position = input.isEmpty() ? 0 : input.indexOf(QLatin1Char('=')) + 1;
     m_customInput = {input, position, position, formula.definition()};
     restoreInput(m_customInput);
-    m_status->setText(QStringLiteral("公式已应用 · 填写参数后按 Ctrl+Enter 或点击“计算”"));
+    showStatus(QStringLiteral("公式已应用"), true);
     scheduleSave();
 }

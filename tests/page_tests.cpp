@@ -30,6 +30,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QLayout>
+#include <QtMath>
 #include <QtTest>
 
 class PageTests : public QObject
@@ -116,6 +117,150 @@ class PageTests : public QObject
         page.input()->setTextCursor(cursor);
     }
 private slots:
+    void composerPlaceholdersFollowModesAndDrafts_data()
+    {
+        QTest::addColumn<int>("width");
+        QTest::addColumn<int>("pointSize");
+        QTest::newRow("narrow") << 360 << 12;
+        QTest::newRow("large-font") << 480 << 18;
+    }
+    void composerPlaceholdersFollowModesAndDrafts()
+    {
+        QFETCH(int, width);
+        QFETCH(int, pointSize);
+        CalculatorPage page;
+        QFont font = page.font();
+        font.setPointSize(pointSize);
+        page.setFont(font);
+        prepare(page, QString());
+        page.resize(width, 760);
+        auto *status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"));
+        QVERIFY(status && status->text().isEmpty());
+        const QString ordinaryHint = QStringLiteral("例如 (128 + 256) / 3\n@ 补全 · Alt+↑↓ 召回历史");
+        const auto placeholderFits = [](QPlainTextEdit *edit) {
+            const int margin = qCeil(edit->document()->documentMargin());
+            const QRect bounds = edit->fontMetrics().boundingRect(
+                QRect(0, 0, edit->viewport()->width() - 2 * margin, 10000),
+                Qt::TextWordWrap, edit->placeholderText());
+            return edit->viewport()->height() >= bounds.height() + 2 * margin;
+        };
+        QCOMPARE(page.input()->placeholderText(), ordinaryHint);
+        QTRY_VERIFY(placeholderFits(page.input()));
+        page.input()->setPlainText(QStringLiteral("100+"));
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QVERIFY(page.input()->document()->isEmpty());
+        QCOMPARE(page.input()->placeholderText(),
+                 QStringLiteral("例如 (0x12 & 0x0F) << 4\n@ 补全 · Alt+↑↓ 召回历史"));
+        QTRY_VERIFY(placeholderFits(page.input()));
+        page.input()->setPlainText(QStringLiteral("0x12 &"));
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(definition && definition->isVisible() && definition->document()->isEmpty());
+        QVERIFY(definition->placeholderText().contains(QStringLiteral("例如 S=w*h")));
+        QVERIFY(definition->placeholderText().contains(QStringLiteral("@ 补全")));
+        QVERIFY(!definition->placeholderText().contains(QStringLiteral("Alt+")));
+        QTRY_VERIFY(placeholderFits(definition));
+        QVERIFY(defineFormula(page, QStringLiteral("S=w*h")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("w=\nh="));
+        QCOMPARE(page.input()->placeholderText(),
+                 QStringLiteral("每行一个参数，例如 x=3\nAlt+↑↓ 召回历史"));
+        QVERIFY(!page.input()->placeholderText().contains(QLatin1Char('@')));
+        page.input()->clear();
+        QTRY_VERIFY(placeholderFits(page.input()));
+        page.input()->setPlainText(QStringLiteral("w=3\nh=4"));
+        page.findChild<QAction *>(QStringLiteral("normalCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("100+"));
+        QCOMPARE(page.input()->placeholderText(), ordinaryHint);
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("0x12 &"));
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("w=3\nh=4"));
+        QCOMPARE(page.history().count(), 0);
+    }
+    void transientStatusClearsWithoutErasingNewError()
+    {
+        CalculatorPage page;
+        prepare(page, QStringLiteral("6*7"));
+        auto *status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"));
+        auto *timer = page.findChild<QTimer *>(QStringLiteral("calculationStatusTimer"));
+        QVERIFY(status && timer);
+        QCOMPARE(timer->interval(), 4000);
+        page.submit();
+        QVERIFY(!status->text().isEmpty() && timer->isActive());
+        timer->setInterval(1);
+        QTRY_VERIFY(status->text().isEmpty());
+        QCOMPARE(page.history().answer().text(), QStringLiteral("42"));
+        QCOMPARE(page.history().count(), 1);
+        page.input()->setPlainText(QStringLiteral("1+1"));
+        page.submit();
+        QVERIFY(timer->isActive());
+        timer->setInterval(20);
+        page.input()->setPlainText(QStringLiteral("1/0"));
+        page.submit();
+        const QString error = status->text();
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!timer->isActive());
+        bool oldDeadlinePassed = false;
+        QTimer::singleShot(60, &page, [&]() { oldDeadlinePassed = true; });
+        QTRY_VERIFY(oldDeadlinePassed);
+        QCOMPARE(status->text(), error);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("2"));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
+        page.input()->setPlainText(QStringLiteral("1/2"));
+        QVERIFY(status->text().isEmpty());
+        page.findChild<QAction *>(QStringLiteral("programmerCalculationMode"))->trigger();
+        QVERIFY(status->text().isEmpty());
+        setProgrammerConfig(page, 8, true);
+        QVERIFY(!status->text().isEmpty() && timer->isActive());
+        timer->setInterval(1);
+        QTRY_VERIFY(status->text().isEmpty());
+    }
+    void unappliedDefinitionRemainsVisibleUntilResolved()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(defineFormula(page, QStringLiteral("S=w*h")));
+        page.input()->setPlainText(QStringLiteral("w=3\nh=4"));
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        auto *pending = page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"));
+        auto *timer = page.findChild<QTimer *>(QStringLiteral("calculationStatusTimer"));
+        auto *status = page.findChild<QLabel *>(QStringLiteral("calculationStatus"));
+        QVERIFY(definition && pending && timer && status);
+        QVERIFY(!pending->isVisible());
+        definition->setFocus();
+        QTRY_VERIFY(definition->hasFocus());
+        definition->selectAll();
+        QTest::keyClicks(definition, "S=@zzzzunknown");
+        QCOMPARE(definition->toPlainText(), QStringLiteral("S=@zzzzunknown"));
+        QVERIFY(status->text().contains(QStringLiteral("没有匹配")));
+        QCoreApplication::processEvents();
+        QVERIFY(status->text().contains(QStringLiteral("没有匹配")));
+        QVERIFY(pending->isVisible());
+        QTest::keyClick(definition, Qt::Key_Escape);
+        QCOMPARE(definition->toPlainText(), QStringLiteral("S=w*h"));
+        QVERIFY(!pending->isVisible());
+        QVERIFY(!status->text().contains(QStringLiteral("没有匹配")));
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("w=3\nh=4"));
+        definition->setPlainText(QStringLiteral("S=w*h+1"));
+        QVERIFY(pending->isVisible());
+        QCOMPARE(pending->text(), QStringLiteral("未应用"));
+        QVERIFY(!timer->isActive());
+        page.submit();
+        QCOMPARE(page.history().count(), 0);
+        QVERIFY(pending->isVisible());
+        definition->setFocus();
+        QTest::keyClick(definition, Qt::Key_Escape);
+        QCOMPARE(definition->toPlainText(), QStringLiteral("S=w*h"));
+        QVERIFY(!pending->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("w=3\nh=4"));
+        definition->setPlainText(QStringLiteral("S=w*h+1"));
+        QTest::keyClick(definition, Qt::Key_Return);
+        QVERIFY(!pending->isVisible());
+        QCOMPARE(page.history().count(), 0);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("w=3\nh=4"));
+        page.submit();
+        QCOMPARE(page.history().answer().text(), QStringLiteral("13"));
+    }
     void programmerCopyFormats_data()
     {
         QTest::addColumn<int>("width");
@@ -1435,17 +1580,13 @@ private slots:
             QCoreApplication::processEvents();
             auto *panel = page.findChild<QWidget *>(QStringLiteral("programmerPanel"));
             auto *hint = page.findChild<QLabel *>(QStringLiteral("programmerHint"));
-            auto *availability = page.findChild<QLabel *>(QStringLiteral("programmerAvailabilityHint"));
-            auto *inputHint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
             auto *body = composer->widget();
             auto *type = page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"));
             const int settingsBottom = qMax(bits->mapTo(panel, QPoint(0, bits->height())).y(),
                                            type->mapTo(panel, QPoint(0, type->height())).y());
-            if (hint->y() < settingsBottom || availability->y() < hint->geometry().bottom()
-                || panel->height() < availability->geometry().bottom()
+            if (panel->height() < settingsBottom || panel->height() < hint->geometry().bottom()
                 || page.input()->y() < panel->geometry().bottom()
-                || inputHint->y() < page.input()->geometry().bottom()
-                || calculate->y() < inputHint->geometry().bottom()
+                || calculate->y() < page.input()->geometry().bottom()
                 || body->height() < calculate->geometry().bottom()) return false;
             for (auto *text : card->findChildren<RecordText *>())
             {
@@ -1482,6 +1623,7 @@ private slots:
         if (!directory.isEmpty())
         {
             QVERIFY(QDir().mkpath(directory));
+            QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().isEmpty());
             QVERIFY(page.grab().save(directory + QStringLiteral("/programmer-%1.png").arg(QString::fromLatin1(QTest::currentDataTag()))));
         }
     }
@@ -1553,14 +1695,14 @@ private slots:
         QVERIFY(page.rect().contains(applyBounds));
         QCOMPARE(page.childAt(applyBounds.center()), apply);
         QTest::mouseClick(apply, Qt::LeftButton);
-        QCOMPARE(page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"))->text(), QStringLiteral("已应用"));
+        QVERIFY(!page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"))->isVisible());
         // 应用定义会异步改变多个控件高度；先核对最终排版，再截取界面。
         QCoreApplication::processEvents();
         auto *composer = page.findChild<QWidget *>(QStringLiteral("formulaComposer"));
-        auto *hint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
         auto *parameterHeader = page.findChild<QWidget *>(QStringLiteral("customParameterHeader"));
-        QVERIFY(composer && hint && parameterHeader);
-        QTRY_VERIFY(hint->mapTo(composer, QPoint()).y()
+        QVERIFY(composer && calculate && parameterHeader);
+        QTRY_VERIFY(calculate->mapTo(composer, QPoint()).y()
             >= page.input()->mapTo(composer, QPoint(0, page.input()->height())).y());
         QTRY_VERIFY(parameterHeader->mapTo(composer, QPoint()).y()
             >= definition->mapTo(composer, QPoint(0, definition->height())).y());
@@ -1666,12 +1808,11 @@ private slots:
         QVERIFY(defineFormula(page, QStringLiteral("A=a+b+c+d")));
         page.input()->setPlainText(QStringLiteral("a=1\nb=2\nc=3\nd=4"));
         auto *composer = page.findChild<QWidget *>(QStringLiteral("formulaComposer"));
-        auto *hint = page.findChild<QLabel *>(QStringLiteral("inputHint"));
         auto *parameters = page.findChild<QWidget *>(QStringLiteral("customParameterHeader"));
         auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
         auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
-        QVERIFY(composer && hint && parameters && definition && calculate);
-        QTRY_VERIFY(hint->mapTo(composer, QPoint()).y()
+        QVERIFY(composer && parameters && definition && calculate);
+        QTRY_VERIFY(calculate->mapTo(composer, QPoint()).y()
             >= page.input()->mapTo(composer, QPoint(0, page.input()->height())).y());
         QTRY_VERIFY(parameters->mapTo(composer, QPoint()).y()
             >= definition->mapTo(composer, QPoint(0, definition->height())).y());
@@ -2305,12 +2446,16 @@ private slots:
     {
         CalculatorPage page;
         prepare(page, QString());
-        QVERIFY(defineFormula(page, QStringLiteral("A=sqrt(x^2+y^2)+max(z,0)")));
-        page.input()->setPlainText(QStringLiteral("x=3\ny=4\nz=2"));
+        QVERIFY(defineFormula(page, QStringLiteral("S=w*h")));
+        page.input()->setPlainText(QStringLiteral("w=12.5\nh=8"));
         page.submit();
+        QCOMPARE(page.history().answer().text(), QStringLiteral("100"));
+        page.input()->setPlainText(QStringLiteral("w=7.5\nh=8"));
+        page.submit();
+        QCOMPARE(page.history().answer().text(), QStringLiteral("60"));
         const QString screenshots = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
         if (!screenshots.isEmpty()) QVERIFY(QDir().mkpath(screenshots));
-        page.resize(600, 620);
+        page.resize(960, 760);
         for (bool dark : {false, true})
         {
             QPalette colors = page.palette();
@@ -2319,12 +2464,20 @@ private slots:
             colors.setColor(QPalette::Text, QColor(dark ? "#e4e8ef" : "#202329"));
             colors.setColor(QPalette::WindowText, colors.color(QPalette::Text));
             page.setPalette(colors);
-            QTest::qWait(20);
             auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
             QVERIFY(definition->isVisible());
-            QVERIFY(page.input()->viewport()->height() >= 3 * page.input()->fontMetrics().lineSpacing());
-            QVERIFY(page.rect().contains(QRect(definition->mapTo(&page, QPoint()), definition->size())));
-            if (!screenshots.isEmpty()) QVERIFY(page.grab().save(screenshots + (dark ? "/custom-dark.png" : "/custom-light.png")));
+            QTRY_VERIFY(page.input()->viewport()->height() >= 3 * page.input()->fontMetrics().lineSpacing());
+            QTRY_VERIFY(page.rect().contains(QRect(definition->mapTo(&page, QPoint()), definition->size())));
+            auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+            QTRY_VERIFY(calculate->mapTo(&page, QPoint()).y()
+                >= page.input()->mapTo(&page, QPoint(0, page.input()->height())).y());
+            if (!screenshots.isEmpty())
+            {
+                QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().isEmpty());
+                for (auto *text : page.findChildren<RecordText *>())
+                    if (text->isVisible()) QTRY_VERIFY(text->viewport()->height() >= text->document()->size().height());
+                QVERIFY(page.grab().save(screenshots + (dark ? "/custom-dark.png" : "/custom-light.png")));
+            }
             QTest::mouseClick(definition->viewport(), Qt::LeftButton);
             QVERIFY(definition->hasFocus());
             QCOMPARE(definition->palette().color(QPalette::Base), colors.color(QPalette::Base));
@@ -4305,11 +4458,11 @@ private slots:
         }
         auto *stateBadge = page.findChild<QLabel *>(QStringLiteral("customDefinitionStateBadge"));
         auto *applyBtn = page.findChild<QPushButton *>(QStringLiteral("applyDefinitionButton"));
-        auto *paramChips = page.findChild<QLabel *>(QStringLiteral("parameterChipsBadge"));
         auto *ansBadge = page.findChild<QLabel *>(QStringLiteral("answerBadge"));
         auto *recallBadge = page.findChild<QLabel *>(QStringLiteral("historyRecallBadge"));
-        QVERIFY(stateBadge && applyBtn && paramChips && ansBadge && recallBadge);
-        QCOMPARE(stateBadge->text(), QStringLiteral("待按 Enter 应用"));
+        QVERIFY(stateBadge && applyBtn && ansBadge && recallBadge);
+        QVERIFY(stateBadge->isVisible());
+        QCOMPARE(stateBadge->text(), QStringLiteral("未应用"));
         QCOMPARE(ansBadge->text(), QStringLiteral("ans = 0"));
         QVERIFY(!recallBadge->isVisible());
         QTest::keyClick(edit, Qt::Key_Escape);
@@ -4319,8 +4472,8 @@ private slots:
         QTest::mouseClick(customMode, Qt::LeftButton);
         edit->setPlainText(QStringLiteral("A=sqrt(x^2+y^2)"));
         QTest::mouseClick(applyBtn, Qt::LeftButton);
-        QCOMPARE(stateBadge->text(), QStringLiteral("已应用"));
-        QCOMPARE(paramChips->text(), QStringLiteral("参数：x · y"));
+        QVERIFY(!stateBadge->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=\ny="));
         page.input()->setPlainText(QStringLiteral("x=3\ny=4"));
         page.submit();
         QCOMPARE(ansBadge->text(), QStringLiteral("ans = 5"));
@@ -4337,19 +4490,24 @@ private slots:
     void paletteAndScreenshot()
     {
         CalculatorPage page;
-        page.resize(960, 660);
+        page.resize(960, 760);
         page.show();
-        for (const auto &formula : {QStringLiteral("128+256"), QStringLiteral("(1299+899)*0.85"), QStringLiteral("(384-128)/2"), QStringLiteral("12/(3-3)")})
+        for (const auto &formula : {QStringLiteral("0.1+0.2"), QStringLiteral("(128+256)/3"), QStringLiteral("sqrt(144)+pow(2,5)")})
         {
             page.input()->setPlainText(formula);
             page.submit();
         }
-        page.input()->setPlainText(QStringLiteral("(128+256)/3"));
-        QTest::qWait(30);
+        QVERIFY(page.input()->toPlainText().isEmpty());
+        auto *calculate = page.findChild<QPushButton *>(QStringLiteral("calculateButton"));
+        QTRY_VERIFY(calculate->mapTo(&page, QPoint()).y()
+            >= page.input()->mapTo(&page, QPoint(0, page.input()->height())).y());
         const QString directory = qEnvironmentVariable("CALCTABDD_SCREENSHOT_DIR");
         if (!directory.isEmpty())
         {
             QVERIFY(QDir().mkpath(directory));
+            QTRY_VERIFY(page.findChild<QLabel *>(QStringLiteral("calculationStatus"))->text().isEmpty());
+            for (auto *text : page.findChildren<RecordText *>())
+                if (text->isVisible()) QTRY_VERIFY(text->viewport()->height() >= text->document()->size().height());
             QVERIFY(page.grab().save(directory + QStringLiteral("/calculator-light.png")));
             page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
             auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
