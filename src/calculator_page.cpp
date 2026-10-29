@@ -331,6 +331,37 @@ CalculatorPage::CalculatorPage(QWidget *parent) : QWidget(parent)
     connect(m_scroll->verticalScrollBar(), &QScrollBar::actionTriggered, this, [this]() { m_followLatest = false; });
     layout->addWidget(m_scroll, 1);
 
+    // 只创建当前页的卡片，完整历史仍由模型负责保存、导出和召回。
+    m_historyPager = new QWidget(this);
+    m_historyPager->setObjectName(QStringLiteral("historyPager"));
+    auto *pagerLayout = new QVBoxLayout(m_historyPager);
+    pagerLayout->setContentsMargins(20, 4, 20, 4);
+    auto *pageLayout = new ButtonFlowLayout;
+    pagerLayout->addLayout(pageLayout);
+    pageLayout->setSpacing(8);
+    m_historyOlderPage = new QPushButton(QStringLiteral("较早记录"), m_historyPager);
+    m_historyOlderPage->setObjectName(QStringLiteral("historyOlderPage"));
+    m_historyNewerPage = new QPushButton(QStringLiteral("较新记录"), m_historyPager);
+    m_historyNewerPage->setObjectName(QStringLiteral("historyNewerPage"));
+    for (auto *button : {m_historyOlderPage, m_historyNewerPage})
+    {
+        button->setProperty("role", QStringLiteral("quiet"));
+        button->setProperty("compact", true);
+    }
+    m_historyPageRange = new QLabel(m_historyPager);
+    m_historyPageRange->setObjectName(QStringLiteral("historyPageRange"));
+    pageLayout->addWidget(m_historyOlderPage);
+    pageLayout->addWidget(m_historyNewerPage);
+    pageLayout->addWidget(m_historyPageRange);
+    connect(m_historyOlderPage, &QPushButton::clicked, this, [this]() {
+        if (!busy() && m_recordStart > 0) showRecordPage(m_recordStart);
+    });
+    connect(m_historyNewerPage, &QPushButton::clicked, this, [this]() {
+        if (!busy() && m_recordEnd < m_history.count())
+            showRecordPage(qMin(m_history.count(), m_recordEnd + RecordPageSize));
+    });
+    layout->addWidget(m_historyPager);
+
     auto *composer = new QFrame(this);
     composer->setObjectName(QStringLiteral("formulaComposer"));
     auto *composeLayout = new QVBoxLayout(composer);
@@ -629,7 +660,7 @@ void CalculatorPage::submit()
         focusInput();
         return;
     }
-    appendRecord(entry);
+    appendLatestRecord(entry);
     const CalculationResult &result = entry.result;
     if (result.ok)
     {
@@ -656,7 +687,9 @@ void CalculatorPage::submit()
     }
     if (m_sessionFile) saveSession();
     focusInput();
-    QTimer::singleShot(0, this, [this]() { m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum()); });
+    QTimer::singleShot(0, this, [this]() {
+        if (m_followLatest) m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum());
+    });
 }
 
 void CalculatorPage::showInputError(const CalculationResult &result, int offset, bool moveCursor)
@@ -830,12 +863,8 @@ void CalculatorPage::clearSession()
     m_recalledInputs.clear();
     m_editTarget = m_input;
     // 先销毁旧记录及其菜单回调，再允许新会话复用编号。
-    while (m_records->count() > 2)
-    {
-        QLayoutItem *item = m_records->takeAt(1); // 保留空状态提示和底部 stretch。
-        delete item->widget();
-        delete item;
-    }
+    clearRecordWidgets();
+    m_recordStart = m_recordEnd = 0;
     m_history.clear();
     updateModeUi();
     updateRecordUi();
@@ -870,6 +899,11 @@ void CalculatorPage::updateRecordUi()
         : QStringLiteral("上次成功结果：ans = %1\n%2").arg(ansText, ansSource));
     const bool available = !m_composing;
     const bool hasRecords = m_history.count() > 0;
+    m_historyPager->setVisible(m_history.count() > RecordPageSize);
+    m_historyPageRange->setText(QStringLiteral("第 %1–%2 条 · 共 %3 条")
+        .arg(hasRecords ? m_recordStart + 1 : 0).arg(m_recordEnd).arg(m_history.count()));
+    m_historyOlderPage->setEnabled(available && m_recordStart > 0);
+    m_historyNewerPage->setEnabled(available && m_recordEnd < m_history.count());
     m_sessionButton->setEnabled(available);
     m_normalModeButton->setEnabled(available);
     m_customModeButton->setEnabled(available);
@@ -885,10 +919,61 @@ void CalculatorPage::updateRecordUi()
         reuse->setEnabled(available);
 }
 
+void CalculatorPage::clearRecordWidgets()
+{
+    if (m_editTarget && m_scroll->widget()->isAncestorOf(m_editTarget))
+        m_editTarget = hasPendingDefinition() ? m_definitionInput : m_input;
+    while (m_records->count() > 2)
+    {
+        QLayoutItem *item = m_records->takeAt(1); // 保留空状态提示和底部 stretch。
+        delete item->widget();
+        delete item;
+    }
+}
+
+void CalculatorPage::showRecordPage(int end)
+{
+    m_recordEnd = qBound(0, end, m_history.count());
+    m_recordStart = qMax(0, m_recordEnd - RecordPageSize);
+    m_followLatest = m_recordEnd == m_history.count();
+    // 批量重建只在末尾布局和刷新状态，避免每条卡片扫描已有控件。
+    const bool updatesEnabled = m_scroll->updatesEnabled();
+    m_scroll->setUpdatesEnabled(false);
+    m_records->setEnabled(false);
+    clearRecordWidgets();
+    for (int i = m_recordStart; i < m_recordEnd; ++i) appendRecord(m_history.records().at(i));
+    m_records->setEnabled(true);
+    m_records->activate();
+    m_scroll->setUpdatesEnabled(updatesEnabled);
+    updateRecordUi();
+    m_scroll->verticalScrollBar()->setValue(m_followLatest ? m_scroll->verticalScrollBar()->maximum() : 0);
+}
+
+void CalculatorPage::appendLatestRecord(const CalculationRecord &entry)
+{
+    if (m_recordEnd != m_history.count() - 1)
+    {
+        showRecordPage(m_history.count());
+        return;
+    }
+    m_followLatest = true;
+    if (m_recordEnd - m_recordStart == RecordPageSize)
+    {
+        QLayoutItem *item = m_records->takeAt(1);
+        if (m_editTarget && item->widget()->isAncestorOf(m_editTarget))
+            m_editTarget = hasPendingDefinition() ? m_definitionInput : m_input;
+        delete item->widget();
+        delete item;
+        ++m_recordStart;
+    }
+    ++m_recordEnd;
+    appendRecord(entry);
+    updateRecordUi();
+}
+
 void CalculatorPage::appendRecord(const CalculationRecord &entry)
 {
     const CalculationResult &result = entry.result;
-    m_followLatest = true;
     m_empty->hide();
     auto *record = new QFrame(m_scroll->widget());
     record->setObjectName(QStringLiteral("calculationRecord"));
@@ -1045,7 +1130,6 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     record->show();
     CalculatorStyle::prepareButton(reuse);
     CalculatorStyle::prepareButton(more);
-    updateRecordUi();
 }
 
 CalculatorPage::InputState CalculatorPage::captureInput() const
@@ -1094,6 +1178,8 @@ void CalculatorPage::showHistory(int position)
     const InputState initial{text, text.size(), text.size(), entry.customDefinition, {},
                              entry.programmer, entry.programmerConfig};
     restoreInput(m_recalledInputs.value(entry.id, initial));
+    if (position < m_recordStart || position >= m_recordEnd)
+        showRecordPage(records.size() - ((records.size() - 1 - position) / RecordPageSize) * RecordPageSize);
     showStatus(QString());
     // 公式和程序员设置均未修改时才使用历史诊断；临时修改须重新提交才能定位。
     if (!customMode() && !entry.result.ok && m_input->toPlainText() == entry.expression
@@ -1402,7 +1488,7 @@ void CalculatorPage::restoreSession(const CalculationSession &session)
     m_customInput = session.customInput;
     m_programmerInput = session.programmerInput;
     m_history = session.history;
-    for (const auto &entry : m_history.records()) appendRecord(entry);
+    showRecordPage(m_history.count());
     m_historyPosition = session.historyPosition;
     m_draft = session.draft;
     m_recalledInputs = session.recalledInputs;

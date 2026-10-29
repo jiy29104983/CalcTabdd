@@ -116,7 +116,269 @@ class PageTests : public QObject
         cursor.setPosition(position, QTextCursor::KeepAnchor);
         page.input()->setTextCursor(cursor);
     }
+    QVector<int> displayedRecordIds(CalculatorPage &page)
+    {
+        QVector<int> ids;
+        for (auto *card : page.findChildren<QFrame *>(QStringLiteral("calculationRecord")))
+            ids.append(card->findChild<QLabel *>(QStringLiteral("recordNumber"))->text().toInt());
+        return ids;
+    }
 private slots:
+    void maximumSessionRestoresWithBoundedRecordWidgets()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("maximum.calctabdd"));
+        CalculationSession source;
+        for (int i = 1; i <= 10000; ++i) source.history.calculate(QString::number(i));
+        const QByteArray bytes = SessionFormat::encode(source);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        QCOMPARE(page.history().count(), 10000);
+        QCOMPARE(CalculationExport::serialize(page.history().records(), CalculationExport::Format::Text),
+                 CalculationExport::serialize(source.history.records(), CalculationExport::Format::Text));
+        auto ids = displayedRecordIds(page);
+        QCOMPARE(ids.size(), 100);
+        QCOMPARE(ids.first(), 9901);
+        QCOMPARE(ids.last(), 10000);
+        auto *pager = page.findChild<QWidget *>(QStringLiteral("historyPager"));
+        auto *older = page.findChild<QPushButton *>(QStringLiteral("historyOlderPage"));
+        auto *newer = page.findChild<QPushButton *>(QStringLiteral("historyNewerPage"));
+        auto *range = page.findChild<QLabel *>(QStringLiteral("historyPageRange"));
+        QVERIFY(pager && pager->isVisible());
+        QVERIFY(older && older->isEnabled());
+        QVERIFY(newer && !newer->isEnabled());
+        QVERIFY(range && !range->text().isEmpty());
+        older->click();
+        ids = displayedRecordIds(page);
+        QCOMPARE(ids.size(), 100);
+        QCOMPARE(ids.first(), 9801);
+        QCOMPARE(ids.last(), 9900);
+        auto cards = page.findChildren<QFrame *>(QStringLiteral("calculationRecord"));
+        cards.first()->findChild<QAction *>(QStringLiteral("copyValue"))->trigger();
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("9801"));
+        cards.last()->findChild<QPushButton *>(QStringLiteral("reuseFormula"))->click();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9900"));
+        QCOMPARE(page.history().answer().text(), QStringLiteral("10000"));
+        QCOMPARE(page.history().count(), 10000);
+        QCOMPARE(displayedRecordIds(page).size(), 100);
+    }
+    void mixedHistoryPaginationPreservesDraftsAndGlobalRecordActions()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("mixed-pages.calctabdd"));
+        CalculationSession source;
+        for (int i = 1; i <= 201; ++i)
+        {
+            if (i % 3 == 0) source.history.calculateProgrammer(QString::number(i), {16, false});
+            else if (i % 3 == 1) source.history.calculate(QString::number(i));
+            else
+            {
+                QString error;
+                source.history.calculateCustom(QStringLiteral("S=x*2"), QStringLiteral("x=%1").arg(i), error);
+                QVERIFY2(error.isEmpty(), qPrintable(error));
+            }
+        }
+        source.input = {QStringLiteral("9+8"), 1, 3};
+        source.normalInput = source.input;
+        const QByteArray bytes = SessionFormat::encode(source);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        QCOMPARE(page.history().count(), 201);
+        auto *pager = page.findChild<QWidget *>(QStringLiteral("historyPager"));
+        auto *older = page.findChild<QPushButton *>(QStringLiteral("historyOlderPage"));
+        auto *newer = page.findChild<QPushButton *>(QStringLiteral("historyNewerPage"));
+        QVERIFY(pager && pager->isVisible() && older && newer);
+        QCOMPARE(displayedRecordIds(page).first(), 102);
+        QCOMPARE(displayedRecordIds(page).last(), 201);
+        older->click();
+        QCOMPARE(displayedRecordIds(page).first(), 2);
+        QCOMPARE(displayedRecordIds(page).last(), 101);
+        older->click();
+        QCOMPARE(displayedRecordIds(page), QVector<int>({1}));
+        QVERIFY(!older->isEnabled());
+        QVERIFY(newer->isEnabled());
+        newer->click();
+        QCOMPARE(displayedRecordIds(page).first(), 2);
+        QCOMPARE(displayedRecordIds(page).last(), 101);
+        newer->click();
+        QCOMPARE(displayedRecordIds(page).first(), 102);
+        QCOMPARE(displayedRecordIds(page).last(), 201);
+        QVERIFY(!newer->isEnabled());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9+8"));
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.input()->textCursor().anchor(), 3);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("400"));
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("201"));
+
+        older->click();
+        auto cards = page.findChildren<QFrame *>(QStringLiteral("calculationRecord"));
+        cards.at(1)->findChild<QAction *>(QStringLiteral("copyHex"))->trigger(); // 全局第 3 条。
+        QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("0x0003"));
+        cards.first()->findChild<QPushButton *>(QStringLiteral("reuseFormula"))->click(); // 第 2 条自定义公式。
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("x=2"));
+        QCOMPARE(page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"))->toPlainText(),
+                 QStringLiteral("S=x*2"));
+        page.submit();
+        QCOMPARE(page.history().count(), 202);
+        QCOMPARE(page.history().records().last().valueText(), QStringLiteral("4"));
+        QCOMPARE(displayedRecordIds(page).first(), 103);
+        QCOMPARE(displayedRecordIds(page).last(), 202);
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("9+8"));
+        QCOMPARE(page.input()->textCursor().position(), 1);
+        QCOMPARE(page.input()->textCursor().anchor(), 3);
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("201"));
+
+        older->click(); // 第 3..102 条，插入第 3 条保存的整数结果。
+        setDraft(page, QStringLiteral("10+"), 3, 3);
+        page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).first()
+            ->findChild<QAction *>(QStringLiteral("insertResult"))->trigger();
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+3"));
+        page.submit();
+        QCOMPARE(page.history().count(), 203);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("13"));
+        QCOMPARE(displayedRecordIds(page).first(), 104);
+        QCOMPARE(displayedRecordIds(page).last(), 203);
+        older->click();
+        page.input()->setPlainText(QStringLiteral("1/0"));
+        page.submit();
+        QCOMPARE(page.history().count(), 204);
+        QVERIFY(!page.history().records().last().result.ok);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("13"));
+        QCOMPARE(displayedRecordIds(page).first(), 105);
+        QCOMPARE(displayedRecordIds(page).last(), 204);
+        QCOMPARE(displayedRecordIds(page).size(), 100);
+
+        // 键盘浏览可跨页，仍按全局历史顺序定位并保留待修正输入。
+        for (int i = 0; i < 101; ++i) QTest::keyClick(page.input(), Qt::Key_Up, Qt::AltModifier);
+        QCOMPARE(page.input()->toPlainText(), source.history.record(104)->parameterInput);
+        QVERIFY(displayedRecordIds(page).contains(104));
+        QVERIFY(displayedRecordIds(page).size() <= 100);
+        page.findChild<QPushButton *>(QStringLiteral("clearSessionButton"))->click();
+        auto *confirmation = page.findChild<QDialog *>(QStringLiteral("clearSessionConfirmation"));
+        QVERIFY(confirmation);
+        confirmation->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(page.history().count(), 0);
+        QVERIFY(displayedRecordIds(page).isEmpty());
+        QVERIFY(!pager->isVisible());
+        QCOMPARE(page.input()->toPlainText(), QStringLiteral("1/0"));
+        QCOMPARE(page.history().answer().text(), QStringLiteral("0"));
+        QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("0"));
+    }
+    void appendingPastFirstHistoryPageKeepsAllRecords()
+    {
+        CalculatorPage page;
+        prepare(page, QString());
+        auto *pager = page.findChild<QWidget *>(QStringLiteral("historyPager"));
+        QVERIFY(pager && !pager->isVisible());
+        for (int i = 1; i <= 100; ++i)
+        {
+            page.input()->setPlainText(QString::number(i));
+            page.submit();
+        }
+        QCOMPARE(page.history().count(), 100);
+        QCOMPARE(displayedRecordIds(page).size(), 100);
+        QVERIFY(!pager->isVisible());
+        page.input()->setPlainText(QStringLiteral("101"));
+        page.submit();
+        QCOMPARE(page.history().count(), 101);
+        QCOMPARE(page.history().record(1)->valueText(), QStringLiteral("1"));
+        QCOMPARE(page.history().record(101)->valueText(), QStringLiteral("101"));
+        QCOMPARE(displayedRecordIds(page).size(), 100);
+        QCOMPARE(displayedRecordIds(page).first(), 2);
+        QCOMPARE(displayedRecordIds(page).last(), 101);
+        QVERIFY(pager->isVisible());
+    }
+    void historyPageChangeKeepsHostPasteTarget_data()
+    {
+        QTest::addColumn<int>("mode");
+        QTest::newRow("ordinary-draft") << 0;
+        QTest::newRow("first-definition") << 1;
+        QTest::newRow("pending-definition") << 2;
+    }
+    void historyPageChangeKeepsHostPasteTarget()
+    {
+        QFETCH(int, mode);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("paste-pages.calctabdd"));
+        CalculationSession source;
+        for (int i = 1; i <= 201; ++i) source.history.calculate(QString::number(i));
+        const QByteArray bytes = SessionFormat::encode(source);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        auto *older = page.findChild<QPushButton *>(QStringLiteral("historyOlderPage"));
+        auto *newer = page.findChild<QPushButton *>(QStringLiteral("historyNewerPage"));
+        QVERIFY(older && newer);
+        older->click();
+        QVERIFY(older->isEnabled() && newer->isEnabled());
+        QInputMethodEvent composition(QStringLiteral("拼"), {});
+        QApplication::sendEvent(page.input(), &composition);
+        QVERIFY(!older->isEnabled() && !newer->isEnabled());
+        older->click();
+        newer->click();
+        QCOMPARE(displayedRecordIds(page).first(), 2);
+        QCOMPARE(displayedRecordIds(page).last(), 101);
+        QInputMethodEvent finishComposition;
+        QApplication::sendEvent(page.input(), &finishComposition);
+        QVERIFY(older->isEnabled() && newer->isEnabled());
+
+        setDraft(page, QStringLiteral("10+"), 3, 3);
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(definition);
+        QString definitionText;
+        if (mode == 1)
+        {
+            page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+            definitionText = QStringLiteral("S=");
+        }
+        else if (mode == 2)
+        {
+            QVERIFY(defineFormula(page, QStringLiteral("S=x*2")));
+            setDraft(page, QStringLiteral("x=7"), 3, 3);
+            definitionText = QStringLiteral("S=x+");
+        }
+        if (mode != 0)
+        {
+            definition->setPlainText(definitionText);
+            definition->moveCursor(QTextCursor::End);
+        }
+        const QString inputBefore = page.input()->toPlainText();
+        QPointer<RecordText> selected = page.findChildren<RecordText *>(QStringLiteral("recordResult")).last();
+        selected->setFocus();
+        selected->selectAll();
+        QTRY_VERIFY(selected->hasFocus());
+        older->click();
+        QVERIFY(selected.isNull());
+        QCOMPARE(displayedRecordIds(page), QVector<int>({1}));
+        QApplication::clipboard()->setText(QStringLiteral("5"));
+        page.routeEdit(QStringLiteral("actionpaste"));
+        if (mode == 0) QCOMPARE(page.input()->toPlainText(), QStringLiteral("10+5"));
+        else
+        {
+            QCOMPARE(definition->toPlainText(), definitionText + QStringLiteral("5"));
+            QCOMPARE(page.input()->toPlainText(), inputBefore);
+        }
+        QCOMPARE(page.history().count(), 201);
+        QCOMPARE(page.history().answer().text(), QStringLiteral("201"));
+    }
     void composerPlaceholdersFollowModesAndDrafts_data()
     {
         QTest::addColumn<int>("width");

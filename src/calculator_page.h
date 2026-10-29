@@ -100,6 +100,9 @@ private:
     void writeExport(const QString &path, const QByteArray &contents);
     void requestClearSession();
     void clearSession();
+    void clearRecordWidgets();
+    void showRecordPage(int end);
+    void appendLatestRecord(const CalculationRecord &entry);
     void appendRecord(const CalculationRecord &entry);
     void reuseFormula(quint64 id);
     void copyRecord(quint64 id, bool valueOnly, int radix = 10);
@@ -121,6 +124,13 @@ private:
     QPointer<QWidget> m_editTarget;
     QScrollArea *m_scroll = nullptr;
     QVBoxLayout *m_records = nullptr;
+    QWidget *m_historyPager = nullptr;
+    QLabel *m_historyPageRange = nullptr;
+    QPushButton *m_historyOlderPage = nullptr;
+    QPushButton *m_historyNewerPage = nullptr;
+    enum { RecordPageSize = 100 };
+    int m_recordStart = 0;
+    int m_recordEnd = 0;
     ElidedLabel *m_answerBadge = nullptr;
     QLabel *m_count = nullptr;
     QPushButton *m_clearButton = nullptr;
