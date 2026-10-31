@@ -998,6 +998,121 @@ private slots:
         QCOMPARE(page.history().answer().text(), QStringLiteral("10"));
         QCOMPARE(page.history().programmerAnswer().text(), QStringLiteral("20"));
     }
+    void firstDefinitionKeepsRecordInsertionOutOfHiddenDrafts_data()
+    {
+        QTest::addColumn<bool>("programmerOrigin");
+        QTest::addColumn<bool>("selectedDraft");
+        QTest::addColumn<bool>("olderPage");
+        for (bool programmer : {false, true})
+            for (bool selected : {false, true})
+                for (bool older : {false, true})
+                    QTest::newRow(qPrintable(QStringLiteral("programmer-%1-selection-%2-older-%3")
+                        .arg(programmer).arg(selected).arg(older))) << programmer << selected << older;
+    }
+    void firstDefinitionKeepsRecordInsertionOutOfHiddenDrafts()
+    {
+        QFETCH(bool, programmerOrigin);
+        QFETCH(bool, selectedDraft);
+        QFETCH(bool, olderPage);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const QString path = directory.filePath(QStringLiteral("definition-insert.calctabdd"));
+        CalculationSession source;
+        for (int i = 1; i <= 101; ++i) source.history.calculate(QString::number(i));
+        const QByteArray bytes = SessionFormat::encode(source);
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(bytes), qint64(bytes.size()));
+        file.close();
+
+        CalculatorPage page;
+        prepare(page, QString());
+        QVERIFY(selectSession(page, path, true));
+        const QString originMode = programmerOrigin ? QStringLiteral("programmerCalculationMode")
+            : QStringLiteral("normalCalculationMode");
+        page.findChild<QAction *>(originMode)->trigger();
+        if (programmerOrigin) setProgrammerConfig(page, 16, true);
+        const QString draft = programmerOrigin ? QStringLiteral("0x12+") : QStringLiteral("100+");
+        const int anchor = selectedDraft ? 1 : draft.size();
+        const int position = draft.size();
+        setDraft(page, draft.left(draft.size() - 1), draft.size() - 1, draft.size() - 1);
+        page.input()->insertPlainText(draft.right(1));
+        QTextCursor draftCursor = page.input()->textCursor();
+        draftCursor.setPosition(anchor);
+        draftCursor.setPosition(position, QTextCursor::KeepAnchor);
+        page.input()->setTextCursor(draftCursor);
+        const int undoSteps = page.input()->document()->availableUndoSteps();
+        QVERIFY(undoSteps > 0);
+        page.findChild<QAction *>(QStringLiteral("customCalculationMode"))->trigger();
+        auto *definition = page.findChild<QPlainTextEdit *>(QStringLiteral("currentCustomDefinition"));
+        QVERIFY(definition && definition->isVisible());
+        definition->setPlainText(QStringLiteral("S=x"));
+        QVERIFY(!page.input()->isVisible());
+        if (olderPage)
+        {
+            page.findChild<QPushButton *>(QStringLiteral("historyOlderPage"))->click();
+            QCOMPARE(displayedRecordIds(page), QVector<int>({1}));
+        }
+        auto *card = page.findChildren<QFrame *>(QStringLiteral("calculationRecord")).last();
+        auto *button = card->findChild<QToolButton *>(QStringLiteral("recordActions"));
+        auto *insert = card->findChild<QAction *>(QStringLiteral("insertResult"));
+        auto *copy = card->findChild<QAction *>(QStringLiteral("copyValue"));
+        QVERIFY(button && button->isVisible() && button->isEnabled());
+        QVERIFY(insert && copy);
+        bool menuOpened = false;
+        bool insertionEnabled = true;
+        bool copyEnabled = false;
+        QTimer::singleShot(20, button, [&]() {
+            menuOpened = button->menu()->isVisible();
+            insertionEnabled = insert->isEnabled();
+            copyEnabled = copy->isEnabled();
+            QTest::mouseClick(button->menu(), Qt::LeftButton, Qt::NoModifier,
+                             button->menu()->actionGeometry(insert).center());
+            button->menu()->close();
+        });
+        QTest::mouseClick(button, Qt::LeftButton);
+        QVERIFY(menuOpened);
+        QVERIFY(!insertionEnabled);
+        QVERIFY(copyEnabled);
+        // 绕过菜单禁用状态发送信号，确保处理函数也保护隐藏草稿。
+        insert->triggered(false);
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().anchor(), anchor);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.input()->document()->availableUndoSteps(), undoSteps);
+        QCOMPARE(definition->toPlainText(), QStringLiteral("S=x"));
+        QCOMPARE(page.history().count(), 101);
+        definition->setFocus();
+        QTest::keyClick(definition, Qt::Key_Escape);
+        QVERIFY(page.input()->isVisible());
+        QCOMPARE(page.programmerMode(), programmerOrigin);
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().anchor(), anchor);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.input()->document()->availableUndoSteps(), undoSteps);
+        if (programmerOrigin)
+        {
+            QCOMPARE(page.findChild<QComboBox *>(QStringLiteral("programmerBitWidth"))->currentData().toInt(), 16);
+            QVERIFY(page.findChild<QComboBox *>(QStringLiteral("programmerIntegerType"))->currentData().toBool());
+        }
+
+        QVERIFY(defineFormula(page, QStringLiteral("S=x")));
+        const QString expected = olderPage ? QStringLiteral("x=1") : QStringLiteral("x=101");
+        QVERIFY(chooseRecordAction(button, insert));
+        QCOMPARE(page.input()->toPlainText(), expected);
+        // 已有公式的未应用修改不隐藏参数区，仍允许正常插入参数。
+        setDraft(page, QStringLiteral("x="), 2, 2);
+        definition->setPlainText(QStringLiteral("S=x+1"));
+        QVERIFY(page.input()->isVisible());
+        QVERIFY(chooseRecordAction(button, insert));
+        QCOMPARE(page.input()->toPlainText(), expected);
+        QCOMPARE(definition->toPlainText(), QStringLiteral("S=x+1"));
+        page.findChild<QAction *>(originMode)->trigger();
+        QCOMPARE(page.input()->toPlainText(), draft);
+        QCOMPARE(page.input()->textCursor().anchor(), anchor);
+        QCOMPARE(page.input()->textCursor().position(), position);
+        QCOMPARE(page.history().count(), 101);
+    }
     void recalledProgrammerErrorRequiresOriginalSettings_data()
     {
         QTest::addColumn<bool>("changeSign");

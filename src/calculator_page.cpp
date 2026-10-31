@@ -1045,7 +1045,10 @@ void CalculatorPage::appendRecord(const CalculationRecord &entry)
     {
         auto *insert = menu->addAction(QStringLiteral("插入结果数值"));
         insert->setObjectName(QStringLiteral("insertResult"));
-        insert->setToolTip(QStringLiteral("插入当时的十进制数值；程序员输入须为当前范围内的整数，不保留原类型和计算来源"));
+        insert->setToolTip(QStringLiteral("插入当时的十进制数值；程序员输入须为当前范围内的整数，不保留原类型和计算来源。首次定义公式时须先应用或取消定义"));
+        connect(menu, &QMenu::aboutToShow, this, [this, insert]() {
+            insert->setEnabled(!m_defining);
+        });
         connect(insert, &QAction::triggered, this, [this, id = entry.id]() { insertResult(id); });
     }
     topBar->addWidget(reuse);
@@ -1241,6 +1244,12 @@ void CalculatorPage::copyRecord(quint64 id, bool valueOnly, int radix)
 void CalculatorPage::insertResult(quint64 id)
 {
     if (dialogOpen()) return;
+    if (m_defining)
+    {
+        showStatus(QStringLiteral("请先应用或取消首次公式定义，再插入结果数值"));
+        focusInput();
+        return;
+    }
     const CalculationRecord *entry = m_history.record(id);
     if (!entry || !entry->result.ok) return;
     if (m_composing)
