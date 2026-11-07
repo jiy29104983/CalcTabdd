@@ -34,6 +34,7 @@ file(READ "${qsci_root}/src/Qsci/qsciglobal.h" qsci_global)
 string(REGEX REPLACE "#define[ \t]+QSCINTILLA_DLL[ \t\r]*\n" "" qsci_global "${qsci_global}")
 set(qsci_overlay "${CMAKE_CURRENT_BINARY_DIR}/host_qscintilla_headers")
 file(MAKE_DIRECTORY "${qsci_overlay}/Qsci")
-file(WRITE "${qsci_overlay}/Qsci/qsciglobal.h" "${qsci_global}")
+# Preserve the timestamp when the fixed host declarations are unchanged.
+file(GENERATE OUTPUT "${qsci_overlay}/Qsci/qsciglobal.h" CONTENT "${qsci_global}")
 target_include_directories(host_qscintilla BEFORE PUBLIC "${qsci_overlay}" "${qsci_root}/src")
 target_link_libraries(host_qscintilla PUBLIC Qt5::Widgets)
