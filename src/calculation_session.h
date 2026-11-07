@@ -58,6 +58,11 @@ private:
     void release();
     QString m_path;
     std::unique_ptr<QLockFile> m_lock;
-    // 仅成功读取或提交文件后保留摘要，同时用于检查外部修改。
-    QByteArray m_digest;
+    // 仅成功读取或提交后保留原文件字节（最多 16 MiB），精确检测外部修改。
+    QByteArray m_savedBytes;
+    // 持有已校验的 COW 快照，确保存储身份在缓存有效期间不会被复用。
+    // 草稿／光标变化只需重新校验输入状态，不重新构建和解析历史。
+    bool m_hasCachedHistory = false;
+    CalculationHistory m_cachedHistory;
+    QByteArray m_cachedRecords;
 };

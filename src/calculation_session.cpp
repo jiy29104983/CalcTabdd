@@ -1,7 +1,6 @@
 #include "calculation_session.h"
 #include "custom_formula.h"
 
-#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -147,11 +146,6 @@ bool readInput(const QJsonValue &value, CalculationInputState &input)
         && readInteger(object.value(QStringLiteral("anchor")), input.anchor, 0, input.text.size());
 }
 
-QByteArray digest(const QByteArray &bytes)
-{
-    return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
-}
-
 QString readFile(const QString &path, QByteArray &bytes)
 {
     const QFileInfo info(path);
@@ -163,12 +157,11 @@ QString readFile(const QString &path, QByteArray &bytes)
     if (bytes.size() > SessionFormat::maximumBytes) return QStringLiteral("会话文件超过 16 MiB，未载入或覆盖。");
     return {};
 }
-}
 
-QByteArray SessionFormat::encode(const CalculationSession &session)
+QJsonArray recordsJson(const CalculationHistory &history)
 {
     QJsonArray records;
-    for (const auto &entry : session.history.records())
+    for (const auto &entry : history.records())
     {
         const auto &result = entry.result;
         QJsonObject record{
@@ -190,10 +183,15 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
         if (!result.ok) record.insert(QStringLiteral("text"), result.text);
         records.append(record);
     }
+    return records;
+}
+
+QJsonObject sessionJson(const CalculationSession &session, const QJsonArray &records)
+{
     QJsonObject recalled;
     for (auto it = session.recalledInputs.cbegin(); it != session.recalledInputs.cend(); ++it)
         recalled.insert(QString::number(it.key()), inputJson(it.value()));
-    return QJsonDocument(QJsonObject{
+    return QJsonObject{
         {QStringLiteral("format"), QStringLiteral("CalcTabdd.Session")}, {QStringLiteral("version"), 4},
         {QStringLiteral("records"), records},
         {QStringLiteral("answer"), number(session.history.answer())},
@@ -202,7 +200,65 @@ QByteArray SessionFormat::encode(const CalculationSession &session)
         {QStringLiteral("programmerInput"), inputJson(session.programmerInput)},
         {QStringLiteral("input"), inputJson(session.input)}, {QStringLiteral("draft"), inputJson(session.draft)},
         {QStringLiteral("historyPosition"), session.historyPosition}, {QStringLiteral("recalledInputs"), recalled}
-    }).toJson(QJsonDocument::Indented);
+    };
+}
+
+QByteArray recordsField(const QJsonArray &records)
+{
+    const auto wrapper = QJsonDocument(QJsonObject{{QStringLiteral("records"), records}})
+        .toJson(QJsonDocument::Indented);
+    // 保留 Qt 生成的完整字段与缩进，只去除外层 "{\n" 和 "\n}\n"。
+    return wrapper.mid(2, wrapper.size() - 5);
+}
+
+bool readSessionState(const QJsonObject &root, CalculationSession &restored)
+{
+    NumericValue answer;
+    ProgrammerValue programmerAnswer;
+    if (!readNumber(root.value(QStringLiteral("answer")), answer)
+        || answer != restored.history.answer()
+        || !readProgrammerValue(root.value(QStringLiteral("programmerAnswer")), programmerAnswer)
+        || programmerAnswer != restored.history.programmerAnswer()
+        || !readInput(root.value(QStringLiteral("input")), restored.input)
+        || !readInput(root.value(QStringLiteral("draft")), restored.draft)
+        || !readInteger(root.value(QStringLiteral("historyPosition")), restored.historyPosition, -1, restored.history.count() - 1)
+        || !root.value(QStringLiteral("recalledInputs")).isObject()) return false;
+    if (!readInput(root.value(QStringLiteral("normalInput")), restored.normalInput)
+        || restored.normalInput.programmer || !restored.normalInput.customDefinition.isEmpty()
+        || !readInput(root.value(QStringLiteral("customInput")), restored.customInput)
+        || restored.customInput.programmer
+        || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())
+        || !readInput(root.value(QStringLiteral("programmerInput")), restored.programmerInput)
+        || !restored.programmerInput.programmer) return false;
+    const auto recalled = root.value(QStringLiteral("recalledInputs")).toObject();
+    for (auto it = recalled.begin(); it != recalled.end(); ++it)
+    {
+        bool ok = false;
+        const quint64 id = it.key().toULongLong(&ok);
+        CalculationInputState input;
+        const auto *record = restored.history.record(id);
+        if (!ok || QString::number(id) != it.key() || !record || !readInput(it.value(), input)
+            || input.programmer != record->programmer || input.customDefinition != record->customDefinition)
+            return false;
+        restored.recalledInputs.insert(id, input);
+    }
+    if (restored.historyPosition < 0)
+    {
+        if (!recalled.isEmpty() || inputJson(restored.draft) != inputJson(CalculationInputState())) return false;
+    }
+    else
+    {
+        const quint64 id = restored.history.records().at(restored.historyPosition).id;
+        if (!restored.recalledInputs.contains(id) || inputJson(restored.input) != inputJson(restored.recalledInputs.value(id)))
+            return false;
+    }
+    return true;
+}
+}
+
+QByteArray SessionFormat::encode(const CalculationSession &session)
+{
+    return QJsonDocument(sessionJson(session, recordsJson(session.history))).toJson(QJsonDocument::Indented);
 }
 
 QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &session)
@@ -272,45 +328,7 @@ QString SessionFormat::decode(const QByteArray &bytes, CalculationSession &sessi
         records.append(entry);
     }
     if (!restored.history.restoreRecords(records)) return invalid;
-    NumericValue answer;
-    ProgrammerValue programmerAnswer;
-    if (!readNumber(root.value(QStringLiteral("answer")), answer)
-        || answer != restored.history.answer()
-        || !readProgrammerValue(root.value(QStringLiteral("programmerAnswer")), programmerAnswer)
-        || programmerAnswer != restored.history.programmerAnswer()
-        || !readInput(root.value(QStringLiteral("input")), restored.input)
-        || !readInput(root.value(QStringLiteral("draft")), restored.draft)
-        || !readInteger(root.value(QStringLiteral("historyPosition")), restored.historyPosition, -1, records.size() - 1)
-        || !root.value(QStringLiteral("recalledInputs")).isObject()) return invalid;
-    if (!readInput(root.value(QStringLiteral("normalInput")), restored.normalInput)
-        || restored.normalInput.programmer || !restored.normalInput.customDefinition.isEmpty()
-        || !readInput(root.value(QStringLiteral("customInput")), restored.customInput)
-        || restored.customInput.programmer
-        || (restored.customInput.customDefinition.isEmpty() && !restored.customInput.text.isEmpty())
-        || !readInput(root.value(QStringLiteral("programmerInput")), restored.programmerInput)
-        || !restored.programmerInput.programmer) return invalid;
-    const auto recalled = root.value(QStringLiteral("recalledInputs")).toObject();
-    for (auto it = recalled.begin(); it != recalled.end(); ++it)
-    {
-        bool ok = false;
-        const quint64 id = it.key().toULongLong(&ok);
-        CalculationInputState input;
-        const auto *record = restored.history.record(id);
-        if (!ok || QString::number(id) != it.key() || !record || !readInput(it.value(), input)
-            || input.programmer != record->programmer || input.customDefinition != record->customDefinition)
-            return invalid;
-        restored.recalledInputs.insert(id, input);
-    }
-    if (restored.historyPosition < 0)
-    {
-        if (!recalled.isEmpty() || inputJson(restored.draft) != inputJson(CalculationInputState())) return invalid;
-    }
-    else
-    {
-        const quint64 id = records.at(restored.historyPosition).id;
-        if (!restored.recalledInputs.contains(id) || inputJson(restored.input) != inputJson(restored.recalledInputs.value(id)))
-            return invalid;
-    }
+    if (!readSessionState(root, restored)) return invalid;
     session = restored;
     return {};
 }
@@ -322,7 +340,10 @@ void CalculationSessionFile::release()
 {
     m_lock.reset();
     m_path.clear();
-    m_digest.clear();
+    m_savedBytes.clear();
+    m_hasCachedHistory = false;
+    m_cachedHistory = {};
+    m_cachedRecords = {};
 }
 
 QString CalculationSessionFile::acquire(const QString &path)
@@ -364,23 +385,52 @@ QString CalculationSessionFile::load(const QString &path, CalculationSession &se
     error = readFile(m_path, bytes);
     if (error.isEmpty()) error = SessionFormat::decode(bytes, session);
     if (!error.isEmpty()) release();
-    else m_digest = digest(bytes);
+    else
+    {
+        m_savedBytes = bytes;
+        m_cachedHistory = session.history;
+        m_cachedRecords = recordsField(QJsonDocument::fromJson(bytes).object().value(QStringLiteral("records")).toArray());
+        m_hasCachedHistory = true;
+    }
     return error;
 }
 
 QString CalculationSessionFile::save(const CalculationSession &session)
 {
     if (!m_lock || !m_lock->isLocked()) return QStringLiteral("本地保存尚未开启。");
-    const QByteArray bytes = SessionFormat::encode(session);
+    const bool reuseHistory = m_hasCachedHistory
+        && session.history.count() == m_cachedHistory.count()
+        && session.history.records().constData() == m_cachedHistory.records().constData()
+        && session.history.answer() == m_cachedHistory.answer()
+        && session.history.programmerAnswer() == m_cachedHistory.programmerAnswer();
+    const QJsonArray records = reuseHistory ? QJsonArray() : recordsJson(session.history);
+    const QJsonObject root = sessionJson(session, records);
+    QByteArray bytes = QJsonDocument(root).toJson(QJsonDocument::Indented);
     CalculationSession checked;
-    QString error = SessionFormat::decode(bytes, checked);
+    QString error;
+    if (reuseHistory)
+    {
+        // 预留字段与缓存片段都由同一 Qt JSON 编码器生成；用户字符串已转义，
+        // 不会被识别为带真实换行和顶层缩进的字段。保留 version 4 原有字节版式。
+        static const QByteArray placeholder = recordsField({});
+        const int position = bytes.indexOf(placeholder);
+        if (position < 0 || bytes.indexOf(placeholder, position + placeholder.size()) >= 0)
+            return QStringLiteral("无法生成会话文件，原文件保持不变。");
+        if (qint64(bytes.size()) - placeholder.size() + m_cachedRecords.size() > SessionFormat::maximumBytes)
+            return QStringLiteral("会话文件超过 16 MiB，未载入。");
+        bytes.replace(position, placeholder.size(), m_cachedRecords);
+        checked.history = session.history;
+        if (!readSessionState(root, checked))
+            error = QStringLiteral("会话文件损坏或数据不一致，当前会话与原文件保持不变。");
+    }
+    else error = SessionFormat::decode(bytes, checked);
     if (!error.isEmpty()) return error;
-    if (!m_digest.isEmpty())
+    if (!m_savedBytes.isEmpty())
     {
         QByteArray current;
         error = readFile(m_path, current);
         if (!error.isEmpty()) return error;
-        if (digest(current) != m_digest)
+        if (current != m_savedBytes)
             return QStringLiteral("文件已被外部修改，未覆盖；请另存到新文件。");
     }
     else if (QFileInfo::exists(m_path) || QFileInfo(m_path).isSymLink())
@@ -395,6 +445,9 @@ QString CalculationSessionFile::save(const CalculationSession &session)
         return error;
     }
     if (!file.commit()) return QStringLiteral("无法提交会话文件：%1").arg(file.errorString());
-    m_digest = digest(bytes);
+    m_savedBytes = bytes;
+    m_cachedHistory = session.history;
+    if (!reuseHistory) m_cachedRecords = recordsField(records);
+    m_hasCachedHistory = true;
     return {};
 }

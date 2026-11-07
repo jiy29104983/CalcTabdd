@@ -41,6 +41,13 @@ struct RestoreLocale
     QLocale previous;
     ~RestoreLocale() { QLocale::setDefault(previous); }
 };
+
+QByteArray savedSessionBytes(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) qFatal("Cannot read saved session");
+    return file.readAll();
+}
 }
 
 class EngineTests : public QObject
@@ -2484,6 +2491,187 @@ private slots:
         QVERIFY(!SessionFormat::decode(QJsonDocument(root).toJson(), session).isEmpty());
         QCOMPARE(SessionFormat::encode(session), before);
     }
+    void repeatedSessionSavesFollowHistorySnapshots()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("snapshots.calctabdd"));
+        CalculationSession original;
+        original.history.calculate(QStringLiteral("1+1"));
+        const QByteArray originalBytes = SessionFormat::encode(original);
+        CalculationSession draft = original;
+        draft.input = {QStringLiteral("草稿😀\n    \"records\": [\n    ],\n路径\\和引号\""), 3, 1};
+        draft.normalInput = draft.input;
+        CalculationSession sameCount = original;
+        sameCount.history.clear();
+        sameCount.history.calculate(QStringLiteral("2"));
+        CalculationSession restored = original;
+        auto records = original.history.records();
+        records[0].expression = QStringLiteral("historical_function()");
+        QVERIFY(restored.history.restoreRecords(records));
+        CalculationSession customBranch = original;
+        QString error;
+        customBranch.history.calculateCustom(QStringLiteral("A=x/3"), QStringLiteral("x=1"), error);
+        QVERIFY(error.isEmpty());
+        CalculationSession integerBranch = original;
+        integerBranch.history.calculateProgrammer(QStringLiteral("0xFF+1"), {8, false});
+        integerBranch.history.calculateProgrammer(QStringLiteral("1/0"), {8, false});
+        CalculationSession rebuilt = original;
+        rebuilt.history.clear();
+        rebuilt.history.calculate(QStringLiteral("6/3"));
+        CalculationSessionFile file;
+        QVERIFY(file.create(path, original).isEmpty());
+        for (const auto &session : {draft, sameCount, restored, customBranch, integerBranch,
+                                   original, CalculationSession(), rebuilt, draft})
+        {
+            QVERIFY(file.save(session).isEmpty());
+            QCOMPARE(savedSessionBytes(path), SessionFormat::encode(session));
+        }
+        QCOMPARE(SessionFormat::encode(original), originalBytes);
+    }
+
+    void repeatedSessionSavesStillRejectInvalidState_data()
+    {
+        QTest::addColumn<int>("change");
+        const char *names[] = {"cursor", "anchor", "normal-mode", "custom-without-definition",
+            "invalid-definition", "programmer-draft-mode", "invalid-config", "conflicting-mode",
+            "navigation-range", "missing-recall", "recalled-id", "recalled-mode", "recalled-definition",
+            "browsing-input-mismatch", "orphan-recalled", "orphan-draft", "oversized-draft"};
+        for (int i = 0; i < int(sizeof(names) / sizeof(names[0])); ++i) QTest::newRow(names[i]) << i;
+    }
+
+    void repeatedSessionSavesStillRejectInvalidState()
+    {
+        QFETCH(int, change);
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("state.calctabdd"));
+        CalculationSession valid;
+        valid.history.calculate(QStringLiteral("2"));
+        QString error;
+        valid.history.calculateCustom(QStringLiteral("A=x"), QStringLiteral("x=3"), error);
+        QVERIFY(error.isEmpty());
+        valid.history.calculateProgrammer(QStringLiteral("7"), {16, false});
+        valid.input = {QStringLiteral("draft"), 2, 0};
+        valid.normalInput = valid.input;
+        CalculationSessionFile file;
+        QVERIFY(file.create(path, valid).isEmpty());
+        const auto before = savedSessionBytes(path);
+        CalculationSession invalid = valid;
+        switch (change)
+        {
+        case 0: invalid.input.position = 6; break;
+        case 1: invalid.input.anchor = -1; break;
+        case 2: invalid.normalInput.programmer = true; break;
+        case 3: invalid.customInput.text = QStringLiteral("x=1"); break;
+        case 4: invalid.input.customDefinition = QStringLiteral("A=x+"); break;
+        case 5: invalid.programmerInput.programmer = false; break;
+        case 6: invalid.programmerInput.programmerConfig = {7, false}; break;
+        case 7: invalid.input.programmer = true; invalid.input.customDefinition = QStringLiteral("A=x"); break;
+        case 8: invalid.historyPosition = 3; break;
+        case 9: invalid.historyPosition = 0; break;
+        case 10: invalid.recalledInputs.insert(99, valid.input); break;
+        case 11:
+            invalid.historyPosition = 0;
+            invalid.input.programmer = true;
+            invalid.recalledInputs.insert(1, invalid.input);
+            break;
+        case 12:
+            invalid.historyPosition = 1;
+            invalid.input.customDefinition = QStringLiteral("B=y");
+            invalid.recalledInputs.insert(2, invalid.input);
+            break;
+        case 13:
+            invalid.historyPosition = 0;
+            invalid.recalledInputs.insert(1, {QStringLiteral("other"), 0, 0});
+            break;
+        case 14: invalid.recalledInputs.insert(1, valid.input); break;
+        case 15: invalid.draft.text = QStringLiteral("orphan"); break;
+        case 16: invalid.input.text = QString(SessionFormat::maximumBytes, QLatin1Char('x')); break;
+        }
+        CalculationSession checked;
+        QVERIFY(!SessionFormat::decode(SessionFormat::encode(invalid), checked).isEmpty());
+        QVERIFY(!file.save(invalid).isEmpty());
+        QCOMPARE(savedSessionBytes(path), before);
+        valid.input = {QStringLiteral("retry"), 5, 0};
+        QVERIFY(file.save(valid).isEmpty());
+        QCOMPARE(savedSessionBytes(path), SessionFormat::encode(valid));
+    }
+
+    void repeatedSessionSavesPreserveConflictAndRetryProtection()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("retry.calctabdd"));
+        CalculationSession session;
+        session.history.calculate(QStringLiteral("42"));
+        session.history.calculate(QStringLiteral("-0"));
+        QString error;
+        session.history.calculateCustom(QStringLiteral("A=x/3"), QStringLiteral("x=1"), error);
+        QVERIFY(error.isEmpty());
+        session.history.calculateProgrammer(QStringLiteral("255+1"), {8, false});
+        session.history.calculate(QStringLiteral("1/0"));
+        {
+            CalculationSessionFile initial;
+            QVERIFY(initial.create(path, session).isEmpty());
+        }
+        // 加载的合法文件可以使用不同排版；外部修改检测必须保存原始字节。
+        QFile formatted(path);
+        QVERIFY(formatted.open(QIODevice::WriteOnly));
+        const QByteArray compact = QJsonDocument::fromJson(SessionFormat::encode(session))
+            .toJson(QJsonDocument::Compact) + "\r\n";
+        QCOMPARE(formatted.write(compact), qint64(compact.size()));
+        formatted.close();
+        CalculationSessionFile file;
+        CalculationSession loaded;
+        QVERIFY(file.load(path, loaded).isEmpty());
+        const QByteArray original = savedSessionBytes(path);
+        QFile external(path);
+        QVERIFY(external.open(QIODevice::WriteOnly));
+        QByteArray changed = original;
+        changed[changed.size() - 1] = ' '; // 相同长度、仍为合法 JSON 的尾部单字节修改。
+        QCOMPARE(external.write(changed), qint64(changed.size()));
+        external.close();
+        loaded.input = {QStringLiteral("draft"), 5, 1};
+        QVERIFY(!file.save(loaded).isEmpty());
+        QCOMPARE(savedSessionBytes(path), changed);
+        QVERIFY(external.open(QIODevice::WriteOnly));
+        QCOMPARE(external.write(original), qint64(original.size()));
+        external.close();
+        QVERIFY(file.save(loaded).isEmpty());
+        const QByteArray savedDraft = savedSessionBytes(path);
+        QCOMPARE(savedDraft, SessionFormat::encode(loaded));
+        CalculationSession appended = loaded;
+        appended.history.calculate(QStringLiteral("ans+1"));
+        QVERIFY(QFile::rename(path, path + QStringLiteral(".bak")));
+        QVERIFY(QDir().mkdir(path));
+        QVERIFY(!file.save(appended).isEmpty());
+        QVERIFY(QDir().rmdir(path));
+        QVERIFY(QFile::rename(path + QStringLiteral(".bak"), path));
+        QCOMPARE(savedSessionBytes(path), savedDraft);
+        QVERIFY(file.save(appended).isEmpty());
+        QCOMPARE(savedSessionBytes(path), SessionFormat::encode(appended));
+        QVERIFY(file.save(loaded).isEmpty());
+        QCOMPARE(savedSessionBytes(path), savedDraft);
+    }
+
+    void sessionSaveDoesNotTrustUnvalidatedHistory()
+    {
+        QTemporaryDir directory;
+        const QString path = directory.filePath(QStringLiteral("invalid-history.calctabdd"));
+        CalculationSession valid;
+        valid.history.calculate(QStringLiteral("1"));
+        CalculationSessionFile file;
+        QVERIFY(file.create(path, valid).isEmpty());
+        const QByteArray before = savedSessionBytes(path);
+        for (bool programmer : {false, true})
+        {
+            CalculationSession invalid = valid;
+            if (programmer) invalid.history.calculateProgrammer(QStringLiteral("1"), {7, false});
+            else invalid.history.calculate(QString());
+            QVERIFY(!file.save(invalid).isEmpty());
+            QCOMPARE(savedSessionBytes(path), before);
+            QVERIFY(file.save(valid).isEmpty());
+        }
+    }
+
     void sessionFilesLockAndResumeWithoutOverwriting()
     {
         QTemporaryDir directory;
