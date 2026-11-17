@@ -66,7 +66,8 @@ jobs:
       - name: Build Release DLL and tests
         shell: pwsh
         run: |
-          cmake --build build/windows --config Release --parallel 4 2>&1 | Tee-Object -FilePath build/compile.log
+          (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
+          cmake --build build/windows --config Release --parallel 1 2>&1 | Tee-Object -FilePath build/compile.log
           if ($LASTEXITCODE -ne 0) {
             $errors = (Select-String -Path build/compile.log -Pattern 'error|fatal' | Select-Object -Last 25 | ForEach-Object { $_.Line }) -join "`n"
             $errors = $errors -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
@@ -91,7 +92,8 @@ jobs:
       - name: Test Debug UI with Qt assertions enabled
         shell: pwsh
         run: |
-          cmake --build build/windows --config Debug --target page_tests --parallel 4 2>&1 | Tee-Object -FilePath build/compile-debug.log
+          (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
+          cmake --build build/windows --config Debug --target page_tests --parallel 1 2>&1 | Tee-Object -FilePath build/compile-debug.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:PATH = "$env:QT_ROOT_DIR/bin;$env:PATH"
           $env:QT_QPA_FONTDIR = "$env:SystemRoot/Fonts"

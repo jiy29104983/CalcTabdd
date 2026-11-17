@@ -4,7 +4,7 @@
 
 CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它将每次计算按“公式在上、结果在下”排列，支持十进制计算、自定义公式和程序员整数计算，适合日常计算、重复代入与位运算。名称中的 `dd` 表示 `--`。
 
-[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.10 版本说明](docs/releases/v1.0.10.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
+[下载安装](https://github.com/jiy29104983/CalcTabdd/releases) · [快速上手](#快速上手) · [详细使用说明](packaging/README.zh-CN.md) · [v1.0.11 版本说明](docs/releases/v1.0.11.md) · [版本记录](docs/releases/) · [问题反馈](https://github.com/jiy29104983/CalcTabdd/issues)
 
 ## 界面预览
 
@@ -26,7 +26,7 @@ CalcTabdd 是一个使用 C++14 / Qt 5.15 开发的开源计算器插件。它�
 
 ## 安装
 
-当前版本为 **1.0.10**，预编译包面向 **Windows x64**。
+当前版本为 **1.0.11**，预编译包面向 **Windows x64**。
 提供普通计算模式、自定义公式模式和程序员模式，支持混合导出与第 4 版会话保存恢复。
 
 1. 在 [Releases](https://github.com/jiy29104983/CalcTabdd/releases) 下载 Windows x64 ZIP 安装包。
@@ -183,7 +183,7 @@ TXT／Markdown 支持普通、自定义和程序员的混合历史。程序员�
 git clone https://github.com/jiy29104983/CalcTabdd.git
 cd CalcTabdd
 cmake -S . -B build/local -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build/local --config Release --parallel 4
+cmake --build build/local --config Release --parallel 1
 ctest --test-dir build/local -C Release --output-on-failure --no-tests=error
 ```
 
